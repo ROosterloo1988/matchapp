@@ -103,15 +103,20 @@ app.get('/api/matches', async (req, res) => {
                 // 4. ALLES SAMENVOEGEN
                 if (matchesList.length > 0) {
                     const matchesMetToernooi = matchesList.map(m => {
+                        // DartConnect gebruikt soms id, soms match_id. We vervangen de underscore door een streepje (zoals op TV).
+                        let matchId = m.id || m.match_id || "";
+                        if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
+
                         return {
-                            id: m.id,
+                            id: matchId,
                             player1: getSpelerNaam(m.d1 || m.p1),
                             player2: getSpelerNaam(m.d2 || m.p2),
-                            // We pakken de score, en als die leeg is (null) maken we er 0 van
-                            score1: m.s1 !== null ? m.s1 : 0,
-                            score2: m.s2 !== null ? m.s2 : 0,
+                            // Score kan een getal of letter zijn. Als hij null of undefined is, sturen we een lege string.
+                            score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
+                            score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
                             board: m.bn || m.b || m.board || m.bd || "?",
-                            time: m.t || m.time || m.st || "Onbekend",
+                            // We pakken de tijd! Soms zit hij in tm, soms in t, soms time.
+                            time: m.tm || m.t || m.time || m.st || "Later",
                             toernooi: toernooiNaam
                         };
                     });
