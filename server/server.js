@@ -60,28 +60,17 @@ app.get('/api/matches', async (req, res) => {
                 // DEBUG: Print de structuur in je log
                 console.log(`[DEBUG] Data structuur voor ${toernooiNaam}:`, Object.keys(response.data));
                 
-                // FIX: DartConnect verstopt de data in een "payload" mapje!
                 let dataContainer = response.data.payload || response.data;
 
-                // FIX 2: En daarbinnen in "bracketData"!
-                if (dataContainer.bracketData) {
-                    dataContainer = dataContainer.bracketData;
-                }
-
-                // Slim zoeken naar de wedstrijdenlijst in die container
+                // DE GOUDEN VONDST: proBracket!
+                let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
                 let matchesList = [];
-                if (Array.isArray(dataContainer)) {
-                    matchesList = dataContainer; 
-                } else if (dataContainer.matches) {
-                    matchesList = dataContainer.matches;
-                } else if (dataContainer.games) {
-                    matchesList = dataContainer.games;
-                } else if (dataContainer.bracket) {
-                    matchesList = dataContainer.bracket;
-                } else {
-                    // Als 'bracketData' een object is met rondes (bijv. "Losers Bracket": [...])
-                    console.log(`[DEBUG] Container is een object. Keys:`, Object.keys(dataContainer));
-                    Object.values(dataContainer).forEach(val => {
+
+                if (Array.isArray(bronMap)) {
+                    matchesList = bronMap; 
+                } else if (typeof bronMap === 'object') {
+                    // Als het object is opgedeeld (bijv. per bord of per ronde), veeg alles op een hoop
+                    Object.values(bronMap).forEach(val => {
                         if (Array.isArray(val)) {
                             matchesList = matchesList.concat(val);
                         }
@@ -91,6 +80,8 @@ app.get('/api/matches', async (req, res) => {
                 if (matchesList.length > 0) {
                     const matchesMetToernooi = matchesList.map(m => ({ ...m, toernooi: toernooiNaam }));
                     rawMatches = rawMatches.concat(matchesMetToernooi);
+                } else {
+                    console.log(`[WAARSCHUWING] Geen wedstrijden gevonden in proBracket voor ${toernooiNaam}`);
                 }
             });
 
