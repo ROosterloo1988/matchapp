@@ -1,1 +1,58 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Dashboard - Dutch Open</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
+        h1 { color: #FF6600; text-align: center; }
+        .match-card { background: #1E1E1E; border-left: 5px solid #FF6600; padding: 15px; margin-bottom: 10px; border-radius: 8px; }
+        .match-card h3 { margin: 0 0 10px 0; font-size: 1.2rem; }
+        .details { display: flex; justify-content: space-between; color: #aaa; font-size: 0.9rem; }
+        .board { font-weight: bold; color: white; background: #333; padding: 5px 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
 
+    <h1>🎯 Live Matches</h1>
+    <div id="matches-container">Laden...</div>
+
+<script>
+    async function loadMatches() {
+        try {
+            const response = await fetch('/api/matches');
+            const matches = await response.json();
+            
+            const container = document.getElementById('matches-container');
+            
+            if (matches.length === 0) {
+                container.innerHTML = "<p style='text-align:center;'>Geen wedstrijden gevonden voor onze darters.</p>";
+                return;
+            }
+
+            // OPMERKING: De manier waarop we de namen, tijden en borden hieronder tonen (match.player1, match.board) 
+            // moet misschien nog gefinetuned worden afhankelijk van hoe de specifieke JSON van DartConnect eruitziet.
+            container.innerHTML = matches.map(match => `
+                <div class="match-card">
+                    <div style="color:#FF6600; font-size:0.8rem; margin-bottom:5px;">${match.toernooi.toUpperCase()}</div>
+                    <h3>${match.player1 || 'Speler 1'} vs ${match.player2 || 'Speler 2'}</h3>
+                    <div class="details">
+                        <span>Tijd: ${match.time || 'Onbekend'}</span>
+                        <span class="board">Bord ${match.board || '?'}</span>
+                    </div>
+                </div>
+            `).join('');
+
+        } catch (error) {
+            console.error("Fout bij laden", error);
+            document.getElementById('matches-container').innerHTML = "Kan geen verbinding maken met de server.";
+        }
+    }
+
+    // Laad direct, en ververs elke 30 seconden
+    loadMatches();
+    setInterval(loadMatches, 30000);
+</script>
+</body>
+</html>
