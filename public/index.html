@@ -6,12 +6,10 @@
     <title>Live Matches</title>
     <style>
         body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
-        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+        .top-bar { margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; text-align: center; }
         h1 { color: #FF6600; margin: 0; text-transform: uppercase; letter-spacing: 2px; font-size: 2.5rem;}
-        #current-time { font-size: 1.5rem; font-weight: bold; background: #333; padding: 5px 15px; border-radius: 5px; }
-
-        #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); }
         
+        #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); }
         .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600;}
         .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;}
         .board-badge { background: black; color: white; padding: 5px 10px; border-radius: 5px; font-size: 1.1rem; border: 1px solid rgba(255,255,255,0.2);}
@@ -21,10 +19,8 @@
         .player-name { flex: 1; text-align: center; word-wrap: break-word;}
         .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center;}
         
-        /* STATUS KLEUREN */
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
         .match-card.mogelijk .card-header { background: #444; color: #bbb; }
-        
         .match-card.gespeeld { border-left-width: 10px; opacity: 0.8; }
         .match-card.win { border-left-color: #2ecc71; }
         .match-card.verlies { border-left-color: #e74c3c; }
@@ -34,40 +30,24 @@
         .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 30px; text-transform: uppercase; font-size: 0.9rem;}
         .no-matches { text-align: center; color: #888; margin-top: 50px; grid-column: 1 / -1;}
 
-        /* --- MOBIELE WEERGAVE (KORT EN BONDIG) --- */
         @media (max-width: 600px) {
             body { padding: 10px; }
-            .top-bar { margin-bottom: 10px; padding-bottom: 5px; }
-            h1 { font-size: 1.5rem; }
-            #current-time { font-size: 1rem; padding: 3px 10px; }
-            
-            /* Zet de grid op 1 kolom en verklein de tussenruimte */
+            h1 { font-size: 1.8rem; }
             #matches-container { grid-template-columns: 1fr; gap: 8px; }
-            
-            /* Maak de oranje header dunner */
             .card-header { padding: 5px 10px; font-size: 0.85rem; }
             .board-badge { font-size: 0.85rem; padding: 2px 6px; }
-            
-            /* Maak de subheader dunner */
             .card-subheader { padding: 3px 10px; font-size: 0.75rem; }
-            
-            /* Knijp het spelersgedeelte samen */
             .players-area { padding: 8px 5px; font-size: 0.95rem; }
-            
-            /* Verklein de score box */
             .score-box { padding: 5px 8px; margin: 0 8px; font-size: 1.2rem; min-width: 45px; border-width: 1px; }
-
             .section-title { margin-top: 15px; font-size: 0.8rem; }
-            .match-card.gespeeld { border-left-width: 5px; } /* Iets subtielere zijlijn op mobiel */
+            .match-card.gespeeld { border-left-width: 5px; }
         }
     </style>
 </head>
 <body>
-
     <div class="top-bar">
         <h1>🎯 Live Matches</h1>
-        <div id="current-time">17:00</div> </div>
-    
+    </div>
     <div id="matches-container">Gegevens ophalen...</div>
 
 <script>
@@ -90,7 +70,6 @@
 
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
-                
                 let resultClass = match.resultaat ? match.resultaat : "";
 
                 htmlString += `
