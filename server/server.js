@@ -60,18 +60,21 @@ app.get('/api/matches', async (req, res) => {
                 // DEBUG: Print de structuur in je log
                 console.log(`[DEBUG] Data structuur voor ${toernooiNaam}:`, Object.keys(response.data));
                 
-                // Slim zoeken naar de wedstrijdenlijst
+                // FIX: DartConnect verstopt de data in een "payload" mapje!
+                let dataContainer = response.data.payload || response.data;
+
+                // Slim zoeken naar de wedstrijdenlijst in die container
                 let matchesList = [];
-                if (Array.isArray(response.data)) {
-                    matchesList = response.data; 
-                } else if (response.data.matches) {
-                    matchesList = response.data.matches;
-                } else if (response.data.games) {
-                    matchesList = response.data.games;
-                } else if (response.data.bracket) {
-                    matchesList = response.data.bracket;
+                if (Array.isArray(dataContainer)) {
+                    matchesList = dataContainer; 
+                } else if (dataContainer.matches) {
+                    matchesList = dataContainer.matches;
+                } else if (dataContainer.games) {
+                    matchesList = dataContainer.games;
+                } else if (dataContainer.bracket) {
+                    matchesList = dataContainer.bracket;
                 } else {
-                    console.log(`[WAARSCHUWING] Kon geen lijst vinden voor ${toernooiNaam}`);
+                    console.log(`[WAARSCHUWING] Kon geen lijst vinden. Keys in payload:`, Object.keys(dataContainer));
                 }
 
                 if (matchesList.length > 0) {
