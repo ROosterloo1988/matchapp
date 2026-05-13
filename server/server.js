@@ -101,7 +101,7 @@ app.get('/api/matches', async (req, res) => {
         return dartersLower.some(darter => matchString.includes(darter));
     });
 
-    res.json(filteredMatches);
+    res.json(rawMatches);
 });
 
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
