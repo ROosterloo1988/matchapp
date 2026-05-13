@@ -36,7 +36,7 @@
             container.innerHTML = matches.map(match => `
                 <div class="match-card">
                     <div style="color:#FF6600; font-size:0.8rem; margin-bottom:5px;">${match.toernooi.toUpperCase()}</div>
-                    <h3>${match.player1 || 'Speler 1'} vs ${match.player2 || 'Speler 2'}</h3>
+                    <h3>${match.player1 || 'Speler 1'} <span style="color:#FF6600; padding: 0 10px;">${match.score1} - ${match.score2}</span> ${match.player2 || 'Speler 2'}</h3>
                     <div class="details">
                         <span>Tijd: ${match.time || 'Onbekend'}</span>
                         <span class="board">Bord ${match.board || '?'}</span>
