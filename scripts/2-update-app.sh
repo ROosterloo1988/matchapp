@@ -2,7 +2,7 @@
 echo "⬇️ Start: Nieuwste versie ophalen van GitHub..."
 
 # Ga naar de map van je app. Verander dit pad als je hem ergens anders hebt gezet!
-cd ~/matchapp || { echo "❌ Fout: Map ~/matchapp niet gevonden. Heb je 'git clone' al uitgevoerd?"; exit 1; }
+cd ~/workspace/matchapp || { echo "❌ Fout: Map ~/workspace/matchapp niet gevonden. Heb je 'git clone' al uitgevoerd?"; exit 1; }
 
 # Haal de nieuwste wijzigingen op (forceer dit, weggooien van eventuele lokale onbedoelde wijzigingen)
 git fetch origin main
