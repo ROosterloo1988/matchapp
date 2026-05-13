@@ -53,25 +53,31 @@ app.get('/api/matches', async (req, res) => {
                 let playersMap = dataContainer.proPlayers || {}; // Het Telefoonboek!
 
                 let matchesList = [];
-                if (Array.isArray(bronMap)) {
-                    matchesList = bronMap; 
-                } else if (typeof bronMap === 'object') {
-                    Object.values(bronMap).forEach(val => {
-                        if (Array.isArray(val)) matchesList = matchesList.concat(val);
-                    });
-                }
 
-                // Helper: Zoek het ID op in het telefoonboek (ondersteunt nu arrays!)
+                // DE STOFZUIGER: Kijkt net zo diep in alle mapjes/rondes totdat hij de echte wedstrijden vindt
+                function zoekWedstrijden(obj) {
+                    if (!obj || typeof obj !== 'object') return;
+                    
+                    // We weten dat het een echte wedstrijd is als er een 'p1' of 'd1' (speler data) in zit
+                    if ('p1' in obj || 'd1' in obj) {
+                        matchesList.push(obj);
+                    } else {
+                        // Zo niet, trek alle sub-mapjes (zoals "0", "1", of "Ronde 2") open en zoek daarin verder
+                        Object.values(obj).forEach(val => zoekWedstrijden(val));
+                    }
+                }
+                
+                // Zet de stofzuiger aan!
+                zoekWedstrijden(bronMap);
+
+                // Helper: Zoek het ID op in het telefoonboek (ondersteunt arrays en koppels)
                 function getSpelerNaam(idOrArray) {
                     if (!idOrArray) return "Onbekend";
                     
-                    // Als het een array is (bijv. [2023814, 2023820] voor koppels of teams)
                     if (Array.isArray(idOrArray)) {
-                        // Filter lege of -1 waarden eruit
                         const validIds = idOrArray.filter(id => id && id !== -1);
                         if (validIds.length === 0) return "Onbekend";
                         
-                        // Zoek de naam op voor elk ID en voeg ze samen
                         const namen = validIds.map(id => {
                             let p = playersMap[id];
                             if (!p) return `Speler ${id}`;
@@ -80,7 +86,6 @@ app.get('/api/matches', async (req, res) => {
                         return namen.join(" & ");
                     }
                     
-                    // Als het gewoon één nummer is (zoals in je eerste screenshot)
                     if (idOrArray === -1) return "Onbekend";
                     let p = playersMap[idOrArray];
                     if (!p) return `Speler ${idOrArray}`;
@@ -90,11 +95,10 @@ app.get('/api/matches', async (req, res) => {
                 if (matchesList.length > 0) {
                     const matchesMetToernooi = matchesList.map(m => {
                         return {
-                            ...m,
-                            // Gebruik m.d1 of m.p1, afhankelijk van wat DartConnect in dit toernooi gebruikt
+                            // Dit verwijdert alle overbodige troep (zoals de as, by, ch code) en houdt de JSON schoon!
+                            id: m.id,
                             player1: getSpelerNaam(m.d1 || m.p1),
                             player2: getSpelerNaam(m.d2 || m.p2),
-                            // Soms gebruikt DartConnect 'bn' voor board number ipv 'b'
                             board: m.bn || m.b || m.board || m.bd || "?",
                             time: m.t || m.time || m.st || "Onbekend",
                             toernooi: toernooiNaam
