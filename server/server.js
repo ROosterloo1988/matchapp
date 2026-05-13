@@ -51,13 +51,26 @@ app.get('/api/matches', async (req, res) => {
                 let dataContainer = response.data.payload || response.data || {};
                 let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
                 
-                // DE KLUIS IS GEKRAAKT: We kijken nu direct in de 'playerList' map!
-                let proPlayersObj = dataContainer.proPlayers || dataContainer.players || {};
-                let spelerLijst = proPlayersObj.playerList || (Array.isArray(proPlayersObj) ? proPlayersObj : Object.values(proPlayersObj));
+                // 1. DE TELEFOONBOEK STOFZUIGER!
+                let spelersDict = {};
+                function bouwWoordenboek(obj) {
+                    if (!obj || typeof obj !== 'object') return;
+                    
+                    // Als we iets zien met een naam én een ID, is het een speler. Sla hem direct op!
+                    if (obj.name && (obj.dcid || obj.id || obj.player_id)) {
+                        let spelerId = obj.dcid || obj.id || obj.player_id;
+                        spelersDict[spelerId] = obj.name;
+                    }
+                    
+                    // Trek alle sub-mapjes open op zoek naar meer spelers
+                    Object.values(obj).forEach(val => bouwWoordenboek(val));
+                }
+                // Zet de stofzuiger aan voor ALLES
+                bouwWoordenboek(dataContainer);
 
                 let matchesList = [];
 
-                // De Stofzuiger (Haalt alle wedstrijden netjes uit de rondes)
+                // 2. DE WEDSTRIJD STOFZUIGER
                 function zoekWedstrijden(obj) {
                     if (!obj || typeof obj !== 'object') return;
                     if ('p1' in obj || 'd1' in obj) {
@@ -66,43 +79,31 @@ app.get('/api/matches', async (req, res) => {
                         Object.values(obj).forEach(val => zoekWedstrijden(val));
                     }
                 }
-                
                 zoekWedstrijden(bronMap);
 
-                // Het Hulpje (Zoekt het ID nu op de juiste plek!)
-                function vindSpeler(id) {
-                    if (Array.isArray(spelerLijst)) {
-                        return spelerLijst.find(p => p && (p.id == id || p.dcid == id || p.player_id == id));
-                    }
-                    return proPlayersObj[id];
-                }
-
-                // De Vertaler (Pakt de namen erbij)
+                // 3. DE VERTALER
                 function getSpelerNaam(idOrArray) {
                     if (!idOrArray) return "Onbekend";
                     
+                    // Voor koppels en teams
                     if (Array.isArray(idOrArray)) {
                         const validIds = idOrArray.filter(id => id && id !== -1);
                         if (validIds.length === 0) return "Onbekend";
                         
-                        const namen = validIds.map(id => {
-                            let p = vindSpeler(id);
-                            if (!p) return `Speler ${id}`; 
-                            return p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${id}`;
-                        });
+                        // Kijk gewoon in ons eigen gebouwde woordenboek!
+                        const namen = validIds.map(id => spelersDict[id] || `Speler ${id}`);
                         return namen.join(" & ");
                     }
                     
+                    // Voor singles
                     if (idOrArray === -1) return "Onbekend";
-                    let p = vindSpeler(idOrArray);
-                    if (!p) return `Speler ${idOrArray}`;
-                    return p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${idOrArray}`;
+                    return spelersDict[idOrArray] || `Speler ${idOrArray}`;
                 }
 
+                // 4. ALLES SAMENVOEGEN
                 if (matchesList.length > 0) {
                     const matchesMetToernooi = matchesList.map(m => {
                         return {
-                            // Dit verwijdert alle overbodige troep (zoals de as, by, ch code) en houdt de JSON schoon!
                             id: m.id,
                             player1: getSpelerNaam(m.d1 || m.p1),
                             player2: getSpelerNaam(m.d2 || m.p2),
