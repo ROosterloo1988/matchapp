@@ -6,10 +6,18 @@
     <title>Live Matches</title>
     <style>
         body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
-        .top-bar { margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; text-align: center; }
-        h1 { color: #FF6600; margin: 0; text-transform: uppercase; letter-spacing: 2px; font-size: 2.5rem;}
-        
-        #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; text-align: center; }
+        h1 { color: #FF6600; margin: 0; text-transform: uppercase; letter-spacing: 2px; font-size: 2.5rem; flex-grow: 1;}
+        .btn-back { background: #333; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; display: none; font-weight: bold;}
+        .btn-placeholder { width: 80px; display: none; } /* Balans in de top-bar */
+
+        /* MENU STYLING */
+        #menu-container { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-top: 40px; }
+        .tournament-card { background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #333; cursor: pointer; transition: 0.3s; font-size: 1.5rem; font-weight: bold; }
+        .tournament-card:hover { border-color: #FF6600; background: #252525; }
+
+        /* MATCH STYLING */
+        #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); display: none; }
         .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600;}
         .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;}
         .board-badge { background: black; color: white; padding: 5px 10px; border-radius: 5px; font-size: 1.1rem; border: 1px solid rgba(255,255,255,0.2);}
@@ -32,7 +40,8 @@
 
         @media (max-width: 600px) {
             body { padding: 10px; }
-            h1 { font-size: 1.8rem; }
+            h1 { font-size: 1.4rem; }
+            .btn-back { padding: 8px 10px; font-size: 0.8rem;}
             #matches-container { grid-template-columns: 1fr; gap: 8px; }
             .card-header { padding: 5px 10px; font-size: 0.85rem; }
             .board-badge { font-size: 0.85rem; padding: 2px 6px; }
@@ -46,17 +55,64 @@
 </head>
 <body>
     <div class="top-bar">
-        <h1>🎯 Live Matches</h1>
+        <button class="btn-back" id="btn-back" onclick="showMenu()">⬅ TERUG</button>
+        <h1 id="main-title">🎯 TOERNOOIEN</h1>
+        <div class="btn-placeholder" id="btn-placeholder"></div>
     </div>
-    <div id="matches-container">Gegevens ophalen...</div>
+    
+    <div id="menu-container">Laden...</div>
+    <div id="matches-container"></div>
 
 <script>
+    let activeTournament = null;
+    let refreshInterval = null;
+
+    async function loadTournaments() {
+        const response = await fetch('/api/tournaments');
+        const names = await response.json();
+        const container = document.getElementById('menu-container');
+        
+        if(names.length === 0) {
+            container.innerHTML = "<div class='no-matches'>Geen toernooien gevonden. Voeg ze toe in de admin.</div>";
+            return;
+        }
+
+        container.innerHTML = names.map(name => `
+            <div class="tournament-card" onclick="selectTournament('${name}')">
+                ${name.toUpperCase()}
+            </div>
+        `).join('');
+    }
+
+    function selectTournament(name) {
+        activeTournament = name;
+        document.getElementById('menu-container').style.display = 'none';
+        document.getElementById('matches-container').style.display = 'grid';
+        document.getElementById('btn-back').style.display = 'block';
+        document.getElementById('btn-placeholder').style.display = 'block';
+        document.getElementById('main-title').innerText = name.toUpperCase();
+        
+        loadMatches();
+        refreshInterval = setInterval(loadMatches, 30000);
+    }
+
+    function showMenu() {
+        activeTournament = null;
+        clearInterval(refreshInterval);
+        document.getElementById('menu-container').style.display = 'grid';
+        document.getElementById('matches-container').style.display = 'none';
+        document.getElementById('btn-back').style.display = 'none';
+        document.getElementById('btn-placeholder').style.display = 'none';
+        document.getElementById('main-title').innerText = "🎯 TOERNOOIEN";
+    }
+
     async function loadMatches() {
+        if (!activeTournament) return;
         try {
-            const response = await fetch('/api/matches');
+            const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}`);
             const matches = await response.json();
             const container = document.getElementById('matches-container');
-            if (matches.length === 0) { container.innerHTML = "<div class='no-matches'>Geen wedstrijden gevonden.</div>"; return; }
+            if (matches.length === 0) { container.innerHTML = "<div class='no-matches'>Geen wedstrijden gevonden voor dit toernooi.</div>"; return; }
 
             let htmlString = "";
             let huidigeStatus = "";
@@ -92,8 +148,8 @@
             container.innerHTML = htmlString;
         } catch (error) { document.getElementById('matches-container').innerHTML = "Fout bij laden."; }
     }
-    loadMatches();
-    setInterval(loadMatches, 30000);
+
+    loadTournaments();
 </script>
 </body>
 </html>
