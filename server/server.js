@@ -13,11 +13,8 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 const DB_FILE = path.join(__dirname, 'database.json');
 
-// --- DATABASE LOGICA ---
 function readDB() {
-    if (!fs.existsSync(DB_FILE)) {
-        return { tournaments: [], darters: [] };
-    }
+    if (!fs.existsSync(DB_FILE)) return { tournaments: [], darters: [] };
     return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
 }
 
@@ -25,19 +22,14 @@ function writeDB(data) {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
-// --- API: INSTELLINGEN (Voor Admin) ---
-app.get('/api/settings', (req, res) => {
-    res.json(readDB());
-});
-
+app.get('/api/settings', (req, res) => res.json(readDB()));
 app.post('/api/settings', (req, res) => {
     writeDB(req.body);
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
 
-// --- API: MATCHES (Voor Dashboard) ---
 let cache = { data: null, timestamp: 0 };
-const CACHE_TIME = 30 * 1000; // 30 seconden
+const CACHE_TIME = 30 * 1000;
 
 app.get('/api/matches', async (req, res) => {
     const db = readDB();
@@ -50,22 +42,17 @@ app.get('/api/matches', async (req, res) => {
         rawMatches = cache.data;
     } else {
         try {
-            // We gebruiken axios.post omdat DartConnect GET-verzoeken blokkeert
             const requests = db.tournaments.map(t => axios.post(t.url, {}));
             const responses = await Promise.all(requests);
             
             responses.forEach((response, index) => {
                 const toernooiNaam = db.tournaments[index].name;
                 
-                // DEBUG: Print de structuur in je log
-                console.log(`[DEBUG] Data structuur voor ${toernooiNaam}:`, Object.keys(response.data));
-                
                 let dataContainer = response.data.payload || response.data;
                 let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
-                let playersMap = dataContainer.proPlayers || {}; // HET TELEFOONBOEK!
+                let playersMap = dataContainer.proPlayers || {}; // Het Telefoonboek!
 
                 let matchesList = [];
-
                 if (Array.isArray(bronMap)) {
                     matchesList = bronMap; 
                 } else if (typeof bronMap === 'object') {
@@ -74,12 +61,11 @@ app.get('/api/matches', async (req, res) => {
                     });
                 }
 
-                // Helper functie om naam op te zoeken in het telefoonboek
+                // Helper: Zoek het ID op in het telefoonboek
                 function getSpelerNaam(id) {
                     if (!id) return "Onbekend";
                     let p = playersMap[id];
-                    if (!p) return `Speler ${id}`; // Als hij echt niet bestaat
-                    // DartConnect gebruikt soms 'name' en soms 'first_name last_name'
+                    if (!p) return `Speler ${id}`;
                     return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${id}`;
                 }
 
@@ -87,32 +73,30 @@ app.get('/api/matches', async (req, res) => {
                     const matchesMetToernooi = matchesList.map(m => {
                         return {
                             ...m,
-                            // Knoop de juiste namen vast aan het ID
+                            // Hier doen we de magische vertaling!
                             player1: getSpelerNaam(m.p1),
                             player2: getSpelerNaam(m.p2),
-                            // DartConnect gebruikt vaak 'b' voor board en 't' voor time
                             board: m.b || m.board || m.bd || "?",
                             time: m.t || m.time || m.st || "Onbekend",
                             toernooi: toernooiNaam
                         };
                     });
                     rawMatches = rawMatches.concat(matchesMetToernooi);
-                } else {
-                    console.log(`[WAARSCHUWING] Geen wedstrijden gevonden voor ${toernooiNaam}`);
                 }
             });
 
             cache.data = rawMatches;
             cache.timestamp = now;
         } catch (error) {
-            console.error("Fout bij ophalen DartConnect:", error.message);
+            console.error("Fout:", error.message);
             return res.status(500).json({ error: "Kon data niet ophalen" });
         }
     }
 
-    // Filter de data voor onze darters
+    // De filter is weer AAN!
     const dartersLower = db.darters.map(d => d.toLowerCase());
     const filteredMatches = rawMatches.filter(match => {
+        // We zoeken in de hele JSON van de wedstrijd, dus ook in 'player1' en 'player2'
         const matchString = JSON.stringify(match).toLowerCase();
         return dartersLower.some(darter => matchString.includes(darter));
     });
@@ -120,7 +104,4 @@ app.get('/api/matches', async (req, res) => {
     res.json(filteredMatches);
 });
 
-// Zorg dat de server gaat luisteren!
-app.listen(PORT, () => {
-    console.log(`🎯 Server draait op http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
