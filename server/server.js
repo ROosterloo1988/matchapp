@@ -132,34 +132,86 @@ app.get('/api/matches', async (req, res) => {
         }
     }
 
-// --- FILTEREN EN SORTEREN ---
+// --- FILTEREN, VOORSPELLEN EN SORTEREN ---
     
-    // 1. Filter de data voor onze darters
     const dartersLower = db.darters.map(d => d.toLowerCase());
-    let filteredMatches = rawMatches.filter(match => {
+    let definitieveLijst = [];
+    let toegevoegdeIds = new Set();
+
+    // 1. Zoek alle ECHTE (Geplande) wedstrijden van onze darters
+    let echteWedstrijden = rawMatches.filter(match => {
         const matchString = JSON.stringify(match).toLowerCase();
         return dartersLower.some(darter => matchString.includes(darter));
     });
 
-    // 2. NIEUW: Sorteer op tijd, en daarna op bordnummer!
-    filteredMatches.sort((a, b) => {
-        // Tijd "Onbekend" of leeg? Dan geven we het intern de fictieve tijd "24:00" zodat het onderaan belandt.
-        let tijdA = (a.time && a.time !== "Onbekend") ? a.time : "24:00";
-        let tijdB = (b.time && b.time !== "Onbekend") ? b.time : "24:00";
+    echteWedstrijden.forEach(match => {
+        let kloon = { ...match, isMogelijk: false };
+        let uniekeKey = kloon.toernooi + kloon.id;
+        if (!toegevoegdeIds.has(uniekeKey)) {
+            definitieveLijst.push(kloon);
+            toegevoegdeIds.add(uniekeKey);
+        }
+    });
+
+    // 2. Bereken de MOGELIJKE volgende ronde (de route in de boom)
+    echteWedstrijden.forEach(match => {
+        // Zoek uit voor WIE deze mogelijke wedstrijd is
+        let spelerNaam = db.darters.find(d => 
+            (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || 
+            (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase()))
+        ) || "Onze speler";
+
+        if (match.id) {
+            // Check of het ID opgebouwd is als "1-15" (Ronde-Wedstrijd)
+            let matchRegex = match.id.match(/^(\d+)-(\d+)$/);
+            if (matchRegex) {
+                let currentRound = parseInt(matchRegex[1]);
+                let currentMatchNum = parseInt(matchRegex[2]);
+                
+                // Wiskunde voor het schema!
+                let nextRound = currentRound + 1;
+                let nextMatchNum = Math.ceil(currentMatchNum / 2);
+                let nextId = nextRound + "-" + nextMatchNum; 
+
+                // Zoek in alle wedstrijden naar deze volgende halte
+                let mogelijkeWedstrijd = rawMatches.find(rm => 
+                    rm.toernooi === match.toernooi && rm.id === nextId
+                );
+
+                if (mogelijkeWedstrijd) {
+                    let uniekeKey = mogelijkeWedstrijd.toernooi + mogelijkeWedstrijd.id;
+                    // Alleen toevoegen als hij nog niet in de geplande lijst staat!
+                    if (!toegevoegdeIds.has(uniekeKey)) {
+                        let kloon = { ...mogelijkeWedstrijd }; 
+                        kloon.isMogelijk = true;
+                        kloon.mogelijkVoor = spelerNaam;
+                        definitieveLijst.push(kloon);
+                        toegevoegdeIds.add(uniekeKey);
+                    }
+                }
+            }
+        }
+    });
+
+    // 3. Sorteer de lijst (Gepland eerst, dan Mogelijk, dan op Tijd, dan op Bord)
+    definitieveLijst.sort((a, b) => {
+        if (a.isMogelijk !== b.isMogelijk) {
+            return a.isMogelijk ? 1 : -1; 
+        }
+
+        let tijdA = (a.time && a.time !== "Onbekend" && a.time !== "Later") ? a.time : "24:00";
+        let tijdB = (b.time && b.time !== "Onbekend" && b.time !== "Later") ? b.time : "24:00";
         
-        // Vergelijk de tijden
         if (tijdA !== tijdB) {
             return tijdA.localeCompare(tijdB);
         }
         
-        // Is de starttijd exact hetzelfde? Sorteer dan op bordnummer!
         let bordA = parseInt(a.board) || 999;
         let bordB = parseInt(b.board) || 999;
         return bordA - bordB;
     });
 
-    // 3. Stuur de perfect gesorteerde lijst naar het dashboard
-    res.json(filteredMatches);
+    res.json(definitieveLijst);
 });
 
 // --- API: RUWE DATA DUMP (Om te spieken!) ---
