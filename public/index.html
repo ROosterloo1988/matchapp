@@ -7,10 +7,8 @@
     <style>
         body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
         h1 { color: #FF6600; text-align: center; font-size: 2.5rem; text-transform: uppercase; letter-spacing: 2px;}
-        
         #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); }
         
-        /* STANDAARD (GEPLANDE) WEDSTRIJD */
         .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600;}
         .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;}
         .board-badge { background: black; color: white; padding: 5px 10px; border-radius: 5px; font-size: 1.1rem; border: 1px solid rgba(255,255,255,0.2);}
@@ -20,13 +18,17 @@
         .player-name { flex: 1; text-align: center; word-wrap: break-word;}
         .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center;}
         
-        /* MOGELIJKE WEDSTRIJD (GRIJS) */
-        .match-card.mogelijk { border-left-color: #666; opacity: 0.8; filter: grayscale(70%); }
-        .match-card.mogelijk .card-header { background: linear-gradient(90deg, #555 0%, #333 100%); color: #ddd; font-size: 0.95rem; }
-        .match-card.mogelijk .score-box { color: #888; border-color: #444; }
+        /* MOGELIJK (GRIJS) */
+        .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
+        .match-card.mogelijk .card-header { background: #444; color: #bbb; }
+        
+        /* GESPEELD (DONKER) */
+        .match-card.gespeeld { border-left-color: #222; opacity: 0.5; filter: contrast(0.8); }
+        .match-card.gespeeld .card-header { background: #222; color: #666; }
+        .match-card.gespeeld .score-box { color: #666; border-color: #222; }
 
-        .no-matches { text-align: center; color: #888; font-size: 1.2rem; margin-top: 50px; grid-column: 1 / -1;}
-        .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;}
+        .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 30px; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;}
+        .no-matches { text-align: center; color: #888; margin-top: 50px; grid-column: 1 / -1;}
     </style>
 </head>
 <body>
@@ -40,43 +42,30 @@
             const response = await fetch('/api/matches');
             const matches = await response.json();
             const container = document.getElementById('matches-container');
-            
-            if (matches.length === 0) {
-                container.innerHTML = "<div class='no-matches'>Geen actieve wedstrijden gevonden.</div>";
-                return;
-            }
+            if (matches.length === 0) { container.innerHTML = "<div class='no-matches'>Geen wedstrijden gevonden.</div>"; return; }
 
             let htmlString = "";
-            let heeftMogelijkGehad = false;
+            let huidigeStatus = "";
 
-            matches.forEach((match, index) => {
-                // Tussenkopjes genereren
-                if (index === 0 && !match.isMogelijk) {
-                    htmlString += `<div class="section-title">⚡ Geplande Wedstrijden</div>`;
-                }
-                if (match.isMogelijk && !heeftMogelijkGehad) {
-                    htmlString += `<div class="section-title">🔮 Mogelijke Volgende Ronde (Bij Winst)</div>`;
-                    heeftMogelijkGehad = true;
+            const titels = { "gepland": "⚡ Geplande Wedstrijden", "mogelijk": "🔮 Mogelijke Volgende Ronde", "gespeeld": "✅ Gespeelde Wedstrijden" };
+
+            matches.forEach(match => {
+                if (match.status !== huidigeStatus) {
+                    huidigeStatus = match.status;
+                    htmlString += `<div class="section-title">${titels[huidigeStatus]}</div>`;
                 }
 
-                // Tekstjes bepalen
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
-                let extraClass = match.isMogelijk ? "mogelijk" : "";
-                
-                let toernooiHeader = match.isMogelijk 
-                    ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}`
-                    : `${match.toernooi.toUpperCase()}`;
-
-                let toernooiSubHeader = match.isMogelijk ? `(${match.toernooi})` : "";
+                let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
 
                 htmlString += `
-                <div class="match-card ${extraClass}">
+                <div class="match-card ${match.status}">
                     <div class="card-header">
-                        <span>${toernooiHeader}</span>
+                        <span>${headerText}</span>
                         <span class="board-badge">BORD ${match.board}</span>
                     </div>
                     <div class="card-subheader">
-                        <span>Tijd: ${match.time} ${toernooiSubHeader}</span>
+                        <span>Tijd: ${match.time} ${match.status === "mogelijk" ? '('+match.toernooi+')' : ''}</span>
                         <span>Wedstrijd: <span class="match-id">${match.id || '?'}</span></span>
                     </div>
                     <div class="players-area">
@@ -84,18 +73,11 @@
                         <div class="score-box">${scoreText}</div>
                         <div class="player-name">${match.player2}</div>
                     </div>
-                </div>
-                `;
+                </div>`;
             });
-
             container.innerHTML = htmlString;
-
-        } catch (error) {
-            console.error("Fout bij laden", error);
-            document.getElementById('matches-container').innerHTML = "<div class='no-matches' style='color:red;'>Kan geen verbinding maken.</div>";
-        }
+        } catch (error) { document.getElementById('matches-container').innerHTML = "Fout bij laden."; }
     }
-
     loadMatches();
     setInterval(loadMatches, 30000);
 </script>
