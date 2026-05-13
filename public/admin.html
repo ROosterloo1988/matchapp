@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin - Dutch Open</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+        .card { background: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        button { background: #FF6600; color: white; border: none; cursor: pointer; font-weight: bold; }
+        ul { list-style: none; padding: 0; }
+        li { background: #eee; margin: 5px 0; padding: 10px; display: flex; justify-content: space-between; }
+        .del-btn { background: red; width: auto; padding: 5px 10px; margin: 0; }
+    </style>
+</head>
+<body>
+
+    <h1>Toernooi Beheer</h1>
+
+    <div class="card">
+        <h2>1. Toernooien (API Links)</h2>
+        <ul id="tournament-list"></ul>
+        <input type="text" id="t-name" placeholder="Naam (bijv. Koppel Toernooi)">
+        <input type="text" id="t-url" placeholder="DartConnect API URL">
+        <button onclick="addTournament()">Toevoegen</button>
+    </div>
+
+    <div class="card">
+        <h2>2. Onze Darters</h2>
+        <p><small>Let op: Typ de naam exact zoals in DartConnect.</small></p>
+        <ul id="darter-list"></ul>
+        <input type="text" id="d-name" placeholder="Naam Darter (bijv. Michael van Gerwen)">
+        <button onclick="addDarter()">Toevoegen</button>
+    </div>
+
+    <button onclick="saveSettings()" style="background: green; font-size: 1.2rem;">💾 Alles Opslaan</button>
+    <p id="status"></p>
+
+<script>
+    let db = { tournaments: [], darters: [] };
+
+    // Laad huidige instellingen bij opstarten
+    fetch('/api/settings').then(r => r.json()).then(data => {
+        db = data;
+        render();
+    });
+
+    function render() {
+        document.getElementById('tournament-list').innerHTML = db.tournaments.map((t, i) => 
+            `<li>${t.name} <button class="del-btn" onclick="db.tournaments.splice(${i},1); render()">X</button></li>`
+        ).join('');
+        document.getElementById('darter-list').innerHTML = db.darters.map((d, i) => 
+            `<li>${d} <button class="del-btn" onclick="db.darters.splice(${i},1); render()">X</button></li>`
+        ).join('');
+    }
+
+    function addTournament() {
+        const name = document.getElementById('t-name').value;
+        const url = document.getElementById('t-url').value;
+        if(name && url) { db.tournaments.push({name, url}); document.getElementById('t-name').value=''; document.getElementById('t-url').value=''; render(); }
+    }
+
+    function addDarter() {
+        const name = document.getElementById('d-name').value;
+        if(name) { db.darters.push(name); document.getElementById('d-name').value=''; render(); }
+    }
+
+    function saveSettings() {
+        fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(db)
+        }).then(r => r.json()).then(res => {
+            document.getElementById('status').innerText = res.message;
+            setTimeout(() => document.getElementById('status').innerText = '', 3000);
+        });
+    }
+</script>
+</body>
+</html>
