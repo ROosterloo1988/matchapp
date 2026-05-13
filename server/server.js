@@ -138,7 +138,7 @@ app.get('/api/matches', async (req, res) => {
     // 🕒 TIJDREIS INSTELLING: 
     // Zet hier een tijd (bijv. "17:00") om te testen. 
     // BELANGRIJK: Verander dit in `null` op de echte toernooidag! (const SIMULATIE_TIJD = null;)
-    const SIMULATIE_TIJD = "17:00"; 
+    const SIMULATIE_TIJD = "null"; 
 
     if (SIMULATIE_TIJD) {
         rawMatches = rawMatches.map(match => {
