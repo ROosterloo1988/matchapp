@@ -6,7 +6,10 @@
     <title>Live Matches</title>
     <style>
         body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
-        h1 { color: #FF6600; text-align: center; font-size: 2.5rem; text-transform: uppercase; letter-spacing: 2px;}
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+        h1 { color: #FF6600; margin: 0; text-transform: uppercase; letter-spacing: 2px;}
+        #current-time { font-size: 1.5rem; font-weight: bold; background: #333; padding: 5px 15px; border-radius: 5px; }
+
         #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); }
         
         .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600;}
@@ -18,22 +21,26 @@
         .player-name { flex: 1; text-align: center; word-wrap: break-word;}
         .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center;}
         
-        /* MOGELIJK (GRIJS) */
+        /* STATUS KLEUREN */
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
         .match-card.mogelijk .card-header { background: #444; color: #bbb; }
         
-        /* GESPEELD (DONKER) */
-        .match-card.gespeeld { border-left-color: #222; opacity: 0.5; filter: contrast(0.8); }
-        .match-card.gespeeld .card-header { background: #222; color: #666; }
-        .match-card.gespeeld .score-box { color: #666; border-color: #222; }
+        .match-card.gespeeld { border-left-width: 10px; opacity: 0.8; }
+        .match-card.win { border-left-color: #2ecc71; } /* GROEN */
+        .match-card.verlies { border-left-color: #e74c3c; } /* ROOD */
+        .match-card.gespeeld .card-header { background: #222; color: #888; }
+        .match-card.gespeeld .score-box { color: #fff; border-color: #444; }
 
-        .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 30px; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;}
+        .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 30px; text-transform: uppercase; font-size: 0.9rem;}
         .no-matches { text-align: center; color: #888; margin-top: 50px; grid-column: 1 / -1;}
     </style>
 </head>
 <body>
 
-    <h1>🎯 Live Matches</h1>
+    <div class="top-bar">
+        <h1>🎯 Live Matches</h1>
+        <div id="current-time">17:00</div> </div>
+    
     <div id="matches-container">Gegevens ophalen...</div>
 
 <script>
@@ -46,7 +53,6 @@
 
             let htmlString = "";
             let huidigeStatus = "";
-
             const titels = { "gepland": "⚡ Geplande Wedstrijden", "mogelijk": "🔮 Mogelijke Volgende Ronde", "gespeeld": "✅ Gespeelde Wedstrijden" };
 
             matches.forEach(match => {
@@ -57,9 +63,12 @@
 
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
+                
+                // Voeg de win/verlies class toe aan de kaart
+                let resultClass = match.resultaat ? match.resultaat : "";
 
                 htmlString += `
-                <div class="match-card ${match.status}">
+                <div class="match-card ${match.status} ${resultClass}">
                     <div class="card-header">
                         <span>${headerText}</span>
                         <span class="board-badge">BORD ${match.board}</span>
