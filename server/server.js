@@ -70,24 +70,39 @@ app.get('/api/matches', async (req, res) => {
                 // Zet de stofzuiger aan!
                 zoekWedstrijden(bronMap);
 
-                // Helper: Zoek het ID op in het telefoonboek (ondersteunt arrays en koppels)
+                // HULPJE: Bladert door het telefoonboek, ongeacht hoe DartConnect het aanlevert
+                function vindSpeler(id) {
+                    if (!playersMap) return null;
+                    
+                    // Als het telefoonboek een 'lijst' is (Array)
+                    if (Array.isArray(playersMap)) {
+                        return playersMap.find(p => p.id == id || p.player_id == id || p.key == id);
+                    }
+                    
+                    // Als het een 'woordenboek' is (Object)
+                    return playersMap[id] || Object.values(playersMap).find(p => p && (p.id == id || p.player_id == id));
+                }
+
+                // Helper: Vertaalt de nummers naar namen
                 function getSpelerNaam(idOrArray) {
                     if (!idOrArray) return "Onbekend";
                     
+                    // Voor koppels en teams (Lijst met nummers)
                     if (Array.isArray(idOrArray)) {
                         const validIds = idOrArray.filter(id => id && id !== -1);
                         if (validIds.length === 0) return "Onbekend";
                         
                         const namen = validIds.map(id => {
-                            let p = playersMap[id];
-                            if (!p) return `Speler ${id}`;
+                            let p = vindSpeler(id);
+                            if (!p) return `Speler ${id}`; // Mocht hij écht niet bestaan
                             return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${id}`;
                         });
                         return namen.join(" & ");
                     }
                     
+                    // Voor singles (Één los nummer)
                     if (idOrArray === -1) return "Onbekend";
-                    let p = playersMap[idOrArray];
+                    let p = vindSpeler(idOrArray);
                     if (!p) return `Speler ${idOrArray}`;
                     return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${idOrArray}`;
                 }
