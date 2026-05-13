@@ -61,22 +61,41 @@ app.get('/api/matches', async (req, res) => {
                     });
                 }
 
-                // Helper: Zoek het ID op in het telefoonboek
-                function getSpelerNaam(id) {
-                    if (!id) return "Onbekend";
-                    let p = playersMap[id];
-                    if (!p) return `Speler ${id}`;
-                    return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${id}`;
+                // Helper: Zoek het ID op in het telefoonboek (ondersteunt nu arrays!)
+                function getSpelerNaam(idOrArray) {
+                    if (!idOrArray) return "Onbekend";
+                    
+                    // Als het een array is (bijv. [2023814, 2023820] voor koppels of teams)
+                    if (Array.isArray(idOrArray)) {
+                        // Filter lege of -1 waarden eruit
+                        const validIds = idOrArray.filter(id => id && id !== -1);
+                        if (validIds.length === 0) return "Onbekend";
+                        
+                        // Zoek de naam op voor elk ID en voeg ze samen
+                        const namen = validIds.map(id => {
+                            let p = playersMap[id];
+                            if (!p) return `Speler ${id}`;
+                            return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${id}`;
+                        });
+                        return namen.join(" & ");
+                    }
+                    
+                    // Als het gewoon één nummer is (zoals in je eerste screenshot)
+                    if (idOrArray === -1) return "Onbekend";
+                    let p = playersMap[idOrArray];
+                    if (!p) return `Speler ${idOrArray}`;
+                    return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${idOrArray}`;
                 }
 
                 if (matchesList.length > 0) {
                     const matchesMetToernooi = matchesList.map(m => {
                         return {
                             ...m,
-                            // Hier doen we de magische vertaling!
-                            player1: getSpelerNaam(m.p1),
-                            player2: getSpelerNaam(m.p2),
-                            board: m.b || m.board || m.bd || "?",
+                            // Gebruik m.d1 of m.p1, afhankelijk van wat DartConnect in dit toernooi gebruikt
+                            player1: getSpelerNaam(m.d1 || m.p1),
+                            player2: getSpelerNaam(m.d2 || m.p2),
+                            // Soms gebruikt DartConnect 'bn' voor board number ipv 'b'
+                            board: m.bn || m.b || m.board || m.bd || "?",
                             time: m.t || m.time || m.st || "Onbekend",
                             toernooi: toernooiNaam
                         };
