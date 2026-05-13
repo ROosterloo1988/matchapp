@@ -107,6 +107,9 @@ app.get('/api/matches', async (req, res) => {
                             id: m.id,
                             player1: getSpelerNaam(m.d1 || m.p1),
                             player2: getSpelerNaam(m.d2 || m.p2),
+                            // We pakken de score, en als die leeg is (null) maken we er 0 van
+                            score1: m.s1 !== null ? m.s1 : 0,
+                            score2: m.s2 !== null ? m.s2 : 0,
                             board: m.bn || m.b || m.board || m.bd || "?",
                             time: m.t || m.time || m.st || "Onbekend",
                             toernooi: toernooiNaam
@@ -132,7 +135,7 @@ app.get('/api/matches', async (req, res) => {
         return dartersLower.some(darter => matchString.includes(darter));
     });
 
-    res.json(rawMatches);
+    res.json(filteredMatches);
 });
 
 // --- API: RUWE DATA DUMP (Om te spieken!) ---
