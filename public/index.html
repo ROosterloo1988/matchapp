@@ -126,6 +126,12 @@
 
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
+                
+                // NIEUW: Als we de marker zijn, zetten we dat in de titelbalk!
+                if (match.rol === "marker") {
+                    headerText += " ✍️ (SCHRIJVEN)";
+                }
+                
                 let resultClass = match.resultaat ? match.resultaat : "";
 
                 htmlString += `
