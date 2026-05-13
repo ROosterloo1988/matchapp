@@ -3,54 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Dashboard - Dutch Open</title>
+    <title>Live Matches</title>
     <style>
         body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
-        h1 { color: #FF6600; text-align: center; }
-        .match-card { background: #1E1E1E; border-left: 5px solid #FF6600; padding: 15px; margin-bottom: 10px; border-radius: 8px; }
-        .match-card h3 { margin: 0 0 10px 0; font-size: 1.2rem; }
-        .details { display: flex; justify-content: space-between; color: #aaa; font-size: 0.9rem; }
-        .board { font-weight: bold; color: white; background: #333; padding: 5px 10px; border-radius: 5px; }
+        h1 { color: #FF6600; text-align: center; font-size: 2.5rem; text-transform: uppercase; letter-spacing: 2px;}
+        
+        #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); }
+        
+        .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column;}
+        
+        /* De bovenste oranje balk (met toernooi en bord) */
+        .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;}
+        .board-badge { background: black; color: white; padding: 5px 10px; border-radius: 5px; font-size: 1.1rem; border: 1px solid rgba(255,255,255,0.2);}
+        
+        /* De grijze balk met Tijd en ID */
+        .card-subheader { background: #333; padding: 5px 15px; font-size: 0.85rem; color: #ccc; display: flex; justify-content: space-between;}
+        .match-id { background: #555; padding: 2px 6px; border-radius: 3px; font-family: monospace; color: white;}
+
+        /* Het spelers en score gedeelte */
+        .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1;}
+        .player-name { flex: 1; text-align: center; word-wrap: break-word;}
+        .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center;}
+        
+        .no-matches { text-align: center; color: #888; font-size: 1.2rem; margin-top: 50px; grid-column: 1 / -1;}
     </style>
 </head>
 <body>
 
     <h1>🎯 Live Matches</h1>
-    <div id="matches-container">Laden...</div>
+    <div id="matches-container">Gegevens ophalen...</div>
 
 <script>
     async function loadMatches() {
         try {
             const response = await fetch('/api/matches');
             const matches = await response.json();
-            
             const container = document.getElementById('matches-container');
             
             if (matches.length === 0) {
-                container.innerHTML = "<p style='text-align:center;'>Geen wedstrijden gevonden voor onze darters.</p>";
+                container.innerHTML = "<div class='no-matches'>Geen actieve wedstrijden gevonden.</div>";
                 return;
             }
 
-            // OPMERKING: De manier waarop we de namen, tijden en borden hieronder tonen (match.player1, match.board) 
-            // moet misschien nog gefinetuned worden afhankelijk van hoe de specifieke JSON van DartConnect eruitziet.
-            container.innerHTML = matches.map(match => `
+            container.innerHTML = matches.map(match => {
+                // Maak de score netjes. Als er geen score is, laat "vs" zien
+                let scoreText = "vs";
+                if (match.score1 !== "" || match.score2 !== "") {
+                    scoreText = `${match.score1} - ${match.score2}`;
+                }
+
+                return `
                 <div class="match-card">
-                    <div style="color:#FF6600; font-size:0.8rem; margin-bottom:5px;">${match.toernooi.toUpperCase()}</div>
-                    <h3>${match.player1 || 'Speler 1'} <span style="color:#FF6600; padding: 0 10px;">${match.score1} - ${match.score2}</span> ${match.player2 || 'Speler 2'}</h3>
-                    <div class="details">
-                        <span>Tijd: ${match.time || 'Onbekend'}</span>
-                        <span class="board">Bord ${match.board || '?'}</span>
+                    <div class="card-header">
+                        <span>${match.toernooi.toUpperCase()}</span>
+                        <span class="board-badge">BORD ${match.board}</span>
+                    </div>
+                    <div class="card-subheader">
+                        <span>Tijd: ${match.time}</span>
+                        <span>Wedstrijd: <span class="match-id">${match.id || '?'}</span></span>
+                    </div>
+                    <div class="players-area">
+                        <div class="player-name">${match.player1}</div>
+                        <div class="score-box">${scoreText}</div>
+                        <div class="player-name">${match.player2}</div>
                     </div>
                 </div>
-            `).join('');
+                `;
+            }).join('');
 
         } catch (error) {
             console.error("Fout bij laden", error);
-            document.getElementById('matches-container').innerHTML = "Kan geen verbinding maken met de server.";
+            document.getElementById('matches-container').innerHTML = "<div class='no-matches' style='color:red;'>Kan geen verbinding maken.</div>";
         }
     }
 
-    // Laad direct, en ververs elke 30 seconden
     loadMatches();
     setInterval(loadMatches, 30000);
 </script>
