@@ -131,7 +131,7 @@ app.get('/api/matches', async (req, res) => {
         return dartersLower.some(darter => matchString.includes(darter));
     });
 
-    res.json(filteredMatches);
+    res.json(rawMatches);
 });
 
 // --- API: RUWE DATA DUMP (Om te spieken!) ---
