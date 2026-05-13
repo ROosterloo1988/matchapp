@@ -142,4 +142,20 @@ app.get('/api/matches', async (req, res) => {
     res.json(rawMatches);
 });
 
+// --- API: RUWE DATA DUMP (Om te spieken!) ---
+app.get('/api/debug', async (req, res) => {
+    const db = readDB();
+    if (db.tournaments.length === 0) return res.json({ error: "Geen toernooien in admin" });
+
+    try {
+        // We pakken gewoon het allereerste toernooi uit je lijst
+        const response = await axios.post(db.tournaments[0].url, {});
+        
+        // We sturen de VOLLEDIGE, onbewerkte payload naar je scherm
+        res.json(response.data.payload || response.data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
