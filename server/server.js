@@ -63,6 +63,11 @@ app.get('/api/matches', async (req, res) => {
                 // FIX: DartConnect verstopt de data in een "payload" mapje!
                 let dataContainer = response.data.payload || response.data;
 
+                // FIX 2: En daarbinnen in "bracketData"!
+                if (dataContainer.bracketData) {
+                    dataContainer = dataContainer.bracketData;
+                }
+
                 // Slim zoeken naar de wedstrijdenlijst in die container
                 let matchesList = [];
                 if (Array.isArray(dataContainer)) {
@@ -74,7 +79,13 @@ app.get('/api/matches', async (req, res) => {
                 } else if (dataContainer.bracket) {
                     matchesList = dataContainer.bracket;
                 } else {
-                    console.log(`[WAARSCHUWING] Kon geen lijst vinden. Keys in payload:`, Object.keys(dataContainer));
+                    // Als 'bracketData' een object is met rondes (bijv. "Losers Bracket": [...])
+                    console.log(`[DEBUG] Container is een object. Keys:`, Object.keys(dataContainer));
+                    Object.values(dataContainer).forEach(val => {
+                        if (Array.isArray(val)) {
+                            matchesList = matchesList.concat(val);
+                        }
+                    });
                 }
 
                 if (matchesList.length > 0) {
