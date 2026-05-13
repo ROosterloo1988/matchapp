@@ -132,14 +132,33 @@ app.get('/api/matches', async (req, res) => {
         }
     }
 
-    // De filter is weer AAN!
+// --- FILTEREN EN SORTEREN ---
+    
+    // 1. Filter de data voor onze darters
     const dartersLower = db.darters.map(d => d.toLowerCase());
-    const filteredMatches = rawMatches.filter(match => {
-        // We zoeken in de hele JSON van de wedstrijd, dus ook in 'player1' en 'player2'
+    let filteredMatches = rawMatches.filter(match => {
         const matchString = JSON.stringify(match).toLowerCase();
         return dartersLower.some(darter => matchString.includes(darter));
     });
 
+    // 2. NIEUW: Sorteer op tijd, en daarna op bordnummer!
+    filteredMatches.sort((a, b) => {
+        // Tijd "Onbekend" of leeg? Dan geven we het intern de fictieve tijd "24:00" zodat het onderaan belandt.
+        let tijdA = (a.time && a.time !== "Onbekend") ? a.time : "24:00";
+        let tijdB = (b.time && b.time !== "Onbekend") ? b.time : "24:00";
+        
+        // Vergelijk de tijden
+        if (tijdA !== tijdB) {
+            return tijdA.localeCompare(tijdB);
+        }
+        
+        // Is de starttijd exact hetzelfde? Sorteer dan op bordnummer!
+        let bordA = parseInt(a.board) || 999;
+        let bordB = parseInt(b.board) || 999;
+        return bordA - bordB;
+    });
+
+    // 3. Stuur de perfect gesorteerde lijst naar het dashboard
     res.json(filteredMatches);
 });
 
