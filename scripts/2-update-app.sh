@@ -11,9 +11,14 @@ git reset --hard origin/main
 echo "📦 Node modules updaten (indien nodig)..."
 npm install
 
+# Duik het server mapje in
+cd server || { echo "Map 'server' niet gevonden!"; exit 1; }
+npm install
+
 echo "🔄 Applicatie herstarten via PM2..."
-# We gaan ervan uit dat je app 'dart-proxy' heet in PM2. 
-# Mocht hij nog niet draaien, dan proberen we hem te starten via server.js (pas dit aan als je bestand anders heet).
 pm2 restart dart-proxy || pm2 start server.js --name "dart-proxy"
+
+# Ga netjes weer een mapje terug omhoog
+cd ..
 
 echo "✅ Update succesvol afgerond! Je app draait op de nieuwste versie."
