@@ -61,27 +61,44 @@ app.get('/api/matches', async (req, res) => {
                 console.log(`[DEBUG] Data structuur voor ${toernooiNaam}:`, Object.keys(response.data));
                 
                 let dataContainer = response.data.payload || response.data;
-
-                // DE GOUDEN VONDST: proBracket!
                 let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
+                let playersMap = dataContainer.proPlayers || {}; // HET TELEFOONBOEK!
+
                 let matchesList = [];
 
                 if (Array.isArray(bronMap)) {
                     matchesList = bronMap; 
                 } else if (typeof bronMap === 'object') {
-                    // Als het object is opgedeeld (bijv. per bord of per ronde), veeg alles op een hoop
                     Object.values(bronMap).forEach(val => {
-                        if (Array.isArray(val)) {
-                            matchesList = matchesList.concat(val);
-                        }
+                        if (Array.isArray(val)) matchesList = matchesList.concat(val);
                     });
                 }
 
+                // Helper functie om naam op te zoeken in het telefoonboek
+                function getSpelerNaam(id) {
+                    if (!id) return "Onbekend";
+                    let p = playersMap[id];
+                    if (!p) return `Speler ${id}`; // Als hij echt niet bestaat
+                    // DartConnect gebruikt soms 'name' en soms 'first_name last_name'
+                    return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${id}`;
+                }
+
                 if (matchesList.length > 0) {
-                    const matchesMetToernooi = matchesList.map(m => ({ ...m, toernooi: toernooiNaam }));
+                    const matchesMetToernooi = matchesList.map(m => {
+                        return {
+                            ...m,
+                            // Knoop de juiste namen vast aan het ID
+                            player1: getSpelerNaam(m.p1),
+                            player2: getSpelerNaam(m.p2),
+                            // DartConnect gebruikt vaak 'b' voor board en 't' voor time
+                            board: m.b || m.board || m.bd || "?",
+                            time: m.t || m.time || m.st || "Onbekend",
+                            toernooi: toernooiNaam
+                        };
+                    });
                     rawMatches = rawMatches.concat(matchesMetToernooi);
                 } else {
-                    console.log(`[WAARSCHUWING] Geen wedstrijden gevonden in proBracket voor ${toernooiNaam}`);
+                    console.log(`[WAARSCHUWING] Geen wedstrijden gevonden voor ${toernooiNaam}`);
                 }
             });
 
