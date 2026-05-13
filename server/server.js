@@ -118,6 +118,7 @@ app.get('/api/matches', async (req, res) => {
                             // We pakken de tijd! Soms zit hij in tm, soms in t, soms time.
                             time: m.tm || m.t || m.time || m.st || "Later",
                             toernooi: toernooiNaam
+                            isFinished: m.fn === true // DartConnect gebruikt 'fn' voor finished
                         };
                     });
                     rawMatches = rawMatches.concat(matchesMetToernooi);
@@ -132,86 +133,71 @@ app.get('/api/matches', async (req, res) => {
         }
     }
 
-// --- FILTEREN, VOORSPELLEN EN SORTEREN ---
+// --- FILTEREN, VOORSPELLEN EN SORTEREN (V2: Met winst/verlies check) ---
+const dartersLower = db.darters.map(d => d.toLowerCase());
+let definitieveLijst = [];
+let toegevoegdeIds = new Set();
+
+// 1. Zoek alle wedstrijden waar onze darters in voorkomen
+let eigenWedstrijden = rawMatches.filter(match => {
+    const matchString = JSON.stringify(match).toLowerCase();
+    return dartersLower.some(darter => matchString.includes(darter));
+});
+
+eigenWedstrijden.forEach(match => {
+    // Bepaal de status: Als de wedstrijd 'fn' is, is hij Gespeeld. Anders Gepland.
+    match.status = match.isFinished ? "gespeeld" : "gepland";
+    match.isMogelijk = false;
     
-    const dartersLower = db.darters.map(d => d.toLowerCase());
-    let definitieveLijst = [];
-    let toegevoegdeIds = new Set();
+    let uniekeKey = match.toernooi + match.id;
+    definitieveLijst.push(match);
+    toegevoegdeIds.add(uniekeKey);
 
-    // 1. Zoek alle ECHTE (Geplande) wedstrijden van onze darters
-    let echteWedstrijden = rawMatches.filter(match => {
-        const matchString = JSON.stringify(match).toLowerCase();
-        return dartersLower.some(darter => matchString.includes(darter));
-    });
+    // 2. VOORSPELLEN: Alleen als de wedstrijd nog bezig is OF als we gewonnen hebben!
+    let spelerNaam = db.darters.find(d => 
+        (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || 
+        (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase()))
+    ) || "Onze speler";
 
-    echteWedstrijden.forEach(match => {
-        let kloon = { ...match, isMogelijk: false };
-        let uniekeKey = kloon.toernooi + kloon.id;
-        if (!toegevoegdeIds.has(uniekeKey)) {
-            definitieveLijst.push(kloon);
-            toegevoegdeIds.add(uniekeKey);
+    let magDoorvoorspellen = false;
+    if (!match.isFinished) {
+        magDoorvoorspellen = true; // Wedstrijd moet nog komen
+    } else {
+        // Check of onze speler gewonnen heeft
+        const isP1 = match.player1.toLowerCase().includes(spelerNaam.toLowerCase());
+        const s1 = isNaN(match.score1) ? (match.score1 === 'W' ? 99 : 0) : parseInt(match.score1);
+        const s2 = isNaN(match.score2) ? (match.score2 === 'W' ? 99 : 0) : parseInt(match.score2);
+        if ((isP1 && s1 > s2) || (!isP1 && s2 > s1)) {
+            magDoorvoorspellen = true;
         }
-    });
+    }
 
-    // 2. Bereken de MOGELIJKE volgende ronde (de route in de boom)
-    echteWedstrijden.forEach(match => {
-        // Zoek uit voor WIE deze mogelijke wedstrijd is
-        let spelerNaam = db.darters.find(d => 
-            (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || 
-            (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase()))
-        ) || "Onze speler";
+    if (magDoorvoorspellen && match.id) {
+        let matchRegex = match.id.match(/^(\d+)-(\d+)$/);
+        if (matchRegex) {
+            let nextId = (parseInt(matchRegex[1]) + 1) + "-" + Math.ceil(parseInt(matchRegex[2]) / 2); 
+            let mogelijkeMatch = rawMatches.find(rm => rm.toernooi === match.toernooi && rm.id === nextId);
 
-        if (match.id) {
-            // Check of het ID opgebouwd is als "1-15" (Ronde-Wedstrijd)
-            let matchRegex = match.id.match(/^(\d+)-(\d+)$/);
-            if (matchRegex) {
-                let currentRound = parseInt(matchRegex[1]);
-                let currentMatchNum = parseInt(matchRegex[2]);
-                
-                // Wiskunde voor het schema!
-                let nextRound = currentRound + 1;
-                let nextMatchNum = Math.ceil(currentMatchNum / 2);
-                let nextId = nextRound + "-" + nextMatchNum; 
-
-                // Zoek in alle wedstrijden naar deze volgende halte
-                let mogelijkeWedstrijd = rawMatches.find(rm => 
-                    rm.toernooi === match.toernooi && rm.id === nextId
-                );
-
-                if (mogelijkeWedstrijd) {
-                    let uniekeKey = mogelijkeWedstrijd.toernooi + mogelijkeWedstrijd.id;
-                    // Alleen toevoegen als hij nog niet in de geplande lijst staat!
-                    if (!toegevoegdeIds.has(uniekeKey)) {
-                        let kloon = { ...mogelijkeWedstrijd }; 
-                        kloon.isMogelijk = true;
-                        kloon.mogelijkVoor = spelerNaam;
-                        definitieveLijst.push(kloon);
-                        toegevoegdeIds.add(uniekeKey);
-                    }
-                }
+            if (mogelijkeMatch && !toegevoegdeIds.has(mogelijkeMatch.toernooi + mogelijkeMatch.id)) {
+                let kloon = { ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: spelerNaam };
+                definitieveLijst.push(kloon);
+                toegevoegdeIds.add(kloon.toernooi + kloon.id);
             }
         }
-    });
+    }
+});
 
-    // 3. Sorteer de lijst (Gepland eerst, dan Mogelijk, dan op Tijd, dan op Bord)
-    definitieveLijst.sort((a, b) => {
-        if (a.isMogelijk !== b.isMogelijk) {
-            return a.isMogelijk ? 1 : -1; 
-        }
+// 3. SORTEREN: Gepland (oranje) -> Mogelijk (grijs) -> Gespeeld (donkergrijs/onderaan)
+definitieveLijst.sort((a, b) => {
+    const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
+    if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
+    
+    let tijdA = (a.time && !["Onbekend", "Later"].includes(a.time)) ? a.time : "24:00";
+    let tijdB = (b.time && !["Onbekend", "Later"].includes(b.time)) ? b.time : "24:00";
+    return tijdA.localeCompare(tijdB) || (parseInt(a.board) || 999) - (parseInt(b.board) || 999);
+});
 
-        let tijdA = (a.time && a.time !== "Onbekend" && a.time !== "Later") ? a.time : "24:00";
-        let tijdB = (b.time && b.time !== "Onbekend" && b.time !== "Later") ? b.time : "24:00";
-        
-        if (tijdA !== tijdB) {
-            return tijdA.localeCompare(tijdB);
-        }
-        
-        let bordA = parseInt(a.board) || 999;
-        let bordB = parseInt(b.board) || 999;
-        return bordA - bordB;
-    });
-
-    res.json(definitieveLijst);
+res.json(definitieveLijst);
 });
 
 // --- API: RUWE DATA DUMP (Om te spieken!) ---
