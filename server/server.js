@@ -117,7 +117,7 @@ app.get('/api/matches', async (req, res) => {
                             board: m.bn || m.b || m.board || m.bd || "?",
                             // We pakken de tijd! Soms zit hij in tm, soms in t, soms time.
                             time: m.tm || m.t || m.time || m.st || "Later",
-                            toernooi: toernooiNaam
+                            toernooi: toernooiNaam,
                             isFinished: m.fn === true // DartConnect gebruikt 'fn' voor finished
                         };
                     });
