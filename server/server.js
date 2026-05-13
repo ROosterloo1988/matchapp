@@ -133,92 +133,106 @@ app.get('/api/matches', async (req, res) => {
         }
     }
 
-// --- FILTEREN, VOORSPELLEN EN SORTEREN (V3: Met kleuren en betere status) ---
-const dartersLower = db.darters.map(d => d.toLowerCase());
-let definitieveLijst = [];
-let toegevoegdeIds = new Set();
-
-// 1. Zoek alle wedstrijden waar onze darters nu al in staan (Gepland of Gespeeld)
-let eigenWedstrijden = rawMatches.filter(match => {
-    const matchString = JSON.stringify(match).toLowerCase();
-    return dartersLower.some(darter => matchString.includes(darter));
-});
-
-eigenWedstrijden.forEach(match => {
-    // Bepaal de sectie: Als 'fn' true is, is hij gespeeld.
-    match.status = (match.isFinished || (match.score1 !== "" && match.score2 !== "")) ? "gespeeld" : "gepland";
-    match.isMogelijk = false;
+// --- FILTEREN, VOORSPELLEN EN SORTEREN (V4: Tijdreizen!) ---
     
-    // Bepaal resultaat (Win/Verlies) voor de kleur
-    if (match.status === "gespeeld") {
-        let onzeSpeler = db.darters.find(d => 
-            (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || 
-            (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase()))
-        );
-        
-        if (onzeSpeler) {
-            const isP1 = match.player1.toLowerCase().includes(onzeSpeler.toLowerCase());
-            // Vertaling van scores (ook W/F afhandeling)
-            const s1 = (match.score1 === 'W' || match.score1 === 'X') ? 99 : (match.score1 === 'F' ? -1 : parseInt(match.score1) || 0);
-            const s2 = (match.score2 === 'W' || match.score2 === 'X') ? 99 : (match.score2 === 'F' ? -1 : parseInt(match.score2) || 0);
-            
-            if (isP1) {
-                match.resultaat = (s1 > s2) ? "win" : "verlies";
-            } else {
-                match.resultaat = (s2 > s1) ? "win" : "verlies";
+    // 🕒 TIJDREIS INSTELLING: 
+    // Zet hier een tijd (bijv. "17:00") om te testen. 
+    // BELANGRIJK: Verander dit in `null` op de echte toernooidag! (const SIMULATIE_TIJD = null;)
+    const SIMULATIE_TIJD = "17:00"; 
+
+    if (SIMULATIE_TIJD) {
+        rawMatches = rawMatches.map(match => {
+            // Als de wedstrijd na de simulatietijd is, of we weten de tijd nog niet: wis de uitslag!
+            if (!match.time || match.time === "Onbekend" || match.time === "Later" || match.time >= SIMULATIE_TIJD) {
+                return { ...match, isFinished: false, score1: "", score2: "" };
             }
-        }
+            return match;
+        });
     }
 
-    let uniekeKey = match.toernooi + match.id;
-    definitieveLijst.push(match);
-    toegevoegdeIds.add(uniekeKey);
-});
+    const dartersLower = db.darters.map(d => d.toLowerCase());
+    let definitieveLijst = [];
+    let toegevoegdeIds = new Set();
 
-// 2. VOORSPELLEN: Alleen voor de geplande wedstrijden OF gewonnen wedstrijden
-eigenWedstrijden.forEach(match => {
-    let spelerNaam = db.darters.find(d => 
-        (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || 
-        (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase()))
-    ) || "Onze speler";
+    // 1. Zoek alle wedstrijden waar onze darters in staan
+    let eigenWedstrijden = rawMatches.filter(match => {
+        const matchString = JSON.stringify(match).toLowerCase();
+        return dartersLower.some(darter => matchString.includes(darter));
+    });
 
-    // We voorspellen alleen door als de wedstrijd nog moet komen OF als we hem gewonnen hebben
-    let magDoor = (match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win");
-
-    if (magDoor && match.id) {
-        let matchRegex = match.id.match(/^(\d+)-(\d+)$/);
-        if (matchRegex) {
-            let nextId = (parseInt(matchRegex[1]) + 1) + "-" + Math.ceil(parseInt(matchRegex[2]) / 2); 
-            let mogelijkeMatch = rawMatches.find(rm => rm.toernooi === match.toernooi && rm.id === nextId);
-
-            // BELANGRIJK: Een mogelijke wedstrijd vervalt als hij al in 'toegevoegdeIds' staat 
-            // (want dan is hij al gepland of gespeeld door een van onze darters!)
-            if (mogelijkeMatch) {
-                let mKey = mogelijkeMatch.toernooi + mogelijkeMatch.id;
-                // Check ook of de mogelijke wedstrijd zelf niet al gespeeld is door anderen
-                let isAlGeweest = mogelijkeMatch.fn === true || mogelijkeMatch.s1 !== null;
-
-                if (!toegevoegdeIds.has(mKey) && !isAlGeweest) {
-                    let kloon = { ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: spelerNaam };
-                    definitieveLijst.push(kloon);
-                    toegevoegdeIds.add(mKey);
+    eigenWedstrijden.forEach(match => {
+        // Bepaal de status: als er een score is OF hij is afgevinkt in DartConnect
+        match.status = (match.isFinished || (match.score1 !== "" && match.score2 !== "")) ? "gespeeld" : "gepland";
+        match.isMogelijk = false;
+        
+        // Bepaal resultaat (Win/Verlies) voor de Rood/Groen kleuren
+        if (match.status === "gespeeld") {
+            let onzeSpeler = db.darters.find(d => 
+                (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || 
+                (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase()))
+            );
+            
+            if (onzeSpeler) {
+                const isP1 = match.player1.toLowerCase().includes(onzeSpeler.toLowerCase());
+                const s1 = (match.score1 === 'W' || match.score1 === 'X') ? 99 : (match.score1 === 'F' ? -1 : parseInt(match.score1) || 0);
+                const s2 = (match.score2 === 'W' || match.score2 === 'X') ? 99 : (match.score2 === 'F' ? -1 : parseInt(match.score2) || 0);
+                
+                if (isP1) {
+                    match.resultaat = (s1 > s2) ? "win" : "verlies";
+                } else {
+                    match.resultaat = (s2 > s1) ? "win" : "verlies";
                 }
             }
         }
-    }
-});
 
-// 3. SORTEREN: Gepland -> Mogelijk -> Gespeeld
-definitieveLijst.sort((a, b) => {
-    const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
-    if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
-    
-    let tijdA = (a.time && !["Onbekend", "Later"].includes(a.time)) ? a.time : "24:00";
-    let tijdB = (b.time && !["Onbekend", "Later"].includes(b.time)) ? b.time : "24:00";
-    return tijdA.localeCompare(tijdB) || (parseInt(a.board) || 999) - (parseInt(b.board) || 999);
-});
+        let uniekeKey = match.toernooi + match.id;
+        definitieveLijst.push(match);
+        toegevoegdeIds.add(uniekeKey);
+    });
 
-res.json(definitieveLijst);
+    // 2. VOORSPELLEN VAN DE VOLGENDE RONDE
+    eigenWedstrijden.forEach(match => {
+        let spelerNaam = db.darters.find(d => 
+            (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || 
+            (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase()))
+        ) || "Onze speler";
+
+        // Mogen we doorvoorspellen? Ja, als we moeten spelen, OF als we net gewonnen hebben!
+        let magDoor = (match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win");
+
+        if (magDoor && match.id) {
+            let matchRegex = match.id.match(/^(\d+)-(\d+)$/);
+            if (matchRegex) {
+                let nextId = (parseInt(matchRegex[1]) + 1) + "-" + Math.ceil(parseInt(matchRegex[2]) / 2); 
+                let mogelijkeMatch = rawMatches.find(rm => rm.toernooi === match.toernooi && rm.id === nextId);
+
+                if (mogelijkeMatch) {
+                    let mKey = mogelijkeMatch.toernooi + mogelijkeMatch.id;
+                    // Check of deze toekomstige wedstrijd niet toevallig stiekem al gespeeld is door een ander
+                    let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
+
+                    // Als de volgende wedstrijd nog NIET op ons bord staat
+                    if (!toegevoegdeIds.has(mKey) && !isAlGeweest) {
+                        let kloon = { ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: spelerNaam };
+                        definitieveLijst.push(kloon);
+                        toegevoegdeIds.add(mKey);
+                    }
+                }
+            }
+        }
+    });
+
+    // 3. SORTEREN: Eerst Gepland, dan Mogelijk, dan Gespeeld
+    definitieveLijst.sort((a, b) => {
+        const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
+        if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
+        
+        let tijdA = (a.time && !["Onbekend", "Later"].includes(a.time)) ? a.time : "24:00";
+        let tijdB = (b.time && !["Onbekend", "Later"].includes(b.time)) ? b.time : "24:00";
+        return tijdA.localeCompare(tijdB) || (parseInt(a.board) || 999) - (parseInt(b.board) || 999);
+    });
+
+    res.json(definitieveLijst);
 });
 
 // --- API: RUWE DATA DUMP (Om te spieken!) ---
