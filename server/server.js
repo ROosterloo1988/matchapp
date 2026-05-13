@@ -48,63 +48,55 @@ app.get('/api/matches', async (req, res) => {
             responses.forEach((response, index) => {
                 const toernooiNaam = db.tournaments[index].name;
                 
-                let dataContainer = response.data.payload || response.data;
+                let dataContainer = response.data.payload || response.data || {};
                 let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
-                let playersMap = dataContainer.proPlayers || {}; // Het Telefoonboek!
+                
+                // DE KLUIS IS GEKRAAKT: We kijken nu direct in de 'playerList' map!
+                let proPlayersObj = dataContainer.proPlayers || dataContainer.players || {};
+                let spelerLijst = proPlayersObj.playerList || (Array.isArray(proPlayersObj) ? proPlayersObj : Object.values(proPlayersObj));
 
                 let matchesList = [];
 
-                // DE STOFZUIGER: Kijkt net zo diep in alle mapjes/rondes totdat hij de echte wedstrijden vindt
+                // De Stofzuiger (Haalt alle wedstrijden netjes uit de rondes)
                 function zoekWedstrijden(obj) {
                     if (!obj || typeof obj !== 'object') return;
-                    
-                    // We weten dat het een echte wedstrijd is als er een 'p1' of 'd1' (speler data) in zit
                     if ('p1' in obj || 'd1' in obj) {
                         matchesList.push(obj);
                     } else {
-                        // Zo niet, trek alle sub-mapjes (zoals "0", "1", of "Ronde 2") open en zoek daarin verder
                         Object.values(obj).forEach(val => zoekWedstrijden(val));
                     }
                 }
                 
-                // Zet de stofzuiger aan!
                 zoekWedstrijden(bronMap);
 
-                // HULPJE: Bladert door het telefoonboek, ongeacht hoe DartConnect het aanlevert
+                // Het Hulpje (Zoekt het ID nu op de juiste plek!)
                 function vindSpeler(id) {
-                    if (!playersMap) return null;
-                    
-                    // Als het telefoonboek een 'lijst' is (Array)
-                    if (Array.isArray(playersMap)) {
-                        return playersMap.find(p => p.id == id || p.player_id == id || p.key == id);
+                    if (Array.isArray(spelerLijst)) {
+                        return spelerLijst.find(p => p && (p.id == id || p.dcid == id || p.player_id == id));
                     }
-                    
-                    // Als het een 'woordenboek' is (Object)
-                    return playersMap[id] || Object.values(playersMap).find(p => p && (p.id == id || p.player_id == id));
+                    return proPlayersObj[id];
                 }
 
-                // Helper: Vertaalt de nummers naar namen
+                // De Vertaler (Pakt de namen erbij)
                 function getSpelerNaam(idOrArray) {
                     if (!idOrArray) return "Onbekend";
                     
-                    // Voor koppels en teams (Lijst met nummers)
                     if (Array.isArray(idOrArray)) {
                         const validIds = idOrArray.filter(id => id && id !== -1);
                         if (validIds.length === 0) return "Onbekend";
                         
                         const namen = validIds.map(id => {
                             let p = vindSpeler(id);
-                            if (!p) return `Speler ${id}`; // Mocht hij écht niet bestaan
-                            return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${id}`;
+                            if (!p) return `Speler ${id}`; 
+                            return p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${id}`;
                         });
                         return namen.join(" & ");
                     }
                     
-                    // Voor singles (Één los nummer)
                     if (idOrArray === -1) return "Onbekend";
                     let p = vindSpeler(idOrArray);
                     if (!p) return `Speler ${idOrArray}`;
-                    return p.name || p.player_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${idOrArray}`;
+                    return p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Speler ${idOrArray}`;
                 }
 
                 if (matchesList.length > 0) {
@@ -139,7 +131,7 @@ app.get('/api/matches', async (req, res) => {
         return dartersLower.some(darter => matchString.includes(darter));
     });
 
-    res.json(rawMatches);
+    res.json(filteredMatches);
 });
 
 // --- API: RUWE DATA DUMP (Om te spieken!) ---
