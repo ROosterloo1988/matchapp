@@ -76,6 +76,10 @@
     </div>
 
     <div id="filter-container">
+            <div style="text-align: center; margin-bottom: 20px;">
+        <button id="push-btn" style="background: #2ecc71; color: white; border: none; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; display: none;">🔔 Zet Meldingen Aan</button>
+            </div>
+        
         <button class="filter-btn active" onclick="setFilter('alles')" id="filter-alles">Alles</button>
         <button class="filter-btn" onclick="setFilter('gepland')" id="filter-gepland">⚡ Gepland</button>
         <button class="filter-btn" onclick="setFilter('mogelijk')" id="filter-mogelijk">🔮 Mogelijk</button>
@@ -227,6 +231,58 @@
                 .catch(err => console.error('Service Worker registratie mislukt:', err));
         });
     }
+
+    // --- PUSH MELDINGEN LOGICA ---
+    const pushBtn = document.getElementById('push-btn');
+
+    async function initPush() {
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+            const registration = await navigator.serviceWorker.ready;
+            const subscription = await registration.pushManager.getSubscription();
+            
+            if (!subscription) {
+                pushBtn.style.display = 'inline-block'; // Laat de knop zien als ze nog niet geabonneerd zijn
+                pushBtn.addEventListener('click', subscribeUser);
+            }
+        }
+    }
+
+    async function subscribeUser() {
+        try {
+            const registration = await navigator.serviceWorker.ready;
+            // Haal de publieke sleutel op van jouw server
+            const response = await fetch('/api/vapidPublicKey');
+            const vapidPublicKey = await response.text();
+            
+            const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+            
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: convertedVapidKey
+            });
+
+            // Stuur het "Abonnement" naar jouw database
+            await fetch('/api/subscribe', {
+                method: 'POST',
+                body: JSON.stringify(subscription),
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            pushBtn.style.display = 'none';
+            alert("Meldingen staan aan! Je krijgt een bericht als er een wedstrijd gepland wordt.");
+        } catch (error) { console.error('Kon niet abonneren: ', error); }
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+        return outputArray;
+    }
+
+    initPush();
     
     
     loadTournaments();
