@@ -232,24 +232,23 @@ app.get('/api/matches', async (req, res) => {
             }
         });
 
-        definitieveLijst.sort((a, b) => {
+       definitieveLijst.sort((a, b) => {
             const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
-            
-            // 1. Eerst sorteren op de categorie (Gepland -> Mogelijk -> Gespeeld)
-            if (volgorde[a.status] !== volgorde[b.status]) {
-                return volgorde[a.status] - volgorde[b.status];
-            }
+            if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
             let tijdA = (a.time && !["Onbekend", "Later"].includes(a.time)) ? a.time : "24:00";
             let tijdB = (b.time && !["Onbekend", "Later"].includes(b.time)) ? b.time : "24:00";
             
-            // 2. Tijd sorteren afhankelijk van de status
+            // Haal het rondenummer uit de ID (bijv. de "12" uit "12-1") als extra sorteer-regel
+            let rondeA = a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0;
+            let rondeB = b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0;
+
             if (a.status === "gespeeld") {
-                // GESPEELD: Nieuwste tijd bovenaan (aflopend)
-                return tijdB.localeCompare(tijdA) || (parseInt(a.board) || 999) - (parseInt(b.board) || 999);
+                // GESPEELD: Nieuwste tijd bovenaan. Als de tijd gelijk is (of 'Later'), zet de hoogste ronde bovenaan!
+                return tijdB.localeCompare(tijdA) || (rondeB - rondeA) || ((parseInt(b.board) || 999) - (parseInt(a.board) || 999));
             } else {
-                // GEPLAND/MOGELIJK: Vroegste tijd bovenaan (oplopend)
-                return tijdA.localeCompare(tijdB) || (parseInt(a.board) || 999) - (parseInt(b.board) || 999);
+                // GEPLAND: Vroegste tijd bovenaan. Als de tijd gelijk is, zet de laagste ronde eerst.
+                return tijdA.localeCompare(tijdB) || (rondeA - rondeB) || ((parseInt(a.board) || 999) - (parseInt(b.board) || 999));
             }
         });
 
