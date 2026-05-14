@@ -325,9 +325,10 @@ app.get('/api/test-push', async (req, res) => {
         return res.send("<h1>❌ Geen abonnees gevonden!</h1><p>Heb je wel ergens in de app op de groene 'Zet Meldingen Aan' knop geklikt?</p>");
     }
 
+    // Hier imiteren we de exacte nieuwe wedstrijd-opmaak!
     const payload = JSON.stringify({
-        title: "🧪 Test Melding!",
-        body: "Yes! De pushberichten werken perfect op jouw telefoon. 🎯"
+        title: "🎯 Over 10 minuten de volgende wedstrijd",
+        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20"
     });
 
     let successCount = 0;
