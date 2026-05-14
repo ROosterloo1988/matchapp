@@ -234,10 +234,23 @@ app.get('/api/matches', async (req, res) => {
 
         definitieveLijst.sort((a, b) => {
             const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
-            if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
+            
+            // 1. Eerst sorteren op de categorie (Gepland -> Mogelijk -> Gespeeld)
+            if (volgorde[a.status] !== volgorde[b.status]) {
+                return volgorde[a.status] - volgorde[b.status];
+            }
+            
             let tijdA = (a.time && !["Onbekend", "Later"].includes(a.time)) ? a.time : "24:00";
             let tijdB = (b.time && !["Onbekend", "Later"].includes(b.time)) ? b.time : "24:00";
-            return tijdA.localeCompare(tijdB) || (parseInt(a.board) || 999) - (parseInt(b.board) || 999);
+            
+            // 2. Tijd sorteren afhankelijk van de status
+            if (a.status === "gespeeld") {
+                // GESPEELD: Nieuwste tijd bovenaan (aflopend)
+                return tijdB.localeCompare(tijdA) || (parseInt(a.board) || 999) - (parseInt(b.board) || 999);
+            } else {
+                // GEPLAND/MOGELIJK: Vroegste tijd bovenaan (oplopend)
+                return tijdA.localeCompare(tijdB) || (parseInt(a.board) || 999) - (parseInt(b.board) || 999);
+            }
         });
 
         res.json(definitieveLijst);
