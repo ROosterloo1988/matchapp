@@ -56,34 +56,30 @@ app.get('/api/matches', async (req, res) => {
         if (tournament.matchlistUrl) {
             try {
                 let mlRes = await axios.get(tournament.matchlistUrl).catch(() => axios.post(tournament.matchlistUrl, {}));
-                matchlistData = mlRes.data.payload || mlRes.data || [];
                 
-                // NIEUW: Check of we per ongeluk een website (HTML) hebben binnengehaald
-                if (typeof matchlistData === 'string' && matchlistData.toLowerCase().includes('<!doctype')) {
-                    console.log(`[DEBUG] 🚨 LET OP: De Matchlist URL geeft een HTML website terug, geen API data!`);
+                // Kijk of de data netjes in payload.completed zit (zoals we in de debug zagen!)
+                if (mlRes.data && mlRes.data.payload && mlRes.data.payload.completed) {
+                    matchlistData = mlRes.data.payload.completed;
+                } else if (Array.isArray(mlRes.data)) {
+                    matchlistData = mlRes.data;
                 }
             } catch(e) { 
                 console.log(`[DEBUG] Matchlist ophalen mislukt voor ${tournament.name}`); 
             }
         }
 
-        // --- MATCHLIST STOFZUIGER ---
+        // --- NIEUWE MATCHLIST STOFZUIGER ---
         let alleRecaps = [];
-        function verzamelRecaps(obj) {
-            if (!obj || typeof obj !== 'object') return;
-            
-            // Breder zoeken: check álle mogelijke variaties van 'id'
-            let possibleId = obj.matchId || obj.MatchId || obj.matchid || obj.match_id || obj._id || obj.id || obj.uid;
-            
-            // DartConnect Recap ID's zijn hex-codes van exact 24 tekens lang
-            if (typeof possibleId === 'string' && possibleId.length >= 20) {
-                alleRecaps.push({ id: possibleId, text: JSON.stringify(obj).toLowerCase() });
+        matchlistData.forEach(match => {
+            if (match.mi && match.hc && match.ac) {
+                alleRecaps.push({
+                    id: match.mi,
+                    p1: match.hc.toLowerCase(),
+                    p2: match.ac.toLowerCase()
+                });
             }
-            
-            Object.values(obj).forEach(val => verzamelRecaps(val));
-        }
-        verzamelRecaps(matchlistData);
-        console.log(`[DEBUG] ${tournament.name}: ${alleRecaps.length} recaps in het systeem gevonden.`);
+        });
+        console.log(`[DEBUG] ${tournament.name}: ${alleRecaps.length} recaps gevonden!`);
 
         // --- BRACKET STOFZUIGER ---
         let spelersDict = {};
@@ -155,8 +151,6 @@ app.get('/api/matches', async (req, res) => {
                     ronde: rondeNaam,
                     player1: getSpelerNaam(m.d1 || m.p1),
                     player2: getSpelerNaam(m.d2 || m.p2),
-                    p1Raw: m.d1 || m.p1 || [], // BEWAAR DE ORIGINELE SPELER ID'S
-                    p2Raw: m.d2 || m.p2 || [], // BEWAAR DE ORIGINELE SPELER ID'S
                     marker: markerNaam,
                     score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
                     score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
@@ -188,17 +182,19 @@ app.get('/api/matches', async (req, res) => {
             if (!isSpeler && isMarker && match.status === "gespeeld") return; 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
-            // KOPPEL RECAP ID! 
+            // KOPPEL RECAP ID! (Slim zoeken op losse woorden)
             if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 
-                // Zoek veilig op de originele ID's OF op achternaam
-                let p1LastName = match.player1.split(' ').pop().toLowerCase();
-                let p2LastName = match.player2.split(' ').pop().toLowerCase();
+                // Splits namen in lange woorden (bijv: "Van Schie, Jimmy" -> ["schie", "jimmy"])
+                let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
+                let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
+                if (p1Words.length === 0) p1Words = [match.player1.toLowerCase()];
+                if (p2Words.length === 0) p2Words = [match.player2.toLowerCase()];
 
                 let foundRecap = alleRecaps.find(r => {
-                    let hasP1 = match.p1Raw.some(id => r.text.includes(id.toString())) || (p1LastName.length > 2 && r.text.includes(p1LastName));
-                    let hasP2 = match.p2Raw.some(id => r.text.includes(id.toString())) || (p2LastName.length > 2 && r.text.includes(p2LastName));
-                    return hasP1 && hasP2;
+                    let p1ZitErin = p1Words.some(w => r.p1.includes(w) || r.p2.includes(w));
+                    let p2ZitErin = p2Words.some(w => r.p1.includes(w) || r.p2.includes(w));
+                    return p1ZitErin && p2ZitErin;
                 });
                 
                 if (foundRecap) match.recapId = foundRecap.id;
@@ -251,7 +247,6 @@ app.get('/api/matches', async (req, res) => {
         return res.status(500).json({ error: "Kon data niet ophalen" });
     }
 });
-
 // --- API: MATCHLIST DATA DUMP ---
 app.get('/api/debug-matchlist', async (req, res) => {
     const requestedTournament = req.query.tournament;
