@@ -179,7 +179,7 @@ app.get('/api/matches', async (req, res) => {
             let isSpeler = dartersLower.find(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d));
             let isMarker = dartersLower.find(d => match.marker && match.marker.toLowerCase().includes(d));
 
-            if (!isSpeler && isMarker && match.status === "gespeeld") return; 
+            // if (!isSpeler && isMarker && match.status === "gespeeld") return; 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
             // KOPPEL RECAP ID! (Slim zoeken op losse woorden)
