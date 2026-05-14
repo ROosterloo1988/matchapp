@@ -11,7 +11,7 @@
         .item-list { margin-bottom: 15px; }
         .item { display: flex; justify-content: space-between; background: #eee; padding: 10px; margin-bottom: 5px; border-radius: 5px; align-items: center; }
         .item button { background: red; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
-        input, select { padding: 10px; width: calc(100% - 22px); margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        input, select, textarea { padding: 10px; width: calc(100% - 22px); margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: Arial, sans-serif; }
         button.add-btn { background: #FF6600; color: white; border: none; padding: 10px; cursor: pointer; width: 100%; border-radius: 4px; font-weight: bold; }
         button.save-btn { background: green; color: white; border: none; padding: 15px; cursor: pointer; width: 100%; font-size: 18px; border-radius: 4px; margin-top: 30px; }
     </style>
@@ -35,6 +35,15 @@
     <button class="add-btn" onclick="addDarter()">Toevoegen aan geselecteerd toernooi</button>
 
     <button class="save-btn" onclick="saveSettings()">💾 Alles Opslaan</button>
+
+    <h2>3. 📢 App-Melding Versturen</h2>
+    <div style="background: #eee; padding: 15px; border-radius: 8px;">
+        <p style="margin-top: 0; font-size: 0.9rem; color: #555;">Stuur een handmatig bericht naar alle telefoons die de meldingen aan hebben staan.</p>
+        <input type="text" id="custom-push-title" placeholder="Titel (bijv: Klaar voor morgen?!)">
+        <textarea id="custom-push-body" rows="3" placeholder="Bericht (bijv: Vergeet niet je pijlen te slijpen en op tijd te zijn...)"></textarea>
+        <button class="add-btn" onclick="sendCustomPush()">🚀 Verstuur Melding Naar Iedereen</button>
+        <div id="push-status" style="margin-top: 10px; font-weight: bold; text-align: center;"></div>
+    </div>
 </div>
 
 <script>
@@ -118,6 +127,41 @@
     async function saveSettings() {
         await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
         alert('Opgeslagen!');
+    }
+
+    // --- PUSH MELDINGEN VERSTUREN ---
+    async function sendCustomPush() {
+        const titleInput = document.getElementById('custom-push-title');
+        const bodyInput = document.getElementById('custom-push-body');
+        const statusDiv = document.getElementById('push-status');
+        
+        if (!bodyInput.value) return alert('Vul in ieder geval een bericht in!');
+
+        statusDiv.innerText = "⏳ Bezig met versturen...";
+        statusDiv.style.color = "#888";
+
+        try {
+            const res = await fetch('/api/admin/send-push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    title: titleInput.value, 
+                    body: bodyInput.value 
+                })
+            });
+
+            const data = await res.json();
+            statusDiv.innerText = data.message || data.error;
+            statusDiv.style.color = data.success ? "green" : "red";
+            
+            if (data.success) {
+                titleInput.value = '';
+                bodyInput.value = '';
+            }
+        } catch(e) {
+            statusDiv.innerText = "❌ Fout bij verbinden met de server.";
+            statusDiv.style.color = "red";
+        }
     }
 
     loadSettings();
