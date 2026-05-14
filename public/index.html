@@ -6,27 +6,36 @@
     <title>Live Matches</title>
     <style>
         body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
-        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; text-align: center; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 10px; text-align: center; }
         h1 { color: #FF6600; margin: 0; text-transform: uppercase; letter-spacing: 2px; font-size: 2.5rem; flex-grow: 1;}
         .btn-back { background: #333; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; display: none; font-weight: bold;}
-        .btn-placeholder { width: 80px; display: none; } /* Balans in de top-bar */
+        .btn-placeholder { width: 80px; display: none; } 
 
         /* MENU STYLING */
         #menu-container { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-top: 40px; }
         .tournament-card { background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #333; cursor: pointer; transition: 0.3s; font-size: 1.5rem; font-weight: bold; }
         .tournament-card:hover { border-color: #FF6600; background: #252525; }
 
+        /* FILTER STYLING */
+        #filter-container { display: none; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .filter-btn { background: #222; color: #888; border: 1px solid #444; padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: 0.2s; }
+        .filter-btn:hover { background: #333; color: white; }
+        .filter-btn.active { background: #FF6600; color: white; border-color: #FF6600; }
+
         /* MATCH STYLING */
         #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); display: none; }
         .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600;}
         .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;}
         .board-badge { background: black; color: white; padding: 5px 10px; border-radius: 5px; font-size: 1.1rem; border: 1px solid rgba(255,255,255,0.2);}
-        .card-subheader { background: #333; padding: 5px 15px; font-size: 0.85rem; color: #ccc; display: flex; justify-content: space-between;}
+        .card-subheader { background: #333; padding: 5px 15px; font-size: 0.85rem; color: #ccc; display: flex; justify-content: space-between; align-items: center;}
         .match-id { background: #555; padding: 2px 6px; border-radius: 3px; font-family: monospace; color: white;}
         .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1;}
         .player-name { flex: 1; text-align: center; word-wrap: break-word;}
         .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center;}
         
+        .recap-btn { background: #FF6600; color: white; text-decoration: none; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.8rem; border: 1px solid #e65c00;}
+        .recap-btn:hover { background: #e65c00; }
+
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
         .match-card.mogelijk .card-header { background: #444; color: #bbb; }
         .match-card.gespeeld { border-left-width: 10px; opacity: 0.8; }
@@ -35,16 +44,15 @@
         .match-card.gespeeld .card-header { background: #222; color: #888; }
         .match-card.gespeeld .score-box { color: #fff; border-color: #444; }
 
-        .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 30px; text-transform: uppercase; font-size: 0.9rem;}
+        .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; text-transform: uppercase; font-size: 0.9rem;}
         .no-matches { text-align: center; color: #888; margin-top: 50px; grid-column: 1 / -1;}
-
-        .recap-btn { background: #FF6600; color: white; text-decoration: none; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.8rem; }
-        .recap-btn:hover { background: #e65c00; }
 
         @media (max-width: 600px) {
             body { padding: 10px; }
             h1 { font-size: 1.4rem; }
             .btn-back { padding: 8px 10px; font-size: 0.8rem;}
+            #filter-container { gap: 5px; }
+            .filter-btn { padding: 5px 10px; font-size: 0.8rem; }
             #matches-container { grid-template-columns: 1fr; gap: 8px; }
             .card-header { padding: 5px 10px; font-size: 0.85rem; }
             .board-badge { font-size: 0.85rem; padding: 2px 6px; }
@@ -62,6 +70,13 @@
         <h1 id="main-title">🎯 TOERNOOIEN</h1>
         <div class="btn-placeholder" id="btn-placeholder"></div>
     </div>
+
+    <div id="filter-container">
+        <button class="filter-btn active" onclick="setFilter('alles')" id="filter-alles">Alles</button>
+        <button class="filter-btn" onclick="setFilter('gepland')" id="filter-gepland">⚡ Gepland</button>
+        <button class="filter-btn" onclick="setFilter('mogelijk')" id="filter-mogelijk">🔮 Mogelijk</button>
+        <button class="filter-btn" onclick="setFilter('gespeeld')" id="filter-gespeeld">✅ Gespeeld</button>
+    </div>
     
     <div id="menu-container">Laden...</div>
     <div id="matches-container"></div>
@@ -69,8 +84,8 @@
 <script>
     let activeTournament = null;
     let refreshInterval = null;
+    let currentFilter = 'alles'; // Standaard laten we alles zien
 
-    // Check of er een toernooi in de URL staat als we de pagina openen
     const urlParams = new URLSearchParams(window.location.search);
     const urlTournament = urlParams.get('t');
 
@@ -90,7 +105,6 @@
             </div>
         `).join('');
 
-        // Als we via een link met een toernooinaam binnenkomen, open deze dan direct!
         if (urlTournament && names.includes(urlTournament)) {
             selectTournament(urlTournament, false);
         }
@@ -99,7 +113,6 @@
     function selectTournament(name, pushUrl = true) {
         activeTournament = name;
         
-        // Zet de naam in de URL balk zodat we kunnen refreshen of de link kunnen delen
         if (pushUrl) {
             const url = new URL(window.location);
             url.searchParams.set('t', name);
@@ -107,6 +120,7 @@
         }
 
         document.getElementById('menu-container').style.display = 'none';
+        document.getElementById('filter-container').style.display = 'flex'; // Laat filter zien
         document.getElementById('matches-container').style.display = 'grid';
         document.getElementById('btn-back').style.display = 'block';
         document.getElementById('btn-placeholder').style.display = 'block';
@@ -120,25 +134,47 @@
         activeTournament = null;
         clearInterval(refreshInterval);
         
-        // Haal de toernooinaam weer uit de URL balk
         const url = new URL(window.location);
         url.searchParams.delete('t');
         window.history.pushState({}, '', url);
 
         document.getElementById('menu-container').style.display = 'grid';
+        document.getElementById('filter-container').style.display = 'none'; // Verberg filter
         document.getElementById('matches-container').style.display = 'none';
         document.getElementById('btn-back').style.display = 'none';
         document.getElementById('btn-placeholder').style.display = 'none';
         document.getElementById('main-title').innerText = "🎯 TOERNOOIEN";
     }
 
+    // NIEUW: Functie om het filter aan te passen
+    function setFilter(status) {
+        currentFilter = status;
+        
+        // Update de kleuren van de knoppen
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`filter-${status}`).classList.add('active');
+        
+        // Herlaad direct de wedstrijden met de nieuwe filter
+        loadMatches();
+    }
+
     async function loadMatches() {
         if (!activeTournament) return;
         try {
             const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}`);
-            const matches = await response.json();
+            const allMatches = await response.json();
             const container = document.getElementById('matches-container');
-            if (matches.length === 0) { container.innerHTML = "<div class='no-matches'>Geen wedstrijden gevonden voor dit toernooi.</div>"; return; }
+            
+            // Filter de wedstrijden op basis van de ingedrukte knop
+            let matches = allMatches;
+            if (currentFilter !== 'alles') {
+                matches = allMatches.filter(m => m.status === currentFilter);
+            }
+
+            if (matches.length === 0) { 
+                container.innerHTML = `<div class='no-matches'>Geen wedstrijden gevonden voor dit filter.</div>`; 
+                return; 
+            }
 
             let htmlString = "";
             let huidigeStatus = "";
@@ -153,13 +189,9 @@
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
                 
-                if (match.rol === "marker") {
-                    headerText += " ✍️ (SCHRIJVEN)";
-                }
+                if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
 
                 let resultClass = match.resultaat ? match.resultaat : "";
-
-                // NIEUW: De Recap Knop!
                 let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="recap-btn">📊 RECAP</a>` : "";
 
                 htmlString += `
