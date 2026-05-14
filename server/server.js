@@ -318,7 +318,7 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
-// --- ADMIN: HANDMATIGE PUSH MELDING VERSTUREN ---
+// --- ADMIN: HANDMATIGE PUSH MELDING VERSTUREN (MET ZELFREINIGING) ---
 app.post('/api/admin/send-push', async (req, res) => {
     const { title, body } = req.body;
     const db = readDB();
@@ -333,16 +333,32 @@ app.post('/api/admin/send-push', async (req, res) => {
     });
 
     let successCount = 0;
+    let actieveAbonnees = []; // Hier slaan we alleen de werkende op
+
     for (let sub of db.subscriptions) {
         try {
             await webpush.sendNotification(sub, payload);
             successCount++;
+            actieveAbonnees.push(sub); // Succes? Houden!
         } catch (err) {
-            console.log('Handmatige push faalde:', err.message);
+            // Fout 410 of 404 betekent dat de gebruiker de app heeft verwijderd of meldingen heeft uitgezet
+            if (err.statusCode === 410 || err.statusCode === 404) {
+                console.log('App verwijderd door een gebruiker. Abonnement gewist uit database.');
+                // We pushen deze NIET naar actieveAbonnees, dus hij wordt verwijderd!
+            } else {
+                // Bij een andere storing (bijv. tijdelijk geen internet) behouden we hem wel
+                actieveAbonnees.push(sub);
+            }
         }
     }
 
-    res.json({ success: true, message: `✅ Succes! Melding is zojuist naar ${successCount} speler(s) verstuurd.` });
+    // Update de database zodat spook-abonnees voorgoed weg zijn
+    if (db.subscriptions.length !== actieveAbonnees.length) {
+        db.subscriptions = actieveAbonnees;
+        writeDB(db);
+    }
+
+    res.json({ success: true, message: `✅ Succes! Melding verstuurd naar ${successCount} actieve apparaten.` });
 });
 
 // REST API VOOR DE WEBSITE/APP (Zodat als je refresht, je direct de lijst ziet)
