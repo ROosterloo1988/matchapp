@@ -73,6 +73,17 @@ app.get('/api/matches', async (req, res) => {
         }
         zoekWedstrijden(bronMap);
 
+        // NIEUW: Tel hoeveel wedstrijden elke ronde heeft in dit toernooi
+        let rondeTellingen = {};
+        matchesList.forEach(m => {
+            let matchId = (m.id || m.match_id || "").toString();
+            let rndMatch = matchId.match(/^(\d+)[_-]/);
+            if (rndMatch) {
+                let rnd = rndMatch[1];
+                rondeTellingen[rnd] = (rondeTellingen[rnd] || 0) + 1;
+            }
+        });
+
         function getSpelerNaam(idOrArray) {
             if (!idOrArray) return "Onbekend";
             if (Array.isArray(idOrArray)) {
@@ -90,6 +101,22 @@ app.get('/api/matches', async (req, res) => {
                 let matchId = m.id || m.match_id || "";
                 if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
 
+                // NIEUW: Geef de ronde een echte dart-naam op basis van het aantal wedstrijden!
+                let rondeNaam = "Ronde ?";
+                let rondeMatch = matchId.match(/^(\d+)-/);
+                if (rondeMatch) {
+                    let currentRound = rondeMatch[1];
+                    let aantalWedstrijden = rondeTellingen[currentRound];
+                    
+                    if (aantalWedstrijden === 1) rondeNaam = "Finale";
+                    else if (aantalWedstrijden === 2) rondeNaam = "Halve Finale";
+                    else if (aantalWedstrijden === 4) rondeNaam = "Kwartfinale";
+                    else if (aantalWedstrijden === 8) rondeNaam = "Laatste 16";
+                    else if (aantalWedstrijden === 16) rondeNaam = "Laatste 32";
+                    else if (aantalWedstrijden === 32) rondeNaam = "Laatste 64";
+                    else rondeNaam = "Ronde " + currentRound;
+                }
+
                 let markerData = m.ch && m.ch.v ? m.ch.v : null;
                 let markerNaam = "";
                 if (Array.isArray(markerData) || typeof markerData === 'number') {
@@ -100,6 +127,7 @@ app.get('/api/matches', async (req, res) => {
 
                 return {
                     id: matchId,
+                    ronde: rondeNaam,
                     player1: getSpelerNaam(m.d1 || m.p1),
                     player2: getSpelerNaam(m.d2 || m.p2),
                     marker: markerNaam,
