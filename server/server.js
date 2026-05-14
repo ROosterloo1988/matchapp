@@ -201,21 +201,47 @@ async function fetchMatchesForTournament(requestedTournament) {
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
             // --- PUSH MELDING LOGICA ---
-            if (match.status === "gepland" && isSpeler && !db.notifiedMatches.includes(match.id)) {
-                db.notifiedMatches.push(match.id);
-                
-                if (!isFirstRun && db.subscriptions.length > 0) {
-                    const payload = JSON.stringify({
-                        title: "🎯 Nieuwe Wedstrijd Gepland!",
-                        body: `${match.player1} vs ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`
-                    });
+            let isBetrokken = isSpeler || isMarker; // Zowel spelers als schrijvers!
+
+            if (match.status === "gepland" && isBetrokken && !db.notifiedMatches.includes(match.id)) {
+                // Tijd berekenen in minuten vanaf nu (Nederlandse tijdzone)
+                let timeDiff = null;
+                if (match.time && match.time.includes(':')) {
+                    let parts = match.time.split(':');
+                    // Forceer Nederlandse tijd, zodat de klok van de server altijd klopt met DartConnect
+                    let amsterdamTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Amsterdam"});
+                    let amsDate = new Date(amsterdamTime);
                     
-                    db.subscriptions.forEach(sub => {
-                        webpush.sendNotification(sub, payload).catch(err => console.log('Push faalde (wsl telefoon offline/afgemeld)'));
-                    });
+                    let currentTotalMins = (amsDate.getHours() * 60) + amsDate.getMinutes();
+                    let matchTotalMins = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+                    
+                    timeDiff = matchTotalMins - currentTotalMins;
+                    // Mocht een wedstrijd na middernacht zijn, corrigeren we het verschil
+                    if (timeDiff < -1000) timeDiff += 1440; 
                 }
-                nieuwGeplandCount++;
+
+                // Stuur pas een melding als de wedstrijd binnen 0 t/m 10 minuten begint!
+                if (timeDiff !== null && timeDiff <= 10 && timeDiff >= 0) {
+                    db.notifiedMatches.push(match.id);
+                    
+                    if (!isFirstRun && db.subscriptions.length > 0) {
+                        // Maak de titel bold en voeg (SCHRIJVEN) toe als je de marker bent
+                        let titel = "🎯 Over 10 minuten de volgende wedstrijd";
+                        if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
+
+                        const payload = JSON.stringify({
+                            title: titel,
+                            body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`
+                        });
+                        
+                        db.subscriptions.forEach(sub => {
+                            webpush.sendNotification(sub, payload).catch(err => console.log('Push faalde (wsl uitgelogd)'));
+                        });
+                    }
+                    nieuwGeplandCount++;
+                }
             }
+
 
             if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
