@@ -3,7 +3,7 @@ const cors = require('cors');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const webpush = require('web-push'); // NIEUW: Push bibliotheek
+const webpush = require('web-push');
 
 const app = express();
 const PORT = 3000;
@@ -20,10 +20,9 @@ function readDB() {
     let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     if (!db.tournaments) db.tournaments = [];
     if (!db.subscriptions) db.subscriptions = [];
-    if (!db.notifiedMatches) db.notifiedMatches = []; // Onthoudt waarover al een melding is gestuurd
+    if (!db.notifiedMatches) db.notifiedMatches = []; 
     db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
     
-    // Genereer VAPID keys voor Push (als ze nog niet bestaan)
     if (!db.vapidKeys) {
         db.vapidKeys = webpush.generateVAPIDKeys();
         fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
@@ -35,7 +34,6 @@ function writeDB(data) {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
-// Initialiseer Push Settings
 const initialDb = readDB();
 webpush.setVapidDetails(
     'mailto:jouw@email.nl',
@@ -43,10 +41,7 @@ webpush.setVapidDetails(
     initialDb.vapidKeys.privateKey
 );
 
-// PUSH ENDPOINTS
-app.get('/api/vapidPublicKey', (req, res) => {
-    res.send(readDB().vapidKeys.publicKey);
-});
+app.get('/api/vapidPublicKey', (req, res) => res.send(readDB().vapidKeys.publicKey));
 
 app.post('/api/subscribe', (req, res) => {
     const subscription = req.body;
@@ -59,7 +54,6 @@ app.post('/api/subscribe', (req, res) => {
     res.status(201).json({});
 });
 
-// STANDAARD ENDPOINTS
 app.get('/api/settings', (req, res) => res.json(readDB()));
 app.post('/api/settings', (req, res) => {
     writeDB(req.body);
@@ -67,18 +61,17 @@ app.post('/api/settings', (req, res) => {
 });
 
 app.get('/api/tournaments', (req, res) => {
-    const db = readDB();
-    res.json(db.tournaments.map(t => t.name));
+    res.json(readDB().tournaments.map(t => t.name));
 });
 
-let isFirstRun = true; // Zorgt dat je server bij het opstarten niet ineens 20 meldingen uitspuugt
+let isFirstRun = true;
 
-app.get('/api/matches', async (req, res) => {
-    const requestedTournament = req.query.tournament;
+// --- DE CENTRALE DATA MOTOR ---
+// (Wordt gebruikt door de website én door de achtergrond-poller)
+async function fetchMatchesForTournament(requestedTournament) {
     const db = readDB();
     const tournament = db.tournaments.find(t => t.name === requestedTournament);
-
-    if (!tournament) return res.json([]);
+    if (!tournament) return [];
 
     let rawMatches = [];
     let matchlistData = []; 
@@ -202,13 +195,14 @@ app.get('/api/matches', async (req, res) => {
             let isSpeler = dartersLower.find(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d));
             let isMarker = dartersLower.find(d => match.marker && match.marker.toLowerCase().includes(d));
 
-            // if (!isSpeler && isMarker && match.status === "gespeeld") return; 
+            // MARKER FIX IS HIER WEER INGESCHAKELD!
+            if (!isSpeler && isMarker && match.status === "gespeeld") return; 
+
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
             // --- PUSH MELDING LOGICA ---
-            // Als hij gepland is, het een speler is, en we hebben nog GEEN melding verstuurd
             if (match.status === "gepland" && isSpeler && !db.notifiedMatches.includes(match.id)) {
-                db.notifiedMatches.push(match.id); // Direct opslaan
+                db.notifiedMatches.push(match.id);
                 
                 if (!isFirstRun && db.subscriptions.length > 0) {
                     const payload = JSON.stringify({
@@ -217,7 +211,7 @@ app.get('/api/matches', async (req, res) => {
                     });
                     
                     db.subscriptions.forEach(sub => {
-                        webpush.sendNotification(sub, payload).catch(err => console.log('Push niet verstuurd (waarschijnlijk uitgelogd):', err));
+                        webpush.sendNotification(sub, payload).catch(err => console.log('Push faalde (wsl telefoon offline/afgemeld)'));
                     });
                 }
                 nieuwGeplandCount++;
@@ -250,7 +244,7 @@ app.get('/api/matches', async (req, res) => {
             toegevoegdeIds.add(match.id);
         });
 
-        // Schrijf de zojuist gewaarschuwde wedstrijden op naar de database
+        // Sla de ID's van gewaarschuwde wedstrijden op, zodat je geen spam krijgt
         if (nieuwGeplandCount > 0) writeDB(db);
 
         eigenWedstrijden.forEach(match => {
@@ -290,13 +284,39 @@ app.get('/api/matches', async (req, res) => {
             }
         });
 
-        isFirstRun = false; // Na 1 keer inladen mag hij voortaan wél meldingen sturen!
-        res.json(definitieveLijst);
+        return definitieveLijst;
 
     } catch (error) {
         console.error("Fout:", error.message);
-        return res.status(500).json({ error: "Kon data niet ophalen" });
+        return [];
     }
+}
+
+// REST API VOOR DE WEBSITE/APP (Zodat als je refresht, je direct de lijst ziet)
+app.get('/api/matches', async (req, res) => {
+    const list = await fetchMatchesForTournament(req.query.tournament);
+    res.json(list);
 });
 
+// --- DE HARTSLAG (ACHTERGROND POLLER) ---
+async function runHeartbeat() {
+    const db = readDB();
+    if (db.tournaments.length === 0) return;
+    
+    console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien voor nieuwe wedstrijden...`);
+    for (let t of db.tournaments) {
+        await fetchMatchesForTournament(t.name);
+    }
+    
+    if (isFirstRun) {
+        isFirstRun = false;
+        console.log("[HARTSLAG] Eerste run voltooid. Vanaf nu worden er meldingen verstuurd.");
+    }
+}
+
+// Start de hartslag 1x direct op, en daarna elke 60 seconden
+runHeartbeat();
+setInterval(runHeartbeat, 60000);
+
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
+                                 
