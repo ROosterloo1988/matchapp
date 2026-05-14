@@ -292,6 +292,32 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
+// --- GEHEIME TEST ROUTE VOOR PUSH MELDINGEN ---
+app.get('/api/test-push', async (req, res) => {
+    const db = readDB();
+    if (!db.subscriptions || db.subscriptions.length === 0) {
+        return res.send("<h1>❌ Geen abonnees gevonden!</h1><p>Heb je wel ergens in de app op de groene 'Zet Meldingen Aan' knop geklikt?</p>");
+    }
+
+    const payload = JSON.stringify({
+        title: "🧪 Test Melding!",
+        body: "Yes! De pushberichten werken perfect op jouw telefoon. 🎯"
+    });
+
+    let successCount = 0;
+    for (let sub of db.subscriptions) {
+        try {
+            await webpush.sendNotification(sub, payload);
+            successCount++;
+        } catch (err) {
+            console.log('Test push faalde (wsl uitgelogd):', err.message);
+        }
+    }
+
+    res.send(`<h1>✅ Test Voltooid!</h1><p>Er is succesvol een melding gestuurd naar ${successCount} van de ${db.subscriptions.length} geabonneerde apparaten.</p>`);
+});
+
+
 // REST API VOOR DE WEBSITE/APP (Zodat als je refresht, je direct de lijst ziet)
 app.get('/api/matches', async (req, res) => {
     const list = await fetchMatchesForTournament(req.query.tournament);
