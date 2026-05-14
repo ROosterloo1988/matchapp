@@ -44,7 +44,7 @@ app.get('/api/matches', async (req, res) => {
     if (!tournament) return res.json([]);
 
     let rawMatches = [];
-    let matchlistData = []; // Voor de recaps!
+    let matchlistData = []; 
 
     try {
         // 1. Haal BRACKET (Schema) Data op
@@ -52,29 +52,37 @@ app.get('/api/matches', async (req, res) => {
         let dataContainer = response.data.payload || response.data || {};
         let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
         
-        // 2. Haal MATCHLIST (Recap) Data op (Als link bestaat)
+        // 2. Haal MATCHLIST (Recap) Data op
         if (tournament.matchlistUrl) {
             try {
-                // Soms accepteert DartConnect alleen GET, soms POST. We proberen GET, en bij falen POST.
-                let mlRes = await axios.get(tournament.matchlistUrl).catch(() => axios.post(tournament.matchlistUrl, {}));
+                let mlRes;
+                try {
+                    mlRes = await axios.get(tournament.matchlistUrl);
+                } catch(err) {
+                    mlRes = await axios.post(tournament.matchlistUrl, {});
+                }
                 matchlistData = mlRes.data.payload || mlRes.data || [];
-            } catch(e) { console.log("Geen matchlist data gevonden voor dit toernooi."); }
+            } catch(e) { 
+                console.log(`[DEBUG] Matchlist ophalen mislukt voor ${tournament.name}`); 
+            }
         }
 
         // --- MATCHLIST STOFZUIGER ---
         let alleRecaps = [];
         function verzamelRecaps(obj) {
             if (!obj || typeof obj !== 'object') return;
-            // Zoek naar die hele lange hex-code (minimaal 20 tekens)
-            let possibleId = obj._id || obj.id || obj.match_id || obj.matchid;
-            if (typeof possibleId === 'string' && possibleId.length > 20) {
-                // Sla de ID op, en zet de HELE ruwe tekst van dit object om naar kleine letters om makkelijk in te zoeken
+            
+            // Zoek naar de MongoDb ID's (lang genoeg)
+            let possibleId = obj.matchid || obj.match_id || obj._id || obj.id;
+            if (typeof possibleId === 'string' && possibleId.length >= 20) {
                 alleRecaps.push({ id: possibleId, text: JSON.stringify(obj).toLowerCase() });
-            } else {
-                Object.values(obj).forEach(val => verzamelRecaps(val));
             }
+            
+            // BELANGRIJK: Blijf áltijd doorgraven in de submappen!
+            Object.values(obj).forEach(val => verzamelRecaps(val));
         }
         verzamelRecaps(matchlistData);
+        console.log(`[DEBUG] ${tournament.name}: ${alleRecaps.length} recaps in het systeem gevonden.`);
 
         // --- BRACKET STOFZUIGER ---
         let spelersDict = {};
@@ -146,6 +154,8 @@ app.get('/api/matches', async (req, res) => {
                     ronde: rondeNaam,
                     player1: getSpelerNaam(m.d1 || m.p1),
                     player2: getSpelerNaam(m.d2 || m.p2),
+                    p1Raw: m.d1 || m.p1 || [], // BEWAAR DE ORIGINELE SPELER ID'S
+                    p2Raw: m.d2 || m.p2 || [], // BEWAAR DE ORIGINELE SPELER ID'S
                     marker: markerNaam,
                     score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
                     score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
@@ -177,15 +187,16 @@ app.get('/api/matches', async (req, res) => {
             if (!isSpeler && isMarker && match.status === "gespeeld") return; 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
-            // KOPPEL RECAP ID! (Als de wedstrijd gespeeld is, zoek de namen op in de matchlist)
+            // KOPPEL RECAP ID! 
             if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
-                // We knippen de namen op in woorden (groter dan 2 letters) zodat hij ook "Crans" herkent
-                let p1Parts = match.player1.toLowerCase().split(' ').filter(p => p.length > 2);
-                let p2Parts = match.player2.toLowerCase().split(' ').filter(p => p.length > 2);
                 
+                // Zoek veilig op de originele ID's OF op achternaam
+                let p1LastName = match.player1.split(' ').pop().toLowerCase();
+                let p2LastName = match.player2.split(' ').pop().toLowerCase();
+
                 let foundRecap = alleRecaps.find(r => {
-                    let hasP1 = p1Parts.some(part => r.text.includes(part));
-                    let hasP2 = p2Parts.some(part => r.text.includes(part));
+                    let hasP1 = match.p1Raw.some(id => r.text.includes(id.toString())) || (p1LastName.length > 2 && r.text.includes(p1LastName));
+                    let hasP2 = match.p2Raw.some(id => r.text.includes(id.toString())) || (p2LastName.length > 2 && r.text.includes(p2LastName));
                     return hasP1 && hasP2;
                 });
                 
