@@ -318,17 +318,18 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
-// --- GEHEIME TEST ROUTE VOOR PUSH MELDINGEN ---
-app.get('/api/test-push', async (req, res) => {
+// --- ADMIN: HANDMATIGE PUSH MELDING VERSTUREN ---
+app.post('/api/admin/send-push', async (req, res) => {
+    const { title, body } = req.body;
     const db = readDB();
+
     if (!db.subscriptions || db.subscriptions.length === 0) {
-        return res.send("<h1>❌ Geen abonnees gevonden!</h1><p>Heb je wel ergens in de app op de groene 'Zet Meldingen Aan' knop geklikt?</p>");
+        return res.status(400).json({ error: "Niemand heeft nog meldingen aan staan!" });
     }
 
-    // Hier imiteren we de exacte nieuwe wedstrijd-opmaak!
     const payload = JSON.stringify({
-        title: "🎯 Over 10 minuten de volgende wedstrijd",
-        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20"
+        title: title || "🎯 DartApp Bericht",
+        body: body || ""
     });
 
     let successCount = 0;
@@ -337,13 +338,12 @@ app.get('/api/test-push', async (req, res) => {
             await webpush.sendNotification(sub, payload);
             successCount++;
         } catch (err) {
-            console.log('Test push faalde (wsl uitgelogd):', err.message);
+            console.log('Handmatige push faalde:', err.message);
         }
     }
 
-    res.send(`<h1>✅ Test Voltooid!</h1><p>Er is succesvol een melding gestuurd naar ${successCount} van de ${db.subscriptions.length} geabonneerde apparaten.</p>`);
+    res.json({ success: true, message: `✅ Succes! Melding is zojuist naar ${successCount} speler(s) verstuurd.` });
 });
-
 
 // REST API VOOR DE WEBSITE/APP (Zodat als je refresht, je direct de lijst ziet)
 app.get('/api/matches', async (req, res) => {
