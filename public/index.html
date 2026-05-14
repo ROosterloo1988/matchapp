@@ -219,6 +219,16 @@
         } catch (error) { document.getElementById('matches-container').innerHTML = "Fout bij laden."; }
     }
 
+        // Registreer de Service Worker voor PWA functionaliteit
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(reg => console.log('Service Worker geregistreerd!'))
+                .catch(err => console.error('Service Worker registratie mislukt:', err));
+        });
+    }
+    
+    
     loadTournaments();
 </script>
 </body>
