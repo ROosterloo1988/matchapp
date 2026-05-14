@@ -38,6 +38,9 @@
         .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 30px; text-transform: uppercase; font-size: 0.9rem;}
         .no-matches { text-align: center; color: #888; margin-top: 50px; grid-column: 1 / -1;}
 
+        .recap-btn { background: #FF6600; color: white; text-decoration: none; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.8rem; }
+        .recap-btn:hover { background: #e65c00; }
+
         @media (max-width: 600px) {
             body { padding: 10px; }
             h1 { font-size: 1.4rem; }
@@ -156,6 +159,9 @@
 
                 let resultClass = match.resultaat ? match.resultaat : "";
 
+                // NIEUW: De Recap Knop!
+                let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="recap-btn">📊 RECAP</a>` : "";
+
                 htmlString += `
                 <div class="match-card ${match.status} ${resultClass}">
                     <div class="card-header">
@@ -164,7 +170,7 @@
                     </div>
                     <div class="card-subheader">
                         <span>Tijd: ${match.time} ${match.status === "mogelijk" ? '('+match.toernooi+')' : ''}</span>
-                        <span>${match.ronde} | ID: <span class="match-id">${match.id || '?'}</span></span>
+                        <span>${match.ronde} | ID: <span class="match-id">${match.id || '?'}</span> ${recapKnop}</span>
                     </div>
                     <div class="players-area">
                         <div class="player-name">${match.player1}</div>
