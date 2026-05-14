@@ -67,7 +67,6 @@ app.get('/api/tournaments', (req, res) => {
 let isFirstRun = true;
 
 // --- DE CENTRALE DATA MOTOR ---
-// (Wordt gebruikt door de website én door de achtergrond-poller)
 async function fetchMatchesForTournament(requestedTournament) {
     const db = readDB();
     const tournament = db.tournaments.find(t => t.name === requestedTournament);
@@ -188,27 +187,25 @@ async function fetchMatchesForTournament(requestedTournament) {
             return dartersLower.some(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d) || (match.marker && match.marker.toLowerCase().includes(d)));
         });
 
-        eigenWedstrijden.forEach(match => {
+        // HIER ZIT DE FIX: we gebruiken een async for...of loop in plaats van forEach
+        for (let match of eigenWedstrijden) {
             match.status = (match.isFinished || (match.score1 !== "" && match.score2 !== "")) ? "gespeeld" : "gepland";
             match.isMogelijk = false;
             
             let isSpeler = dartersLower.find(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d));
             let isMarker = dartersLower.find(d => match.marker && match.marker.toLowerCase().includes(d));
 
-            // MARKER FIX IS HIER WEER INGESCHAKELD!
-            if (!isSpeler && isMarker && match.status === "gespeeld") return; 
+            if (!isSpeler && isMarker && match.status === "gespeeld") continue; 
 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
             // --- PUSH MELDING LOGICA ---
-            let isBetrokken = isSpeler || isMarker; // Zowel spelers als schrijvers!
+            let isBetrokken = isSpeler || isMarker;
 
             if (match.status === "gepland" && isBetrokken && !db.notifiedMatches.includes(match.id)) {
-                // Tijd berekenen in minuten vanaf nu (Nederlandse tijdzone)
                 let timeDiff = null;
                 if (match.time && match.time.includes(':')) {
                     let parts = match.time.split(':');
-                    // Forceer Nederlandse tijd, zodat de klok van de server altijd klopt met DartConnect
                     let amsterdamTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Amsterdam"});
                     let amsDate = new Date(amsterdamTime);
                     
@@ -216,11 +213,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                     let matchTotalMins = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
                     
                     timeDiff = matchTotalMins - currentTotalMins;
-                    // Mocht een wedstrijd na middernacht zijn, corrigeren we het verschil
                     if (timeDiff < -1000) timeDiff += 1440; 
                 }
 
-                // Stuur pas een melding als de wedstrijd binnen 0 t/m 10 minuten begint!
                 if (timeDiff !== null && timeDiff <= 10 && timeDiff >= 0) {
                     db.notifiedMatches.push(match.id);
                     
@@ -235,29 +230,24 @@ async function fetchMatchesForTournament(requestedTournament) {
                         
                         let activeSubs = [];
                         
-                        // We sturen alle meldingen tegelijk en kijken wie er nog actief is
                         await Promise.all(db.subscriptions.map(async (sub) => {
                             try {
                                 await webpush.sendNotification(sub, payload);
                                 activeSubs.push(sub);
                             } catch (err) {
                                 if (err.statusCode !== 410 && err.statusCode !== 404) {
-                                    activeSubs.push(sub); // Geen permanente fout, dus bewaren
+                                    activeSubs.push(sub);
                                 }
                             }
                         }));
                         
-                        // Update lijst als er afmelders waren
                         if (db.subscriptions.length !== activeSubs.length) {
                             db.subscriptions = activeSubs;
-                            writeDB(db);
                         }
                     }
-
                     nieuwGeplandCount++;
                 }
             }
-
 
             if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
@@ -284,9 +274,8 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             definitieveLijst.push(match);
             toegevoegdeIds.add(match.id);
-        });
+        }
 
-        // Sla de ID's van gewaarschuwde wedstrijden op, zodat je geen spam krijgt
         if (nieuwGeplandCount > 0) writeDB(db);
 
         eigenWedstrijden.forEach(match => {
@@ -334,6 +323,12 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
+// REST API VOOR DE WEBSITE/APP 
+app.get('/api/matches', async (req, res) => {
+    const list = await fetchMatchesForTournament(req.query.tournament);
+    res.json(list);
+});
+
 // --- ADMIN: HANDMATIGE PUSH MELDING VERSTUREN (MET ZELFREINIGING) ---
 app.post('/api/admin/send-push', async (req, res) => {
     const { title, body } = req.body;
@@ -349,26 +344,22 @@ app.post('/api/admin/send-push', async (req, res) => {
     });
 
     let successCount = 0;
-    let actieveAbonnees = []; // Hier slaan we alleen de werkende op
+    let actieveAbonnees = []; 
 
     for (let sub of db.subscriptions) {
         try {
             await webpush.sendNotification(sub, payload);
             successCount++;
-            actieveAbonnees.push(sub); // Succes? Houden!
+            actieveAbonnees.push(sub); 
         } catch (err) {
-            // Fout 410 of 404 betekent dat de gebruiker de app heeft verwijderd of meldingen heeft uitgezet
             if (err.statusCode === 410 || err.statusCode === 404) {
                 console.log('App verwijderd door een gebruiker. Abonnement gewist uit database.');
-                // We pushen deze NIET naar actieveAbonnees, dus hij wordt verwijderd!
             } else {
-                // Bij een andere storing (bijv. tijdelijk geen internet) behouden we hem wel
                 actieveAbonnees.push(sub);
             }
         }
     }
 
-    // Update de database zodat spook-abonnees voorgoed weg zijn
     if (db.subscriptions.length !== actieveAbonnees.length) {
         db.subscriptions = actieveAbonnees;
         writeDB(db);
@@ -377,10 +368,29 @@ app.post('/api/admin/send-push', async (req, res) => {
     res.json({ success: true, message: `✅ Succes! Melding verstuurd naar ${successCount} actieve apparaten.` });
 });
 
-// REST API VOOR DE WEBSITE/APP (Zodat als je refresht, je direct de lijst ziet)
-app.get('/api/matches', async (req, res) => {
-    const list = await fetchMatchesForTournament(req.query.tournament);
-    res.json(list);
+// --- GEHEIME TEST ROUTE VOOR PUSH MELDINGEN ---
+app.get('/api/test-push', async (req, res) => {
+    const db = readDB();
+    if (!db.subscriptions || db.subscriptions.length === 0) {
+        return res.send("<h1>❌ Geen abonnees gevonden!</h1><p>Heb je wel ergens in de app op de groene 'Zet Meldingen Aan' knop geklikt?</p>");
+    }
+
+    const payload = JSON.stringify({
+        title: "🎯 Over 10 minuten de volgende wedstrijd",
+        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20"
+    });
+
+    let successCount = 0;
+    for (let sub of db.subscriptions) {
+        try {
+            await webpush.sendNotification(sub, payload);
+            successCount++;
+        } catch (err) {
+            console.log('Test push faalde:', err.message);
+        }
+    }
+
+    res.send(`<h1>✅ Test Voltooid!</h1><p>Er is succesvol een melding gestuurd naar ${successCount} van de ${db.subscriptions.length} geabonneerde apparaten.</p>`);
 });
 
 // --- DE HARTSLAG (ACHTERGROND POLLER) ---
@@ -404,4 +414,3 @@ runHeartbeat();
 setInterval(runHeartbeat, 60000);
 
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
-                                 
