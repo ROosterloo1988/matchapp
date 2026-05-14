@@ -76,10 +76,6 @@
     </div>
 
     <div id="filter-container">
-            <div style="text-align: center; margin-bottom: 20px;">
-        <button id="push-btn" style="background: #2ecc71; color: white; border: none; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; display: none;">🔔 Zet Meldingen Aan</button>
-            </div>
-        
         <button class="filter-btn active" onclick="setFilter('alles')" id="filter-alles">Alles</button>
         <button class="filter-btn" onclick="setFilter('gepland')" id="filter-gepland">⚡ Gepland</button>
         <button class="filter-btn" onclick="setFilter('mogelijk')" id="filter-mogelijk">🔮 Mogelijk</button>
@@ -88,6 +84,15 @@
     
     <div id="menu-container">Laden...</div>
     <div id="matches-container"></div>
+
+    <div id="push-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
+        <div style="background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #FF6600; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+            <h2 style="color: #FF6600; margin-top: 0; font-size: 2rem;">🔔 Mis Niets!</h2>
+            <p style="color: #ccc; font-size: 1.1rem; margin-bottom: 25px;">Zet je meldingen aan zodat we je direct kunnen waarschuwen als je moet gooien of schrijven op het toernooi.</p>
+            <button onclick="subscribeUser()" style="background: #2ecc71; color: white; border: none; padding: 15px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1.2rem; margin-bottom: 15px;">✅ Meldingen Aanzetten</button>
+            <button onclick="closePushModal()" style="background: transparent; color: #888; border: none; text-decoration: underline; cursor: pointer; font-size: 0.9rem;">Nee bedankt, ik let zelf wel op</button>
+        </div>
+    </div>
 
 <script>
     let activeTournament = null;
@@ -233,24 +238,31 @@
     }
 
     // --- PUSH MELDINGEN LOGICA ---
-    const pushBtn = document.getElementById('push-btn');
+    // --- PUSH MELDINGEN LOGICA ---
+    const pushModal = document.getElementById('push-modal');
 
     async function initPush() {
         if ('serviceWorker' in navigator && 'PushManager' in window) {
             const registration = await navigator.serviceWorker.ready;
             const subscription = await registration.pushManager.getSubscription();
             
-            if (!subscription) {
-                pushBtn.style.display = 'inline-block'; // Laat de knop zien als ze nog niet geabonneerd zijn
-                pushBtn.addEventListener('click', subscribeUser);
+            // Check of de app als "Echte App" is gestart (Standalone mode)
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+            
+            // Als het een app is, er géén abonnement is, en ze notificaties niet eerder hebben geblokkeerd:
+            if (isStandalone && !subscription && Notification.permission !== 'denied') {
+                pushModal.style.display = 'flex'; // Laat de grote pop-up zien!
             }
         }
+    }
+
+    function closePushModal() {
+        pushModal.style.display = 'none';
     }
 
     async function subscribeUser() {
         try {
             const registration = await navigator.serviceWorker.ready;
-            // Haal de publieke sleutel op van jouw server
             const response = await fetch('/api/vapidPublicKey');
             const vapidPublicKey = await response.text();
             
@@ -261,16 +273,19 @@
                 applicationServerKey: convertedVapidKey
             });
 
-            // Stuur het "Abonnement" naar jouw database
             await fetch('/api/subscribe', {
                 method: 'POST',
                 body: JSON.stringify(subscription),
                 headers: { 'Content-Type': 'application/json' }
             });
 
-            pushBtn.style.display = 'none';
-            alert("Meldingen staan aan! Je krijgt een bericht als er een wedstrijd gepland wordt.");
-        } catch (error) { console.error('Kon niet abonneren: ', error); }
+            closePushModal(); // Sluit de pop-up na succes!
+            alert("Meldingen staan aan! Je krijgt nu een trilsignaal als je moet spelen.");
+        } catch (error) { 
+            console.error('Kon niet abonneren: ', error);
+            alert("Oeps! Het instellen van meldingen is mislukt. Misschien moet je ze aanzetten in je telefoon-instellingen.");
+            closePushModal();
+        }
     }
 
     function urlBase64ToUint8Array(base64String) {
@@ -283,8 +298,7 @@
     }
 
     initPush();
-    
-    
+
     loadTournaments();
 </script>
 </body>
