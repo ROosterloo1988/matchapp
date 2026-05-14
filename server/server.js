@@ -225,7 +225,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                     db.notifiedMatches.push(match.id);
                     
                     if (!isFirstRun && db.subscriptions.length > 0) {
-                        // Maak de titel bold en voeg (SCHRIJVEN) toe als je de marker bent
                         let titel = "🎯 Over 10 minuten de volgende wedstrijd";
                         if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
 
@@ -234,10 +233,27 @@ async function fetchMatchesForTournament(requestedTournament) {
                             body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`
                         });
                         
-                        db.subscriptions.forEach(sub => {
-                            webpush.sendNotification(sub, payload).catch(err => console.log('Push faalde (wsl uitgelogd)'));
-                        });
+                        let activeSubs = [];
+                        
+                        // We sturen alle meldingen tegelijk en kijken wie er nog actief is
+                        await Promise.all(db.subscriptions.map(async (sub) => {
+                            try {
+                                await webpush.sendNotification(sub, payload);
+                                activeSubs.push(sub);
+                            } catch (err) {
+                                if (err.statusCode !== 410 && err.statusCode !== 404) {
+                                    activeSubs.push(sub); // Geen permanente fout, dus bewaren
+                                }
+                            }
+                        }));
+                        
+                        // Update lijst als er afmelders waren
+                        if (db.subscriptions.length !== activeSubs.length) {
+                            db.subscriptions = activeSubs;
+                            writeDB(db);
+                        }
                     }
+
                     nieuwGeplandCount++;
                 }
             }
