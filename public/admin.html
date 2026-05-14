@@ -24,12 +24,12 @@
     <h2>1. Toernooien (API Links)</h2>
     <div id="tournaments-list" class="item-list"></div>
     <input type="text" id="t-name" placeholder="Naam toernooi (bijv. Dutch Open Single)">
-    <input type="text" id="t-url" placeholder="DartConnect API URL">
+    <input type="text" id="t-url" placeholder="1. Bracket API URL (Verplicht)">
+    <input type="text" id="t-matchlist" placeholder="2. Matchlist API URL (Optioneel, voor Recap links!)">
     <button class="add-btn" onclick="addTournament()">Toevoegen</button>
 
     <h2>2. Darters per Toernooi</h2>
-    <select id="d-toernooi-select">
-        </select>
+    <select id="d-toernooi-select"></select>
     <div id="darters-list" class="item-list"></div>
     <input type="text" id="d-name" placeholder="Naam Darter (exact zoals in DartConnect)">
     <button class="add-btn" onclick="addDarter()">Toevoegen aan geselecteerd toernooi</button>
@@ -54,7 +54,7 @@
         list.innerHTML = '';
         db.tournaments.forEach((t, i) => {
             list.innerHTML += `<div class="item">
-                <span><b>${t.name}</b> <small>(${t.url})</small></span>
+                <span style="font-size: 0.9rem;"><b>${t.name}</b><br><small>Bracket: ${t.url}</small><br><small>Matchlist: ${t.matchlistUrl || 'Geen'}</small></span>
                 <button onclick="removeTournament(${i})">X</button>
             </div>`;
         });
@@ -64,10 +64,12 @@
     function addTournament() {
         const name = document.getElementById('t-name').value;
         const url = document.getElementById('t-url').value;
+        const matchlistUrl = document.getElementById('t-matchlist').value;
         if (name && url) {
-            db.tournaments.push({ name, url, darters: [] });
+            db.tournaments.push({ name, url, matchlistUrl, darters: [] });
             document.getElementById('t-name').value = '';
             document.getElementById('t-url').value = '';
+            document.getElementById('t-matchlist').value = '';
             renderTournaments();
         }
     }
@@ -90,14 +92,10 @@
         list.innerHTML = '';
         const tIndex = document.getElementById('d-toernooi-select').value;
         if (tIndex === "") return;
-        
         const tournament = db.tournaments[tIndex];
         if (tournament && tournament.darters) {
             tournament.darters.forEach((d, i) => {
-                list.innerHTML += `<div class="item">
-                    <span>${d}</span>
-                    <button onclick="removeDarter(${tIndex}, ${i})">X</button>
-                </div>`;
+                list.innerHTML += `<div class="item"><span>${d}</span><button onclick="removeDarter(${tIndex}, ${i})">X</button></div>`;
             });
         }
     }
@@ -118,11 +116,7 @@
     }
 
     async function saveSettings() {
-        await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(db)
-        });
+        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
         alert('Opgeslagen!');
     }
 
