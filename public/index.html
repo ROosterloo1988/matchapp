@@ -67,6 +67,10 @@
     let activeTournament = null;
     let refreshInterval = null;
 
+    // Check of er een toernooi in de URL staat als we de pagina openen
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlTournament = urlParams.get('t');
+
     async function loadTournaments() {
         const response = await fetch('/api/tournaments');
         const names = await response.json();
@@ -82,10 +86,23 @@
                 ${name.toUpperCase()}
             </div>
         `).join('');
+
+        // Als we via een link met een toernooinaam binnenkomen, open deze dan direct!
+        if (urlTournament && names.includes(urlTournament)) {
+            selectTournament(urlTournament, false);
+        }
     }
 
-    function selectTournament(name) {
+    function selectTournament(name, pushUrl = true) {
         activeTournament = name;
+        
+        // Zet de naam in de URL balk zodat we kunnen refreshen of de link kunnen delen
+        if (pushUrl) {
+            const url = new URL(window.location);
+            url.searchParams.set('t', name);
+            window.history.pushState({}, '', url);
+        }
+
         document.getElementById('menu-container').style.display = 'none';
         document.getElementById('matches-container').style.display = 'grid';
         document.getElementById('btn-back').style.display = 'block';
@@ -99,6 +116,12 @@
     function showMenu() {
         activeTournament = null;
         clearInterval(refreshInterval);
+        
+        // Haal de toernooinaam weer uit de URL balk
+        const url = new URL(window.location);
+        url.searchParams.delete('t');
+        window.history.pushState({}, '', url);
+
         document.getElementById('menu-container').style.display = 'grid';
         document.getElementById('matches-container').style.display = 'none';
         document.getElementById('btn-back').style.display = 'none';
@@ -127,11 +150,10 @@
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
                 
-                // NIEUW: Als we de marker zijn, zetten we dat in de titelbalk!
                 if (match.rol === "marker") {
                     headerText += " ✍️ (SCHRIJVEN)";
                 }
-                
+
                 let resultClass = match.resultaat ? match.resultaat : "";
 
                 htmlString += `
