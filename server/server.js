@@ -55,13 +55,13 @@ app.get('/api/matches', async (req, res) => {
         // 2. Haal MATCHLIST (Recap) Data op
         if (tournament.matchlistUrl) {
             try {
-                let mlRes;
-                try {
-                    mlRes = await axios.get(tournament.matchlistUrl);
-                } catch(err) {
-                    mlRes = await axios.post(tournament.matchlistUrl, {});
-                }
+                let mlRes = await axios.get(tournament.matchlistUrl).catch(() => axios.post(tournament.matchlistUrl, {}));
                 matchlistData = mlRes.data.payload || mlRes.data || [];
+                
+                // NIEUW: Check of we per ongeluk een website (HTML) hebben binnengehaald
+                if (typeof matchlistData === 'string' && matchlistData.toLowerCase().includes('<!doctype')) {
+                    console.log(`[DEBUG] 🚨 LET OP: De Matchlist URL geeft een HTML website terug, geen API data!`);
+                }
             } catch(e) { 
                 console.log(`[DEBUG] Matchlist ophalen mislukt voor ${tournament.name}`); 
             }
@@ -72,13 +72,14 @@ app.get('/api/matches', async (req, res) => {
         function verzamelRecaps(obj) {
             if (!obj || typeof obj !== 'object') return;
             
-            // Zoek naar de MongoDb ID's (lang genoeg)
-            let possibleId = obj.matchid || obj.match_id || obj._id || obj.id;
+            // Breder zoeken: check álle mogelijke variaties van 'id'
+            let possibleId = obj.matchId || obj.MatchId || obj.matchid || obj.match_id || obj._id || obj.id || obj.uid;
+            
+            // DartConnect Recap ID's zijn hex-codes van exact 24 tekens lang
             if (typeof possibleId === 'string' && possibleId.length >= 20) {
                 alleRecaps.push({ id: possibleId, text: JSON.stringify(obj).toLowerCase() });
             }
             
-            // BELANGRIJK: Blijf áltijd doorgraven in de submappen!
             Object.values(obj).forEach(val => verzamelRecaps(val));
         }
         verzamelRecaps(matchlistData);
@@ -248,6 +249,22 @@ app.get('/api/matches', async (req, res) => {
     } catch (error) {
         console.error("Fout:", error.message);
         return res.status(500).json({ error: "Kon data niet ophalen" });
+    }
+});
+
+// --- API: MATCHLIST DATA DUMP ---
+app.get('/api/debug-matchlist', async (req, res) => {
+    const requestedTournament = req.query.tournament;
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === requestedTournament) || db.tournaments[0];
+
+    if (!tournament || !tournament.matchlistUrl) return res.json({ error: "Geen toernooi of matchlist URL gevonden" });
+
+    try {
+        let mlRes = await axios.get(tournament.matchlistUrl).catch(() => axios.post(tournament.matchlistUrl, {}));
+        res.send(mlRes.data); // Stuurt de letterlijke data naar je scherm
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
