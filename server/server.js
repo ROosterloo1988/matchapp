@@ -183,6 +183,24 @@ app.get('/api/matches', async (req, res) => {
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
             // KOPPEL RECAP ID! (Slim zoeken op losse woorden)
+            if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
+                
+                // Splits namen in lange woorden (bijv: "Van Schie, Jimmy" -> ["schie", "jimmy"])
+                let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
+                let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
+                if (p1Words.length === 0) p1Words = [match.player1.toLowerCase()];
+                if (p2Words.length === 0) p2Words = [match.player2.toLowerCase()];
+
+                let foundRecap = alleRecaps.find(r => {
+                    let p1ZitErin = p1Words.some(w => r.p1.includes(w) || r.p2.includes(w));
+                    let p2ZitErin = p2Words.some(w => r.p1.includes(w) || r.p2.includes(w));
+                    return p1ZitErin && p2ZitErin;
+                });
+                
+                if (foundRecap) match.recapId = foundRecap.id;
+            }
+
+            // BEPAAL WINST/VERLIES (Met W en X check)
             if (match.status === "gespeeld" && isSpeler) {
                 const isP1 = match.player1.toLowerCase().includes(isSpeler);
                 
