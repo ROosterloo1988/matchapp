@@ -183,29 +183,18 @@ app.get('/api/matches', async (req, res) => {
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
             // KOPPEL RECAP ID! (Slim zoeken op losse woorden)
-            if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
-                
-                // Splits namen in lange woorden (bijv: "Van Schie, Jimmy" -> ["schie", "jimmy"])
-                let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
-                let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
-                if (p1Words.length === 0) p1Words = [match.player1.toLowerCase()];
-                if (p2Words.length === 0) p2Words = [match.player2.toLowerCase()];
-
-                let foundRecap = alleRecaps.find(r => {
-                    let p1ZitErin = p1Words.some(w => r.p1.includes(w) || r.p2.includes(w));
-                    let p2ZitErin = p2Words.some(w => r.p1.includes(w) || r.p2.includes(w));
-                    return p1ZitErin && p2ZitErin;
-                });
-                
-                if (foundRecap) match.recapId = foundRecap.id;
-            }
-
             if (match.status === "gespeeld" && isSpeler) {
                 const isP1 = match.player1.toLowerCase().includes(isSpeler);
-                const s1 = (match.score1 === 'W' || match.score1 === 'X') ? 99 : (match.score1 === 'F' ? -1 : parseInt(match.score1) || 0);
-                const s2 = (match.score2 === 'W' || match.score2 === 'X') ? 99 : (match.score2 === 'F' ? -1 : parseInt(match.score2) || 0);
+                
+                // Slimme score lezer: W = 99 (Winst), X of F = -1 (Verlies)
+                const parseScore = (s) => (s === 'W') ? 99 : ((s === 'X' || s === 'F') ? -1 : parseInt(s) || 0);
+                
+                const s1 = parseScore(match.score1);
+                const s2 = parseScore(match.score2);
+                
                 match.resultaat = (isP1 && s1 > s2) || (!isP1 && s2 > s1) ? "win" : "verlies";
             }
+
 
             definitieveLijst.push(match);
             toegevoegdeIds.add(match.id);
