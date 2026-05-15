@@ -70,10 +70,15 @@
 </head>
 <body>
     <div class="top-bar">
-        <button class="btn-back" id="btn-back" onclick="showMenu()">⬅ TERUG</button>
+        <div style="width: 85px; text-align: left;">
+            <button class="btn-back" id="btn-back" onclick="showMenu()">⬅ TERUG</button>
+        </div>
         <h1 id="main-title">🎯 TOERNOOIEN</h1>
-        <div class="btn-placeholder" id="btn-placeholder"></div>
+        <div style="width: 85px; text-align: right; display: flex; justify-content: flex-end; align-items: center;">
+            <a href="/admin.html" style="text-decoration: none; font-size: 1.5rem; filter: grayscale(1); opacity: 0.7;">⚙️</a>
+        </div>
     </div>
+
 
     <div id="filter-container">
         <button class="filter-btn active" onclick="setFilter('alles')" id="filter-alles">Alles</button>
@@ -136,7 +141,6 @@
         document.getElementById('filter-container').style.display = 'flex'; // Laat filter zien
         document.getElementById('matches-container').style.display = 'grid';
         document.getElementById('btn-back').style.display = 'block';
-        document.getElementById('btn-placeholder').style.display = 'block';
         document.getElementById('main-title').innerText = name.toUpperCase();
         
         loadMatches();
@@ -155,7 +159,6 @@
         document.getElementById('filter-container').style.display = 'none'; // Verberg filter
         document.getElementById('matches-container').style.display = 'none';
         document.getElementById('btn-back').style.display = 'none';
-        document.getElementById('btn-placeholder').style.display = 'none';
         document.getElementById('main-title').innerText = "🎯 TOERNOOIEN";
     }
 
