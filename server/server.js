@@ -205,9 +205,18 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let matchId = m.id || m.match_id || "";
                 if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
 
-                let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
-                let rondeMatch = matchId.match(/^(\d+)-/);
-                if (rondeMatch) {
+            let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
+
+            // --- NIEUW: Poule letters detecteren (bijv. ID: "C5" -> "Poule C") ---
+            if (m._bracket_type === "Groepsfase" && matchId) {
+                let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
+                if (pouleMatch) {
+                    rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
+                }
+            }
+
+            let rondeMatch = matchId.match(/^(\d+)-/);
+            if (rondeMatch) {
                     let rndKey = m._bron_url + "_" + rondeMatch[1];
                     let aW = rondeTellingen[rndKey];
                     if (aW === 1) rondeNaam = "Finale";
