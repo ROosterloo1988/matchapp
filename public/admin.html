@@ -143,21 +143,36 @@
 
     function addTournament() {
         const name = document.getElementById('t-name').value.trim();
-        const url = document.getElementById('t-url').value.trim();
-        const matchlistUrl = document.getElementById('t-matchlist').value.trim();
+        let url = document.getElementById('t-url').value.trim();
+        let matchlistUrl = document.getElementById('t-matchlist').value.trim();
         
         if (!name || !url) {
             return alert("Vul in ieder geval een toernooinaam en Bracket URL in!");
         }
 
+        // --- SLIMME AUTO-VERTALER VOOR BRACKET URL ---
+        if (url.includes('/event/') && !url.includes('/api/event/')) {
+            // Verander de gewone link naar een API link
+            url = url.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/');
+            console.log("Gewone URL automatisch omgezet naar API:", url);
+        }
+
+        // --- SLIMME AUTO-VERTALER VOOR MATCHLIST URL ---
+        if (matchlistUrl.includes('/event/') && !matchlistUrl.includes('/api/event/')) {
+            // Verander de gewone link naar een API link
+            matchlistUrl = matchlistUrl.replace('/event/', '/api/event/').replace('/matches', '/matches');
+        }
+
+        // --- URL CONTROLES (Check of de vertaling is gelukt) ---
         if (!url.toLowerCase().includes('api') || !url.toLowerCase().includes('bracket')) {
-            return alert("❌ De Bracket URL is ongeldig.\n\nZorg dat je de juiste DartConnect API-link hebt gekopieerd (deze moet de woorden 'api' en 'bracket' bevatten).");
+            return alert("❌ De Bracket URL is ongeldig.\n\nKopieer de link direct uit DartConnect.");
         }
 
         if (matchlistUrl !== "" && (!matchlistUrl.toLowerCase().includes('api') || !matchlistUrl.toLowerCase().includes('matches'))) {
-            return alert("❌ De Matchlist URL is ongeldig.\n\nZorg dat je de juiste DartConnect API-link hebt gekopieerd (deze moet de woorden 'api' en 'matches' bevatten).");
+            return alert("❌ De Matchlist URL is ongeldig.\n\nKopieer de link direct uit DartConnect.");
         }
 
+        // --- OPSLAAN ALS ALLES KLOPT ---
         if (editingTournamentIndex !== null) {
             db.tournaments[editingTournamentIndex].name = name;
             db.tournaments[editingTournamentIndex].url = url;
@@ -169,6 +184,7 @@
         cancelEdit();
         renderTournaments();
     }
+
 
     function removeTournament(index) {
         if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
