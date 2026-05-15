@@ -33,11 +33,13 @@ const DB_FILE = path.join(__dirname, 'database.json');
 
 // --- DATABASE & PUSH SETUP ---
 function readDB() {
-    if (!fs.existsSync(DB_FILE)) return { tournaments: [], subscriptions: [], notifiedMatches: [] };
+    if (!fs.existsSync(DB_FILE)) return { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
     let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     if (!db.tournaments) db.tournaments = [];
     if (!db.subscriptions) db.subscriptions = [];
     if (!db.notifiedMatches) db.notifiedMatches = []; 
+    // NIEUW: Poule-geheugen om spam te voorkomen
+    if (!db.notifiedPoules) db.notifiedPoules = []; 
     db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
     
     if (!db.vapidKeys) {
@@ -200,23 +202,26 @@ async function fetchMatchesForTournament(requestedTournament) {
             return spelersDict[idOrArray] || `Speler ${idOrArray}`;
         }
 
+        // --- HIER VERZAMELEN WE DE POULE-INDELINGEN ---
+        let pouleIndelingen = {};
+
         if (matchesList.length > 0) {
             const matchesMetToernooi = matchesList.map(m => {
                 let matchId = m.id || m.match_id || "";
                 if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
 
-            let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
+                let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
 
-            // --- NIEUW: Poule letters detecteren (bijv. ID: "C5" -> "Poule C") ---
-            if (m._bracket_type === "Groepsfase" && matchId) {
-                let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
-                if (pouleMatch) {
-                    rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
+                // Poule letters detecteren (bijv. ID: "C5" -> "Poule C")
+                if (m._bracket_type === "Groepsfase" && matchId) {
+                    let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
+                    if (pouleMatch) {
+                        rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
+                    }
                 }
-            }
 
-            let rondeMatch = matchId.match(/^(\d+)-/);
-            if (rondeMatch) {
+                let rondeMatch = matchId.match(/^(\d+)-/);
+                if (rondeMatch) {
                     let rndKey = m._bron_url + "_" + rondeMatch[1];
                     let aW = rondeTellingen[rndKey];
                     if (aW === 1) rondeNaam = "Finale";
@@ -238,12 +243,22 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (Array.isArray(markerData) || typeof markerData === 'number') markerNaam = getSpelerNaam(markerData);
                 else if (typeof markerData === 'string') markerNaam = markerData;
 
+                let p1Name = getSpelerNaam(m.d1 || m.p1);
+                let p2Name = getSpelerNaam(m.d2 || m.p2);
+
+                // --- VUL DE POULE LIJSTEN AAN ---
+                if (rondeNaam.startsWith("Poule ")) {
+                    if (!pouleIndelingen[rondeNaam]) pouleIndelingen[rondeNaam] = new Set();
+                    if (p1Name !== "Onbekend") pouleIndelingen[rondeNaam].add(p1Name);
+                    if (p2Name !== "Onbekend") pouleIndelingen[rondeNaam].add(p2Name);
+                }
+
                 return {
                     id: matchId,
                     _bron_url: m._bron_url,
                     ronde: rondeNaam,
-                    player1: getSpelerNaam(m.d1 || m.p1),
-                    player2: getSpelerNaam(m.d2 || m.p2),
+                    player1: p1Name,
+                    player2: p2Name,
                     marker: markerNaam,
                     score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
                     score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
@@ -276,81 +291,126 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
-            // --- PUSH MELDING LOGICA MET DE CHECKBOX FILTERS ---
+            // --- PUSH MELDING LOGICA MET DE CHECKBOX FILTERS EN POULE HERKENNING ---
             let isBetrokken = isSpeler || isMarker;
 
-            if (match.status === "gepland" && isBetrokken && !db.notifiedMatches.includes(match.id)) {
-                let stuurMelding = false;
-                let titel = "";
+            if (match.status === "gepland" && isBetrokken) {
+                let isPoule = match.ronde.startsWith("Poule ");
+                let hasTime = match.time && match.time.includes(':');
 
-                if (match.time && match.time.includes(':')) {
-                    let parts = match.time.split(':');
-                    let amsterdamTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Amsterdam"});
-                    let amsDate = new Date(amsterdamTime);
-                    let currentTotalMins = (amsDate.getHours() * 60) + amsDate.getMinutes();
-                    let matchTotalMins = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
-                    let timeDiff = matchTotalMins - currentTotalMins;
-                    if (timeDiff < -1000) timeDiff += 1440; 
+                // --- 1. POULE BEKEND MELDING (Slechts 1x per speler per poule!) ---
+                if (isPoule && !hasTime && isSpeler) {
+                    let pouleKey = `${tournament.name}_${isSpeler}_${match.ronde}`;
                     
-                    if (timeDiff <= 10 && timeDiff >= 0) {
-                        stuurMelding = true;
-                        titel = "🎯 Over 10 minuten de volgende wedstrijd";
-                    }
-                } else {
-                    stuurMelding = true;
-                    titel = "🎯 Nieuwe wedstrijd gepland!";
-                }
-
-                if (stuurMelding) {
-                    db.notifiedMatches.push(match.id);
-                    
-                    if (!isFirstRun && db.subscriptions.length > 0) {
-                        if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
-
-                        const payload = JSON.stringify({
-                            title: titel,
-                            body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`
-                        });
+                    if (!db.notifiedPoules.includes(pouleKey)) {
+                        db.notifiedPoules.push(pouleKey);
                         
-                        let activeSubs = [];
-                        
-                        await Promise.all(db.subscriptions.map(async (sub) => {
-                            // CONTROLE: Hee, wil deze telefoon de push voor dit toernooi eigenlijk wel?
-                            let wilHoren = false;
+                        // Genereer de slimme tekst
+                        let spelersInPoule = Array.from(pouleIndelingen[match.ronde] || []);
+                        let ik = spelersInPoule.find(p => p.toLowerCase().includes(isSpeler)) || isSpeler;
+                        let anderen = spelersInPoule.filter(p => p !== ik);
+
+                        let titel = `📊 Poule Indeling Bekend!`;
+                        let body = `${ik} is ingedeeld in ${match.ronde} met: ${anderen.join(', ')}`;
+
+                        if (!isFirstRun && db.subscriptions.length > 0) {
+                            const payload = JSON.stringify({ title: titel, body: body });
                             
-                            // Check of de telefoon in dít toernooi vinkjes heeft gezet
-                            if (sub.preferences && sub.preferences[tournament.name]) {
-                                let gekozenSpelers = sub.preferences[tournament.name];
-                                if (gekozenSpelers.length > 0) {
-                                    // Ja! Zit de speler van deze wedstrijd in zijn lijstje?
-                                    wilHoren = gekozenSpelers.some(filter => 
-                                        match.player1.toLowerCase().includes(filter) || 
-                                        match.player2.toLowerCase().includes(filter) || 
-                                        (match.marker && match.marker.toLowerCase().includes(filter))
-                                    );
-                                }
-                            }
-
-                            if (wilHoren) {
-                                try {
-                                    await webpush.sendNotification(sub, payload);
-                                    activeSubs.push(sub);
-                                } catch (err) {
-                                    if (err.statusCode !== 410 && err.statusCode !== 404) {
-                                        activeSubs.push(sub);
+                            let activeSubs = [];
+                            await Promise.all(db.subscriptions.map(async (sub) => {
+                                let wilHoren = false;
+                                if (sub.preferences && sub.preferences[tournament.name]) {
+                                    let gekozenSpelers = sub.preferences[tournament.name];
+                                    if (gekozenSpelers.length > 0) {
+                                        wilHoren = gekozenSpelers.some(filter => 
+                                            match.player1.toLowerCase().includes(filter) || 
+                                            match.player2.toLowerCase().includes(filter)
+                                        );
                                     }
                                 }
-                            } else {
-                                // Wil 'm niet horen, maar het abonnement is nog wel actief!
-                                activeSubs.push(sub);
-                            }
-                        }));
-                        
-                        if (db.subscriptions.length !== activeSubs.length) {
-                            db.subscriptions = activeSubs;
+
+                                if (wilHoren) {
+                                    try {
+                                        await webpush.sendNotification(sub, payload);
+                                        activeSubs.push(sub);
+                                    } catch (err) {
+                                        if (err.statusCode !== 410 && err.statusCode !== 404) activeSubs.push(sub);
+                                    }
+                                } else {
+                                    activeSubs.push(sub);
+                                }
+                            }));
+                            if (db.subscriptions.length !== activeSubs.length) db.subscriptions = activeSubs;
                         }
+                        nieuwGeplandCount++;
                     }
-                    nieuwGeplandCount++;
+                }
+
+                // --- 2. INDIVIDUELE WEDSTRIJD MELDING (10-minuten of Knockout) ---
+                if (!db.notifiedMatches.includes(match.id)) {
+                    let stuurMelding = false;
+                    let titel = "";
+
+                    if (hasTime) {
+                        let parts = match.time.split(':');
+                        let amsterdamTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Amsterdam"});
+                        let amsDate = new Date(amsterdamTime);
+                        let currentTotalMins = (amsDate.getHours() * 60) + amsDate.getMinutes();
+                        let matchTotalMins = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+                        let timeDiff = matchTotalMins - currentTotalMins;
+                        if (timeDiff < -1000) timeDiff += 1440; 
+                        
+                        if (timeDiff <= 10 && timeDiff >= 0) {
+                            stuurMelding = true;
+                            titel = "🎯 Over 10 minuten de volgende wedstrijd";
+                        }
+                    } else if (!isPoule) {
+                        // Geen poule, dus Knockout zonder tijd
+                        stuurMelding = true;
+                        titel = "🎯 Nieuwe wedstrijd gepland!";
+                    }
+
+                    if (stuurMelding) {
+                        db.notifiedMatches.push(match.id);
+                        
+                        if (!isFirstRun && db.subscriptions.length > 0) {
+                            if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
+
+                            const payload = JSON.stringify({
+                                title: titel,
+                                body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`
+                            });
+                            
+                            let activeSubs = [];
+                            await Promise.all(db.subscriptions.map(async (sub) => {
+                                let wilHoren = false;
+                                if (sub.preferences && sub.preferences[tournament.name]) {
+                                    let gekozenSpelers = sub.preferences[tournament.name];
+                                    if (gekozenSpelers.length > 0) {
+                                        wilHoren = gekozenSpelers.some(filter => 
+                                            match.player1.toLowerCase().includes(filter) || 
+                                            match.player2.toLowerCase().includes(filter) || 
+                                            (match.marker && match.marker.toLowerCase().includes(filter))
+                                        );
+                                    }
+                                }
+
+                                if (wilHoren) {
+                                    try {
+                                        await webpush.sendNotification(sub, payload);
+                                        activeSubs.push(sub);
+                                    } catch (err) {
+                                        if (err.statusCode !== 410 && err.statusCode !== 404) activeSubs.push(sub);
+                                    }
+                                } else {
+                                    activeSubs.push(sub);
+                                }
+                            }));
+                            
+                            if (db.subscriptions.length !== activeSubs.length) db.subscriptions = activeSubs;
+                        }
+                        nieuwGeplandCount++;
+                    }
                 }
             }
 
