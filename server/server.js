@@ -99,22 +99,54 @@ async function fetchMatchesForTournament(requestedTournament) {
     if (!tournament) return [];
 
     let rawMatches = [];
-    let matchlistData = []; 
+    let matchlistData = [];
+    let spelersDict = {};
+    let matchesList = [];
 
     try {
-        const response = await axios.post(tournament.url, {});
-        let dataContainer = response.data.payload || response.data || {};
-        let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
+        // 1. Ophalen van ALLE Bracket URLs (bijv: groepen, winnaars, verliezers)
+        let bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(u => u !== "");
         
-        if (tournament.matchlistUrl) {
+        for (let bUrl of bracketUrls) {
             try {
-                let mlRes = await axios.get(tournament.matchlistUrl).catch(() => axios.post(tournament.matchlistUrl, {}));
-                if (mlRes.data && mlRes.data.payload && mlRes.data.payload.completed) {
-                    matchlistData = mlRes.data.payload.completed;
-                } else if (Array.isArray(mlRes.data)) {
-                    matchlistData = mlRes.data;
+                const response = await axios.post(bUrl, {});
+                let dataContainer = response.data.payload || response.data || {};
+                let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
+
+                function bouwWoordenboek(obj) {
+                    if (!obj || typeof obj !== 'object') return;
+                    if (obj.name && (obj.dcid || obj.id || obj.player_id)) {
+                        spelersDict[obj.dcid || obj.id || obj.player_id] = obj.name;
+                    }
+                    Object.values(obj).forEach(val => bouwWoordenboek(val));
                 }
-            } catch(e) { }
+                bouwWoordenboek(dataContainer);
+
+                function zoekWedstrijden(obj) {
+                    if (!obj || typeof obj !== 'object') return;
+                    if ('p1' in obj || 'd1' in obj) { 
+                        obj._bron_url = bUrl; // Geef elke wedstrijd een onzichtbaar label mee van de afkomst (bracket)!
+                        matchesList.push(obj); 
+                    } 
+                    else { Object.values(obj).forEach(val => zoekWedstrijden(val)); }
+                }
+                zoekWedstrijden(bronMap);
+            } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
+        }
+
+        // 2. Ophalen van ALLE Matchlist URLs
+        if (tournament.matchlistUrl) {
+            let mUrls = tournament.matchlistUrl.split(',').map(u => u.trim()).filter(u => u !== "");
+            for (let mUrl of mUrls) {
+                try {
+                    let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
+                    if (mlRes.data && mlRes.data.payload && mlRes.data.payload.completed) {
+                        matchlistData = matchlistData.concat(mlRes.data.payload.completed);
+                    } else if (Array.isArray(mlRes.data)) {
+                        matchlistData = matchlistData.concat(mlRes.data);
+                    }
+                } catch(e) { console.error("Fout bij Matchlist URL:", mUrl); }
+            }
         }
 
         let alleRecaps = [];
@@ -124,31 +156,14 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        let spelersDict = {};
-        function bouwWoordenboek(obj) {
-            if (!obj || typeof obj !== 'object') return;
-            if (obj.name && (obj.dcid || obj.id || obj.player_id)) {
-                spelersDict[obj.dcid || obj.id || obj.player_id] = obj.name;
-            }
-            Object.values(obj).forEach(val => bouwWoordenboek(val));
-        }
-        bouwWoordenboek(dataContainer);
-
-        let matchesList = [];
-        function zoekWedstrijden(obj) {
-            if (!obj || typeof obj !== 'object') return;
-            if ('p1' in obj || 'd1' in obj) { matchesList.push(obj); } 
-            else { Object.values(obj).forEach(val => zoekWedstrijden(val)); }
-        }
-        zoekWedstrijden(bronMap);
-
+        // 3. Rondenamen correct berekenen (GEÏSOLEERD per bracket dankzij _bron_url)
         let rondeTellingen = {};
         matchesList.forEach(m => {
             let matchId = (m.id || m.match_id || "").toString();
             let rndMatch = matchId.match(/^(\d+)[_-]/);
             if (rndMatch) {
-                let rnd = rndMatch[1];
-                rondeTellingen[rnd] = (rondeTellingen[rnd] || 0) + 1;
+                let rndKey = m._bron_url + "_" + rndMatch[1]; // Nu worden finales van verschillende brackets niet door elkaar geteld!
+                rondeTellingen[rndKey] = (rondeTellingen[rndKey] || 0) + 1;
             }
         });
 
@@ -168,18 +183,18 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let matchId = m.id || m.match_id || "";
                 if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
 
-                let rondeNaam = "Ronde ?";
+                let rondeNaam = "Groepsfase";
                 let rondeMatch = matchId.match(/^(\d+)-/);
                 if (rondeMatch) {
-                    let cR = rondeMatch[1];
-                    let aW = rondeTellingen[cR];
+                    let rndKey = m._bron_url + "_" + rondeMatch[1];
+                    let aW = rondeTellingen[rndKey];
                     if (aW === 1) rondeNaam = "Finale";
                     else if (aW === 2) rondeNaam = "Halve Finale";
                     else if (aW === 4) rondeNaam = "Kwartfinale";
                     else if (aW === 8) rondeNaam = "Laatste 16";
                     else if (aW === 16) rondeNaam = "Laatste 32";
                     else if (aW === 32) rondeNaam = "Laatste 64";
-                    else rondeNaam = "Ronde " + cR;
+                    else rondeNaam = "Ronde " + rondeMatch[1];
                 }
 
                 let markerData = m.ch && m.ch.v ? m.ch.v : null;
@@ -189,6 +204,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
                 return {
                     id: matchId,
+                    _bron_url: m._bron_url, // Heel belangrijk voor prognoses!
                     ronde: rondeNaam,
                     player1: getSpelerNaam(m.d1 || m.p1),
                     player2: getSpelerNaam(m.d2 || m.p2),
@@ -196,7 +212,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                     score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
                     score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
                     board: m.bn || m.b || m.board || m.bd || "?",
-                    time: m.tm || m.t || m.time || m.st || "Niet Bekend",
+                    time: m.tm || m.t || m.time || m.st || "Niet bekend",
                     toernooi: tournament.name,
                     isFinished: m.fn === true
                 };
@@ -213,7 +229,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             return dartersLower.some(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d) || (match.marker && match.marker.toLowerCase().includes(d)));
         });
 
-        // HIER ZIT DE FIX: we gebruiken een async for...of loop in plaats van forEach
         for (let match of eigenWedstrijden) {
             match.status = (match.isFinished || (match.score1 !== "" && match.score2 !== "")) ? "gespeeld" : "gepland";
             match.isMogelijk = false;
@@ -224,6 +239,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (!isSpeler && isMarker && match.status === "gespeeld") continue; 
 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
+
             // --- PUSH MELDING LOGICA ---
             let isBetrokken = isSpeler || isMarker;
 
@@ -232,7 +248,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let titel = "";
 
                 if (match.time && match.time.includes(':')) {
-                    // SCENARIO 1: Er is een vaste kloktijd (bijv. 14:20)
                     let parts = match.time.split(':');
                     let amsterdamTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Amsterdam"});
                     let amsDate = new Date(amsterdamTime);
@@ -243,19 +258,15 @@ async function fetchMatchesForTournament(requestedTournament) {
                     let timeDiff = matchTotalMins - currentTotalMins;
                     if (timeDiff < -1000) timeDiff += 1440; 
                     
-                    // Alleen sturen als het binnen nu en 10 minuten is
                     if (timeDiff <= 10 && timeDiff >= 0) {
                         stuurMelding = true;
                         titel = "🎯 Over 10 minuten de volgende wedstrijd";
                     }
                 } else {
-                    // SCENARIO 2: Er is GEEN tijd (bijv. "Niet Bekend" of leeg)
-                    // We sturen direct een melding zodra de tegenstander bekend is!
                     stuurMelding = true;
                     titel = "🎯 Nieuwe wedstrijd gepland!";
                 }
 
-                // Stuur de melding als aan één van de scenario's is voldaan
                 if (stuurMelding) {
                     db.notifiedMatches.push(match.id);
                     
@@ -288,7 +299,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             }
 
-
             if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
                 let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
@@ -312,8 +322,10 @@ async function fetchMatchesForTournament(requestedTournament) {
                 match.resultaat = (isP1 && s1 > s2) || (!isP1 && s2 > s1) ? "win" : "verlies";
             }
 
+            // Gebruik een unieke sleutel om dubbelen in verschillende brackets te voorkomen
+            let uniekeMatchID = match._bron_url + "_" + match.id;
             definitieveLijst.push(match);
-            toegevoegdeIds.add(match.id);
+            toegevoegdeIds.add(uniekeMatchID);
         }
 
         if (nieuwGeplandCount > 0) writeDB(db);
@@ -322,17 +334,19 @@ async function fetchMatchesForTournament(requestedTournament) {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win"));
 
-            if (magDoor && match.id) {
+            if (magDoor && match.id && match.id.includes('-')) {
                 let matchRegex = match.id.match(/^(\d+)-(\d+)$/);
                 if (matchRegex) {
                     let nextId = (parseInt(matchRegex[1]) + 1) + "-" + Math.ceil(parseInt(matchRegex[2]) / 2); 
-                    let mogelijkeMatch = rawMatches.find(rm => rm.id === nextId);
+                    // Zoek specifiek in DITZELFDE bracket, niet stiekem in de verliezersronde
+                    let mogelijkeMatch = rawMatches.find(rm => rm.id === nextId && rm._bron_url === match._bron_url);
 
                     if (mogelijkeMatch) {
                         let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
-                        if (!toegevoegdeIds.has(mogelijkeMatch.id) && !isAlGeweest) {
+                        let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
+                        if (!toegevoegdeIds.has(uniekeVolgendeID) && !isAlGeweest) {
                             definitieveLijst.push({ ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: isSpeler, rol: "speler" });
-                            toegevoegdeIds.add(mogelijkeMatch.id);
+                            toegevoegdeIds.add(uniekeVolgendeID);
                         }
                     }
                 }
@@ -343,8 +357,8 @@ async function fetchMatchesForTournament(requestedTournament) {
             const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
-            let tijdA = (a.time && !["Onbekend", "Niet Bekend"].includes(a.time)) ? a.time : "24:00";
-            let tijdB = (b.time && !["Onbekend", "Niet Bekend"].includes(b.time)) ? b.time : "24:00";
+            let tijdA = (a.time && !["Onbekend", "Niet bekend", "Later"].includes(a.time)) ? a.time : "24:00";
+            let tijdB = (b.time && !["Onbekend", "Niet bekend", "Later"].includes(b.time)) ? b.time : "24:00";
             let rondeA = a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0;
             let rondeB = b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0;
 
