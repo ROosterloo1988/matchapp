@@ -211,10 +211,12 @@
         // Auto-vertaler Bracket URLs
         let translatedUrls = urlInputs.map(u => {
             if (u.includes('/event/') && !u.includes('/api/event/')) {
-                return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/');
+                // Vertaalt zowel /brackets/ als /groups/ naar de juiste API link
+                return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
             }
             return u;
         });
+
 
         // Auto-vertaler Matchlist URLs
         let translatedMUrls = matchlistInputs.map(u => {
