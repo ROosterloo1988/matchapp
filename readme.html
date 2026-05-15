@@ -1,1 +1,79 @@
+# 🎯 Dart Match App (Live Toernooi Tracker)
+
+Een geavanceerde Progressive Web App (PWA) ontworpen voor live darttoernooien. De app koppelt direct met de verborgen API's van **DartConnect** (en is voorbereid op 2K Darts) om spelers realtime inzicht te geven in hun geplande wedstrijden, uitslagen en bordtoewijzingen. 
+
+De absolute "killer feature" van deze app is het **gepersonaliseerde pushmeldingen-systeem**, waarbij spelers alleen een trilsignaal krijgen als zijzelf of hun teamgenoten moeten spelen (of schrijven).
+
+## ✨ Belangrijkste Functies
+
+* **🔗 Multi-Bracket Integratie:** Koppel moeiteloos Poules, Winnaars- en Verliezersrondes (WR/VR) aan elkaar onder één toernooinaam.
+* **📊 Slimme Poule-Herkenning:** De server herkent automatisch poule-letters (bijv. ID `C5` wordt "Poule C") en groepeert de bekendmaking van poules tot één samenvattende pushmelding om spam te voorkomen.
+* **🔔 Gepersonaliseerde Pushmeldingen:** Gebruikers kunnen per toernooi aanvinken voor welke spelers ze meldingen (10-minuten waarschuwing of nieuwe ronde) willen ontvangen.
+* **✍️ Schrijvers-Waarschuwing:** Herkent automatisch of een speler de "Marker" (schrijver) is en past de melding hierop aan.
+* **📱 Progressive Web App (PWA):** Installeerbaar op zowel Android als iOS (inclusief slimme iOS installatie-banner). Draait fullscreen zonder browserbalken.
+* **⚙️ Beveiligd Admin Paneel:** Een afgeschermd beheerderspaneel voor het toevoegen van toernooien, het importeren van namen en het versturen van handmatige 'Omroep'-berichten naar alle telefoons.
+
+## 📂 Mapstructuur
+
+\`\`\`text
+matchapp/
+│
+├── public/                 # De voorkant (Frontend)
+│   ├── index.html          # De hoofd-app voor de spelers
+│   ├── admin.html          # Het afgeschermde beheerpaneel
+│   ├── manifest.json       # PWA configuratie
+│   ├── service-worker.js   # Offline cache & Push-ontvanger
+│   └── icon-192x192.png    # App icoontje
+│
+├── server/                 # De achterkant (Backend)
+│   ├── server.js           # De centrale motor & API
+│   └── database.json       # (Wordt automatisch gegenereerd) Opslag voor toernooien en abonnees
+│
+└── README.md
+\`\`\`
+
+## 🚀 Installatie & Setup
+
+1. **Zorg dat Node.js is geïnstalleerd** op je server.
+2. **Navigeer naar de projectmap** en installeer de benodigde pakketten:
+   \`\`\`bash
+   npm install express cors axios web-push
+   \`\`\`
+3. **Beheer-wachtwoord wijzigen:** Open `server/server.js` en pas bovenaan de inloggegevens aan:
+   \`\`\`javascript
+   const ADMIN_USER = "matchapp";
+   const ADMIN_PASS = "dutchopen2026"; 
+   \`\`\`
+
+## 🏃‍♂️ Applicatie Starten
+
+Voor lokaal testen kun je de app starten met Node:
+\`\`\`bash
+node server/server.js
+\`\`\`
+
+Voor productie (zodat de app online blijft als je de terminal sluit) is het aanbevolen om **PM2** te gebruiken:
+\`\`\`bash
+pm2 start server/server.js --name dart-proxy
+pm2 save
+\`\`\`
+
+De server draait standaard op poort `3000`.
+
+## 🛠️ Gebruiksaanwijzing (Admin)
+
+1. Ga in je browser naar `jouw-domein.nl/admin.html` (of `localhost:3000/admin.html`).
+2. Log in met je ingestelde gebruikersnaam en wachtwoord.
+3. **Stap 1: Toernooi toevoegen:** * Geef het toernooi een naam.
+   * Kies de opzet (bijv. Groepen + WR + VR).
+   * Plak de originele DartConnect linkjes in de velden. De Auto-Vertaler zet ze op de achtergrond om naar de juiste API-links.
+4. **Stap 2: Darters Toevoegen:**
+   * Selecteer je aangemaakte toernooi.
+   * Typ de namen van de darters (exact zoals bekend in DartConnect) in en voeg ze toe. Alleen deze spelers worden getoond in de app.
+5. **Stap 3: Omroepsysteem:**
+   * Typ een bericht en klik op versturen om alle actieve telefoons te laten trillen (negeert persoonlijke vinkjes).
+
+## ⚠️ Bekende Aandachtspunten
+* **Push Meldingen & iOS:** Pushmeldingen op iOS werken pas als de speler de app daadwerkelijk via het "Deel" icoon op zijn/haar beginscherm heeft gezet. De ingebouwde banner in `index.html` helpt gebruikers hieraan herinneren.
+* **Service Worker Cache:** Als er wijzigingen in `index.html` worden gemaakt, vergeet dan niet het versienummer in `service-worker.js` op te hogen om telefoons te dwingen de nieuwe versie te downloaden.
 
