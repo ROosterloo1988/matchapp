@@ -2,18 +2,37 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Admin - Match App</title>
+    
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#FF6600">
+    <link rel="apple-touch-icon" href="/icon-192x192.png">
+
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f4; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h2 { color: #333; margin-top: 30px; border-bottom: 2px solid #FF6600; padding-bottom: 5px; }
+        * { box-sizing: border-box; }
+
+        body { font-family: Arial, sans-serif; padding: 15px; background-color: #f4f4f4; margin: 0; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); width: 100%; }
+        
+        h1 { font-size: 1.5rem; text-align: center; color: #333; }
+        h2 { color: #333; margin-top: 30px; border-bottom: 2px solid #FF6600; padding-bottom: 5px; font-size: 1.2rem; }
+        
         .item-list { margin-bottom: 15px; }
-        .item { display: flex; justify-content: space-between; background: #eee; padding: 10px; margin-bottom: 5px; border-radius: 5px; align-items: center; }
-        .item button { background: red; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
-        input, select, textarea { padding: 10px; width: calc(100% - 22px); margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: Arial, sans-serif; }
-        button.add-btn { background: #FF6600; color: white; border: none; padding: 10px; cursor: pointer; width: 100%; border-radius: 4px; font-weight: bold; }
-        button.save-btn { background: green; color: white; border: none; padding: 15px; cursor: pointer; width: 100%; font-size: 18px; border-radius: 4px; margin-top: 30px; }
+        .item { display: flex; justify-content: space-between; background: #eee; padding: 10px; margin-bottom: 5px; border-radius: 5px; align-items: center; gap: 10px; }
+        .item span { flex: 1; word-break: break-all; font-size: 0.85rem; }
+        
+        .item-actions { display: flex; gap: 5px; flex-shrink: 0; }
+        .item-actions button { color: white; border: none; padding: 10px; cursor: pointer; border-radius: 3px; font-weight: bold; font-size: 1rem; }
+        .btn-delete { background: #e74c3c; }
+        .btn-edit { background: #3498db; }
+        
+        input, select, textarea { padding: 12px; width: 100%; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: Arial, sans-serif; font-size: 1rem; }
+        
+        .form-buttons { display: flex; gap: 10px; }
+        button.add-btn { background: #FF6600; color: white; border: none; padding: 12px; cursor: pointer; width: 100%; border-radius: 4px; font-weight: bold; font-size: 1rem; }
+        button.cancel-btn { background: #888; color: white; border: none; padding: 12px; cursor: pointer; width: 100%; border-radius: 4px; font-weight: bold; font-size: 1rem; display: none; }
+        button.save-btn { background: green; color: white; border: none; padding: 15px; cursor: pointer; width: 100%; font-size: 1.1rem; border-radius: 4px; margin-top: 30px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -26,13 +45,17 @@
     <input type="text" id="t-name" placeholder="Naam toernooi (bijv. Dutch Open Single)">
     <input type="text" id="t-url" placeholder="1. Bracket API URL (Verplicht)">
     <input type="text" id="t-matchlist" placeholder="2. Matchlist API URL (Optioneel, voor Recap links!)">
-    <button class="add-btn" onclick="addTournament()">Toevoegen</button>
+    
+    <div class="form-buttons">
+        <button id="btn-add-tournament" class="add-btn" onclick="addTournament()">Toevoegen</button>
+        <button id="btn-cancel-edit" class="cancel-btn" onclick="cancelEdit()">Annuleren</button>
+    </div>
 
     <h2>2. Darters per Toernooi</h2>
     <select id="d-toernooi-select"></select>
     <div id="darters-list" class="item-list"></div>
     <input type="text" id="d-name" placeholder="Naam Darter (exact zoals in DartConnect)">
-    <button class="add-btn" onclick="addDarter()">Toevoegen aan geselecteerd toernooi</button>
+    <button class="add-btn" onclick="addDarter()">Toevoegen aan toernooi</button>
 
     <button class="save-btn" onclick="saveSettings()">💾 Alles Opslaan</button>
 
@@ -48,6 +71,7 @@
 
 <script>
     let db = { tournaments: [] };
+    let editingTournamentIndex = null; // Houdt bij of we een toernooi aan het bewerken zijn
 
     async function loadSettings() {
         const res = await fetch('/api/settings');
@@ -63,30 +87,73 @@
         list.innerHTML = '';
         db.tournaments.forEach((t, i) => {
             list.innerHTML += `<div class="item">
-                <span style="font-size: 0.9rem;"><b>${t.name}</b><br><small>Bracket: ${t.url}</small><br><small>Matchlist: ${t.matchlistUrl || 'Geen'}</small></span>
-                <button onclick="removeTournament(${i})">X</button>
+                <span><b>${t.name}</b><br><small style="color:#666;">Bracket: ${t.url}</small><br><small style="color:#666;">Matchlist: ${t.matchlistUrl || 'Geen'}</small></span>
+                <div class="item-actions">
+                    <button class="btn-edit" onclick="editTournament(${i})">✏️</button>
+                    <button class="btn-delete" onclick="removeTournament(${i})">X</button>
+                </div>
             </div>`;
         });
         renderTournamentDropdown();
+    }
+
+    function editTournament(index) {
+        const t = db.tournaments[index];
+        document.getElementById('t-name').value = t.name;
+        document.getElementById('t-url').value = t.url;
+        document.getElementById('t-matchlist').value = t.matchlistUrl || '';
+        
+        editingTournamentIndex = index;
+        
+        // Knoppen updaten
+        const addBtn = document.getElementById('btn-add-tournament');
+        addBtn.innerText = "Toernooi Bijwerken";
+        addBtn.style.backgroundColor = "#2ecc71"; // Groen om aan te geven dat het opslaan is
+        document.getElementById('btn-cancel-edit').style.display = "block";
+        
+        window.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll rustig naar boven
+    }
+
+    function cancelEdit() {
+        editingTournamentIndex = null;
+        document.getElementById('t-name').value = '';
+        document.getElementById('t-url').value = '';
+        document.getElementById('t-matchlist').value = '';
+        
+        // Knoppen herstellen
+        const addBtn = document.getElementById('btn-add-tournament');
+        addBtn.innerText = "Toevoegen";
+        addBtn.style.backgroundColor = "#FF6600";
+        document.getElementById('btn-cancel-edit').style.display = "none";
     }
 
     function addTournament() {
         const name = document.getElementById('t-name').value;
         const url = document.getElementById('t-url').value;
         const matchlistUrl = document.getElementById('t-matchlist').value;
+        
         if (name && url) {
-            db.tournaments.push({ name, url, matchlistUrl, darters: [] });
-            document.getElementById('t-name').value = '';
-            document.getElementById('t-url').value = '';
-            document.getElementById('t-matchlist').value = '';
+            if (editingTournamentIndex !== null) {
+                // Toernooi updaten (spelers blijven behouden!)
+                db.tournaments[editingTournamentIndex].name = name;
+                db.tournaments[editingTournamentIndex].url = url;
+                db.tournaments[editingTournamentIndex].matchlistUrl = matchlistUrl;
+            } else {
+                // Nieuw toernooi toevoegen
+                db.tournaments.push({ name, url, matchlistUrl, darters: [] });
+            }
+            cancelEdit(); // Velden en knoppen resetten
             renderTournaments();
         }
     }
 
     function removeTournament(index) {
-        db.tournaments.splice(index, 1);
-        renderTournaments();
-        renderDarters();
+        if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
+            if(editingTournamentIndex === index) cancelEdit();
+            db.tournaments.splice(index, 1);
+            renderTournaments();
+            renderDarters();
+        }
     }
 
     function renderTournamentDropdown() {
@@ -104,8 +171,24 @@
         const tournament = db.tournaments[tIndex];
         if (tournament && tournament.darters) {
             tournament.darters.forEach((d, i) => {
-                list.innerHTML += `<div class="item"><span>${d}</span><button onclick="removeDarter(${tIndex}, ${i})">X</button></div>`;
+                list.innerHTML += `<div class="item">
+                    <span><b>${d}</b></span>
+                    <div class="item-actions">
+                        <button class="btn-edit" onclick="editDarter(${tIndex}, ${i})">✏️</button>
+                        <button class="btn-delete" onclick="removeDarter(${tIndex}, ${i})">X</button>
+                    </div>
+                </div>`;
             });
+        }
+    }
+
+    function editDarter(tIndex, dIndex) {
+        const huidigeNaam = db.tournaments[tIndex].darters[dIndex];
+        const nieuweNaam = prompt("Wijzig de naam van de darter:", huidigeNaam);
+        
+        if (nieuweNaam && nieuweNaam.trim() !== "") {
+            db.tournaments[tIndex].darters[dIndex] = nieuweNaam.trim();
+            renderDarters();
         }
     }
 
