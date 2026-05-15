@@ -13,24 +13,21 @@ app.use(express.json());
 
 // --- ADMIN BEVEILIGING (BASIC AUTH) ---
 const ADMIN_USER = "matchapp";
-const ADMIN_PASS = "dutchopen2026"; // Verander dit naar je eigen wachtwoord!
+const ADMIN_PASS = "dutchopen2026"; 
 
-// Zorg dat admin.html om een wachtwoord vraagt VOORDAT de map wordt geladen
 app.use('/admin.html', (req, res, next) => {
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
 
     if (login && password && login === ADMIN_USER && password === ADMIN_PASS) {
-        return next(); // Inlog klopt, laat het bestand zien!
+        return next(); 
     }
 
     res.set('WWW-Authenticate', 'Basic realm="Admin Area"');
     res.status(401).send('Inloggen vereist voor beheer.');
 });
 
-// Nu pas laden we de rest van de website in
 app.use(express.static(path.join(__dirname, '../public')));
-
 
 const DB_FILE = path.join(__dirname, 'database.json');
 
@@ -63,28 +60,42 @@ webpush.setVapidDetails(
 
 app.get('/api/vapidPublicKey', (req, res) => res.send(readDB().vapidKeys.publicKey));
 
-app.post('/api/subscribe', (req, res) => {
-    const subscription = req.body;
+// --- NIEUW: Spelers ophalen voor de push-vinkjes ---
+app.get('/api/darters', (req, res) => {
     const db = readDB();
-    const exists = db.subscriptions.find(sub => sub.endpoint === subscription.endpoint);
-    if (!exists) {
-        db.subscriptions.push(subscription);
-        writeDB(db);
+    const tournament = db.tournaments.find(t => t.name === req.query.tournament);
+    res.json(tournament && tournament.darters ? tournament.darters : []);
+});
+
+// --- GEÜPDATE: Slaat voorkeuren per toernooi op! ---
+app.post('/api/subscribe', (req, res) => {
+    const { subscription, tournament, players } = req.body;
+    const db = readDB();
+    
+    let existingSub = db.subscriptions.find(sub => sub.endpoint === subscription.endpoint);
+    
+    if (!existingSub) {
+        existingSub = subscription;
+        existingSub.preferences = {}; 
+        db.subscriptions.push(existingSub);
+    } else {
+        if (!existingSub.preferences) existingSub.preferences = {};
     }
+
+    // Sla de gekozen spelers in kleine letters op onder de naam van dit specifieke toernooi
+    if (tournament && Array.isArray(players)) {
+        existingSub.preferences[tournament] = players.map(p => p.toLowerCase());
+    }
+    
+    writeDB(db);
     res.status(201).json({});
 });
 
 app.get('/api/settings', (req, res) => res.json(readDB()));
 app.post('/api/settings', (req, res) => {
-    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
-    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
-
     writeDB(req.body);
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
-
-
 
 app.get('/api/tournaments', (req, res) => {
     res.json(readDB().tournaments.map(t => t.name));
@@ -104,10 +115,22 @@ async function fetchMatchesForTournament(requestedTournament) {
     let matchesList = [];
 
     try {
-        // 1. Ophalen van ALLE Bracket URLs (bijv: groepen, winnaars, verliezers)
         let bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(u => u !== "");
         
-        for (let bUrl of bracketUrls) {
+        for (let i = 0; i < bracketUrls.length; i++) {
+            let bUrl = bracketUrls[i];
+            let bracketType = "";
+            
+            // Labels voor Winnaars en Verliezersronde
+            if (bracketUrls.length === 3) {
+                if (i === 0) bracketType = "Groepsfase";
+                if (i === 1) bracketType = "Winnaarsronde";
+                if (i === 2) bracketType = "Verliezersronde";
+            } else if (bracketUrls.length === 2) {
+                if (i === 0) bracketType = "Groepsfase";
+                if (i === 1) bracketType = "Knockout";
+            }
+
             try {
                 const response = await axios.post(bUrl, {});
                 let dataContainer = response.data.payload || response.data || {};
@@ -125,7 +148,8 @@ async function fetchMatchesForTournament(requestedTournament) {
                 function zoekWedstrijden(obj) {
                     if (!obj || typeof obj !== 'object') return;
                     if ('p1' in obj || 'd1' in obj) { 
-                        obj._bron_url = bUrl; // Geef elke wedstrijd een onzichtbaar label mee van de afkomst (bracket)!
+                        obj._bron_url = bUrl; 
+                        obj._bracket_type = bracketType;
                         matchesList.push(obj); 
                     } 
                     else { Object.values(obj).forEach(val => zoekWedstrijden(val)); }
@@ -134,7 +158,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
-        // 2. Ophalen van ALLE Matchlist URLs
         if (tournament.matchlistUrl) {
             let mUrls = tournament.matchlistUrl.split(',').map(u => u.trim()).filter(u => u !== "");
             for (let mUrl of mUrls) {
@@ -156,13 +179,12 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        // 3. Rondenamen correct berekenen (GEÏSOLEERD per bracket dankzij _bron_url)
         let rondeTellingen = {};
         matchesList.forEach(m => {
             let matchId = (m.id || m.match_id || "").toString();
             let rndMatch = matchId.match(/^(\d+)[_-]/);
             if (rndMatch) {
-                let rndKey = m._bron_url + "_" + rndMatch[1]; // Nu worden finales van verschillende brackets niet door elkaar geteld!
+                let rndKey = m._bron_url + "_" + rndMatch[1]; 
                 rondeTellingen[rndKey] = (rondeTellingen[rndKey] || 0) + 1;
             }
         });
@@ -183,7 +205,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let matchId = m.id || m.match_id || "";
                 if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
 
-                let rondeNaam = "Groepsfase";
+                let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
                 let rondeMatch = matchId.match(/^(\d+)-/);
                 if (rondeMatch) {
                     let rndKey = m._bron_url + "_" + rondeMatch[1];
@@ -197,6 +219,11 @@ async function fetchMatchesForTournament(requestedTournament) {
                     else rondeNaam = "Ronde " + rondeMatch[1];
                 }
 
+                // PLAK DE BRACKET NAAM ERACHTER (BEHALVE BIJ GROEPEN)
+                if (m._bracket_type && m._bracket_type !== "Groepsfase" && m._bracket_type !== "") {
+                    rondeNaam += ` (${m._bracket_type})`;
+                }
+
                 let markerData = m.ch && m.ch.v ? m.ch.v : null;
                 let markerNaam = "";
                 if (Array.isArray(markerData) || typeof markerData === 'number') markerNaam = getSpelerNaam(markerData);
@@ -204,7 +231,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
                 return {
                     id: matchId,
-                    _bron_url: m._bron_url, // Heel belangrijk voor prognoses!
+                    _bron_url: m._bron_url,
                     ronde: rondeNaam,
                     player1: getSpelerNaam(m.d1 || m.p1),
                     player2: getSpelerNaam(m.d2 || m.p2),
@@ -240,7 +267,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
-            // --- PUSH MELDING LOGICA ---
+            // --- PUSH MELDING LOGICA MET DE CHECKBOX FILTERS ---
             let isBetrokken = isSpeler || isMarker;
 
             if (match.status === "gepland" && isBetrokken && !db.notifiedMatches.includes(match.id)) {
@@ -251,10 +278,8 @@ async function fetchMatchesForTournament(requestedTournament) {
                     let parts = match.time.split(':');
                     let amsterdamTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Amsterdam"});
                     let amsDate = new Date(amsterdamTime);
-                    
                     let currentTotalMins = (amsDate.getHours() * 60) + amsDate.getMinutes();
                     let matchTotalMins = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
-                    
                     let timeDiff = matchTotalMins - currentTotalMins;
                     if (timeDiff < -1000) timeDiff += 1440; 
                     
@@ -281,13 +306,34 @@ async function fetchMatchesForTournament(requestedTournament) {
                         let activeSubs = [];
                         
                         await Promise.all(db.subscriptions.map(async (sub) => {
-                            try {
-                                await webpush.sendNotification(sub, payload);
-                                activeSubs.push(sub);
-                            } catch (err) {
-                                if (err.statusCode !== 410 && err.statusCode !== 404) {
-                                    activeSubs.push(sub);
+                            // CONTROLE: Hee, wil deze telefoon de push voor dit toernooi eigenlijk wel?
+                            let wilHoren = false;
+                            
+                            // Check of de telefoon in dít toernooi vinkjes heeft gezet
+                            if (sub.preferences && sub.preferences[tournament.name]) {
+                                let gekozenSpelers = sub.preferences[tournament.name];
+                                if (gekozenSpelers.length > 0) {
+                                    // Ja! Zit de speler van deze wedstrijd in zijn lijstje?
+                                    wilHoren = gekozenSpelers.some(filter => 
+                                        match.player1.toLowerCase().includes(filter) || 
+                                        match.player2.toLowerCase().includes(filter) || 
+                                        (match.marker && match.marker.toLowerCase().includes(filter))
+                                    );
                                 }
+                            }
+
+                            if (wilHoren) {
+                                try {
+                                    await webpush.sendNotification(sub, payload);
+                                    activeSubs.push(sub);
+                                } catch (err) {
+                                    if (err.statusCode !== 410 && err.statusCode !== 404) {
+                                        activeSubs.push(sub);
+                                    }
+                                }
+                            } else {
+                                // Wil 'm niet horen, maar het abonnement is nog wel actief!
+                                activeSubs.push(sub);
                             }
                         }));
                         
@@ -322,7 +368,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 match.resultaat = (isP1 && s1 > s2) || (!isP1 && s2 > s1) ? "win" : "verlies";
             }
 
-            // Gebruik een unieke sleutel om dubbelen in verschillende brackets te voorkomen
             let uniekeMatchID = match._bron_url + "_" + match.id;
             definitieveLijst.push(match);
             toegevoegdeIds.add(uniekeMatchID);
@@ -338,7 +383,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let matchRegex = match.id.match(/^(\d+)-(\d+)$/);
                 if (matchRegex) {
                     let nextId = (parseInt(matchRegex[1]) + 1) + "-" + Math.ceil(parseInt(matchRegex[2]) / 2); 
-                    // Zoek specifiek in DITZELFDE bracket, niet stiekem in de verliezersronde
                     let mogelijkeMatch = rawMatches.find(rm => rm.id === nextId && rm._bron_url === match._bron_url);
 
                     if (mogelijkeMatch) {
@@ -377,15 +421,14 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
-// REST API VOOR DE WEBSITE/APP 
 app.get('/api/matches', async (req, res) => {
     const list = await fetchMatchesForTournament(req.query.tournament);
     res.json(list);
 });
 
-// --- ADMIN: HANDMATIGE PUSH MELDING VERSTUREN (MET ZELFREINIGING) ---
+// --- ADMIN: HANDMATIGE PUSH MELDING VERSTUREN ---
+// (Deze negeert de nieuwe filters en stuurt je omroepbericht naar IEDEREEN)
 app.post('/api/admin/send-push', async (req, res) => {
-    // Basic Auth Check
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
     if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
@@ -412,7 +455,7 @@ app.post('/api/admin/send-push', async (req, res) => {
             actieveAbonnees.push(sub); 
         } catch (err) {
             if (err.statusCode === 410 || err.statusCode === 404) {
-                console.log('App verwijderd door een gebruiker. Abonnement gewist uit database.');
+                console.log('App verwijderd door een gebruiker.');
             } else {
                 actieveAbonnees.push(sub);
             }
@@ -427,49 +470,16 @@ app.post('/api/admin/send-push', async (req, res) => {
     res.json({ success: true, message: `✅ Succes! Melding verstuurd naar ${successCount} actieve apparaten.` });
 });
 
-// --- GEHEIME TEST ROUTE VOOR PUSH MELDINGEN ---
-app.get('/api/test-push', async (req, res) => {
-    const db = readDB();
-    if (!db.subscriptions || db.subscriptions.length === 0) {
-        return res.send("<h1>❌ Geen abonnees gevonden!</h1><p>Heb je wel ergens in de app op de groene 'Zet Meldingen Aan' knop geklikt?</p>");
-    }
-
-    const payload = JSON.stringify({
-        title: "🎯 Over 10 minuten de volgende wedstrijd",
-        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20"
-    });
-
-    let successCount = 0;
-    for (let sub of db.subscriptions) {
-        try {
-            await webpush.sendNotification(sub, payload);
-            successCount++;
-        } catch (err) {
-            console.log('Test push faalde:', err.message);
-        }
-    }
-
-    res.send(`<h1>✅ Test Voltooid!</h1><p>Er is succesvol een melding gestuurd naar ${successCount} van de ${db.subscriptions.length} geabonneerde apparaten.</p>`);
-});
-
-// --- DE HARTSLAG (ACHTERGROND POLLER) ---
 async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
     
-    console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien voor nieuwe wedstrijden...`);
     for (let t of db.tournaments) {
         await fetchMatchesForTournament(t.name);
     }
-    
-    if (isFirstRun) {
-        isFirstRun = false;
-        console.log("[HARTSLAG] Eerste run voltooid. Vanaf nu worden er meldingen verstuurd.");
-    }
+    if (isFirstRun) isFirstRun = false;
 }
 
-// Start de hartslag 1x direct op, en daarna elke 60 seconden
 runHeartbeat();
 setInterval(runHeartbeat, 60000);
-
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
