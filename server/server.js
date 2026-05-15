@@ -196,7 +196,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                     score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
                     score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
                     board: m.bn || m.b || m.board || m.bd || "?",
-                    time: m.tm || m.t || m.time || m.st || "Later",
+                    time: m.tm || m.t || m.time || m.st || "Niet Bekend",
                     toernooi: tournament.name,
                     isFinished: m.fn === true
                 };
@@ -249,7 +249,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                         titel = "🎯 Over 10 minuten de volgende wedstrijd";
                     }
                 } else {
-                    // SCENARIO 2: Er is GEEN tijd (bijv. "Later" of leeg)
+                    // SCENARIO 2: Er is GEEN tijd (bijv. "Niet Bekend" of leeg)
                     // We sturen direct een melding zodra de tegenstander bekend is!
                     stuurMelding = true;
                     titel = "🎯 Nieuwe wedstrijd gepland!";
@@ -343,8 +343,8 @@ async function fetchMatchesForTournament(requestedTournament) {
             const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
-            let tijdA = (a.time && !["Onbekend", "Later"].includes(a.time)) ? a.time : "24:00";
-            let tijdB = (b.time && !["Onbekend", "Later"].includes(b.time)) ? b.time : "24:00";
+            let tijdA = (a.time && !["Onbekend", "Niet Bekend"].includes(a.time)) ? a.time : "24:00";
+            let tijdB = (b.time && !["Onbekend", "Niet Bekend"].includes(b.time)) ? b.time : "24:00";
             let rondeA = a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0;
             let rondeB = b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0;
 
