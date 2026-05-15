@@ -440,4 +440,55 @@ app.get('/api/matches', async (req, res) => {
 app.post('/api/admin/send-push', async (req, res) => {
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoeg
+    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
+
+    const { title, body } = req.body;
+    const db = readDB();
+
+    if (!db.subscriptions || db.subscriptions.length === 0) {
+        return res.status(400).json({ error: "Niemand heeft nog meldingen aan staan!" });
+    }
+
+    const payload = JSON.stringify({
+        title: title || "🎯 DartApp Bericht",
+        body: body || ""
+    });
+
+    let successCount = 0;
+    let actieveAbonnees = []; 
+
+    for (let sub of db.subscriptions) {
+        try {
+            await webpush.sendNotification(sub, payload);
+            successCount++;
+            actieveAbonnees.push(sub); 
+        } catch (err) {
+            if (err.statusCode === 410 || err.statusCode === 404) {
+                console.log('App verwijderd door een gebruiker.');
+            } else {
+                actieveAbonnees.push(sub);
+            }
+        }
+    }
+
+    if (db.subscriptions.length !== actieveAbonnees.length) {
+        db.subscriptions = actieveAbonnees;
+        writeDB(db);
+    }
+
+    res.json({ success: true, message: `✅ Succes! Melding verstuurd naar ${successCount} actieve apparaten.` });
+});
+
+async function runHeartbeat() {
+    const db = readDB();
+    if (db.tournaments.length === 0) return;
+    
+    for (let t of db.tournaments) {
+        await fetchMatchesForTournament(t.name);
+    }
+    if (isFirstRun) isFirstRun = false;
+}
+
+runHeartbeat();
+setInterval(runHeartbeat, 60000);
+app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
