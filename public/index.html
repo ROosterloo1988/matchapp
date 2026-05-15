@@ -12,7 +12,6 @@
         * { box-sizing: border-box; }
         body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
         
-        /* TOP BAR */
         .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 10px; }
         .top-bar-side { width: 85px; display: flex; align-items: center; }
         .top-bar-side.left { justify-content: flex-start; }
@@ -22,18 +21,16 @@
         .admin-link { text-decoration: none; font-size: 1.5rem; filter: grayscale(1); opacity: 0.6; transition: 0.3s; }
         .admin-link:hover { opacity: 1; filter: none; }
 
-        /* MENU STYLING */
         #menu-container { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-top: 40px; }
         .tournament-card { background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #333; cursor: pointer; transition: 0.3s; font-size: 1.5rem; font-weight: bold; }
         .tournament-card:hover { border-color: #FF6600; background: #252525; }
 
-        /* FILTER STYLING */
         #filter-container { display: none; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
         .filter-btn { background: #222; color: #888; border: 1px solid #444; padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: 0.2s; }
         .filter-btn:hover { background: #333; color: white; }
         .filter-btn.active { background: #FF6600; color: white; border-color: #FF6600; }
+        .btn-push { background: #2ecc71; color: white; border-color: #2ecc71; margin-left: 10px; }
 
-        /* MATCH STYLING */
         #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); display: none; }
         .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600; }
         .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
@@ -45,8 +42,6 @@
         .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center; }
         
         .recap-btn { background: #FF6600; color: white; text-decoration: none; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.8rem; border: 1px solid #e65c00; }
-        .recap-btn:hover { background: #e65c00; }
-
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
         .match-card.mogelijk .card-header { background: #444; color: #bbb; }
         .match-card.gespeeld { border-left-width: 10px; opacity: 0.8; }
@@ -64,6 +59,7 @@
             .btn-back { padding: 8px 10px; font-size: 0.8rem; }
             #filter-container { gap: 5px; }
             .filter-btn { padding: 5px 10px; font-size: 0.8rem; }
+            .btn-push { margin-left: 0; }
             #matches-container { grid-template-columns: 1fr; gap: 8px; }
             .card-header { padding: 5px 10px; font-size: 0.85rem; }
             .board-badge { font-size: 0.85rem; padding: 2px 6px; }
@@ -74,12 +70,15 @@
             .match-card.gespeeld { border-left-width: 5px; }
         }
 
-        /* PUSH MODAL */
+        /* VERNIEUWDE PUSH MODAL */
         #push-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; padding: 20px; }
-        .push-box { background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #FF6600; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-        .push-box h2 { color: #FF6600; margin-top: 0; font-size: 2rem; }
-        .push-box p { color: #ccc; font-size: 1.1rem; margin-bottom: 25px; }
-        .push-box button.btn-yes { background: #2ecc71; color: white; border: none; padding: 15px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1.2rem; margin-bottom: 15px; }
+        .push-box { background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #2ecc71; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: flex; flex-direction: column; max-height: 90vh; }
+        .push-box h2 { color: #2ecc71; margin-top: 0; font-size: 1.8rem; }
+        .push-box p { color: #ccc; font-size: 1rem; margin-bottom: 15px; }
+        .checkbox-container { text-align: left; background: #111; padding: 15px; border-radius: 5px; border: 1px solid #444; overflow-y: auto; margin-bottom: 20px; flex-grow: 1; }
+        .checkbox-label { display: block; margin-bottom: 10px; font-size: 1.1rem; cursor: pointer; color: white; display: flex; align-items: center; }
+        .checkbox-label input { transform: scale(1.5); margin-right: 15px; accent-color: #2ecc71; }
+        .push-box button.btn-yes { background: #2ecc71; color: white; border: none; padding: 15px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1.1rem; margin-bottom: 10px; }
         .push-box button.btn-no { background: transparent; color: #888; border: none; text-decoration: underline; cursor: pointer; font-size: 0.9rem; }
     </style>
 </head>
@@ -99,6 +98,7 @@
         <button class="filter-btn" onclick="setFilter('gepland')" id="filter-gepland">⚡ Gepland</button>
         <button class="filter-btn" onclick="setFilter('mogelijk')" id="filter-mogelijk">🔮 Mogelijk</button>
         <button class="filter-btn" onclick="setFilter('gespeeld')" id="filter-gespeeld">✅ Gespeeld</button>
+        <button class="filter-btn btn-push" onclick="openPushSettings()">🔔 Meldingen</button>
     </div>
     
     <div id="menu-container">Laden...</div>
@@ -106,10 +106,11 @@
 
     <div id="push-modal">
         <div class="push-box">
-            <h2>🔔 Mis Niets!</h2>
-            <p>Zet je meldingen aan zodat we je direct kunnen waarschuwen als je moet gooien of schrijven op het toernooi.</p>
-            <button class="btn-yes" onclick="subscribeUser()">✅ Meldingen Aanzetten</button>
-            <button class="btn-no" onclick="closePushModal()">Nee bedankt, ik let zelf wel op</button>
+            <h2>🔔 Meldingen</h2>
+            <p>Kies de spelers waarvoor je een trilsignaal wilt ontvangen in dit toernooi:</p>
+            <div id="push-players-list" class="checkbox-container">Laden...</div>
+            <button class="btn-yes" onclick="savePushSettings()">💾 Opslaan & Aanzetten</button>
+            <button class="btn-no" onclick="closePushModal()">Annuleren</button>
         </div>
     </div>
 
@@ -128,7 +129,7 @@
             const container = document.getElementById('menu-container');
             
             if(names.length === 0) {
-                container.innerHTML = "<div class='no-matches'>Geen toernooien gevonden. Voeg ze toe via het tandwieltje rechtsboven.</div>";
+                container.innerHTML = "<div class='no-matches'>Geen toernooien gevonden. Voeg ze toe in de admin.</div>";
                 return;
             }
 
@@ -148,13 +149,11 @@
 
     function selectTournament(name, pushUrl = true) {
         activeTournament = name;
-        
         if (pushUrl) {
             const url = new URL(window.location);
             url.searchParams.set('t', name);
             window.history.pushState({}, '', url);
         }
-
         document.getElementById('menu-container').style.display = 'none';
         document.getElementById('filter-container').style.display = 'flex';
         document.getElementById('matches-container').style.display = 'grid';
@@ -168,11 +167,9 @@
     function showMenu() {
         activeTournament = null;
         clearInterval(refreshInterval);
-        
         const url = new URL(window.location);
         url.searchParams.delete('t');
         window.history.pushState({}, '', url);
-
         document.getElementById('menu-container').style.display = 'grid';
         document.getElementById('filter-container').style.display = 'none';
         document.getElementById('matches-container').style.display = 'none';
@@ -195,10 +192,7 @@
             const container = document.getElementById('matches-container');
             
             let matches = allMatches;
-            if (currentFilter !== 'alles') {
-                matches = allMatches.filter(m => m.status === currentFilter);
-            }
-
+            if (currentFilter !== 'alles') matches = allMatches.filter(m => m.status === currentFilter);
             if (matches.length === 0) { 
                 container.innerHTML = `<div class='no-matches'>Geen wedstrijden gevonden voor dit filter.</div>`;
                 return; 
@@ -244,55 +238,83 @@
         }
     }
 
-    // --- PWA & SERVICE WORKER ---
     if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/service-worker.js').catch(() => {});
-        });
+        window.addEventListener('load', () => navigator.serviceWorker.register('/service-worker.js').catch(() => {}));
     }
 
-    // --- PUSH MELDINGEN LOGICA ---
-    const pushModal = document.getElementById('push-modal');
+    // --- GEAVANCEERDE PUSH LOGICA MET VINKJES ---
+    async function openPushSettings() {
+        if (!activeTournament) return;
+        const pushModal = document.getElementById('push-modal');
+        const listDiv = document.getElementById('push-players-list');
+        listDiv.innerHTML = "Spelers laden...";
+        pushModal.style.display = 'flex';
 
-    async function initPush() {
-        if ('serviceWorker' in navigator && 'PushManager' in window) {
-            const registration = await navigator.serviceWorker.ready;
-            const subscription = await registration.pushManager.getSubscription();
+        try {
+            const res = await fetch(`/api/darters?tournament=${encodeURIComponent(activeTournament)}`);
+            const darters = await res.json();
             
-            const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-            
-            if (isStandalone && !subscription && Notification.permission !== 'denied') {
-                pushModal.style.display = 'flex';
+            // Haal lokaal bewaarde vinkjes op (zodat de app je keuzes onthoudt)
+            const savedPrefs = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
+
+            if (darters.length === 0) {
+                listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd door admin.</div>";
+            } else {
+                listDiv.innerHTML = darters.map(d => {
+                    const isChecked = savedPrefs.includes(d) ? 'checked' : '';
+                    return `
+                    <label class="checkbox-label">
+                        <input type="checkbox" value="${d}" class="darter-checkbox" ${isChecked}>
+                        ${d}
+                    </label>
+                `}).join('');
             }
+        } catch(e) {
+            listDiv.innerHTML = "Fout bij ophalen spelers.";
         }
     }
 
     function closePushModal() {
-        pushModal.style.display = 'none';
+        document.getElementById('push-modal').style.display = 'none';
     }
 
-    async function subscribeUser() {
+    async function savePushSettings() {
+        const checkboxes = document.querySelectorAll('.darter-checkbox:checked');
+        const selectedPlayers = Array.from(checkboxes).map(cb => cb.value);
+
         try {
             const registration = await navigator.serviceWorker.ready;
             const response = await fetch('/api/vapidPublicKey');
             const vapidPublicKey = await response.text();
-            
             const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+            
             const subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: convertedVapidKey
             });
 
+            // Sla op in local storage voor de vinkjes de volgende keer
+            localStorage.setItem('pushPrefs_' + activeTournament, JSON.stringify(selectedPlayers));
+
+            // Stuur het abonnement PLUS de gekozen spelers per toernooi naar de server!
             await fetch('/api/subscribe', {
                 method: 'POST',
-                body: JSON.stringify(subscription),
+                body: JSON.stringify({ 
+                    subscription: subscription, 
+                    tournament: activeTournament, 
+                    players: selectedPlayers 
+                }),
                 headers: { 'Content-Type': 'application/json' }
             });
 
             closePushModal();
-            alert("Meldingen staan aan! Je krijgt nu een trilsignaal als je moet spelen.");
+            if (selectedPlayers.length > 0) {
+                alert(`✅ Opgeslagen! Je ontvangt nu meldingen voor ${selectedPlayers.length} speler(s).`);
+            } else {
+                alert(`🔕 Opgeslagen! Je hebt meldingen voor dit toernooi uitgezet.`);
+            }
         } catch (error) { 
-            alert("Oeps! Het instellen van meldingen is mislukt. Misschien moet je ze aanzetten in je telefoon-instellingen.");
+            alert("Oeps! Het opslaan is mislukt. Zorg dat notificaties zijn toegestaan in je telefoon-instellingen.");
             closePushModal();
         }
     }
@@ -306,7 +328,6 @@
         return outputArray;
     }
 
-    initPush();
     loadTournaments();
 </script>
 </body>
