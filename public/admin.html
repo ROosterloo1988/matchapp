@@ -11,13 +11,19 @@
 
     <style>
         * { box-sizing: border-box; }
-
         body { font-family: Arial, sans-serif; padding: 15px; background-color: #f4f4f4; margin: 0; }
         .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); width: 100%; }
         
-        h1 { font-size: 1.5rem; text-align: center; color: #333; }
+        /* TOP BAR & HEADERS */
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .top-bar-side { width: 85px; }
+        .top-bar-left { text-align: left; }
+        .top-bar h1 { margin: 0; font-size: 1.5rem; text-align: center; flex: 1; color: #333; }
+        .btn-back { background: #333; color: white; text-decoration: none; padding: 10px 15px; border-radius: 5px; font-weight: bold; font-size: 0.8rem; display: inline-block; }
+        
         h2 { color: #333; margin-top: 30px; border-bottom: 2px solid #FF6600; padding-bottom: 5px; font-size: 1.2rem; }
         
+        /* LIJSTEN & ITEMS */
         .item-list { margin-bottom: 15px; }
         .item { display: flex; justify-content: space-between; background: #eee; padding: 10px; margin-bottom: 5px; border-radius: 5px; align-items: center; gap: 10px; }
         .item span { flex: 1; word-break: break-all; font-size: 0.85rem; }
@@ -27,18 +33,29 @@
         .btn-delete { background: #e74c3c; }
         .btn-edit { background: #3498db; }
         
+        /* FORMULIEREN & KNOPPEN */
         input, select, textarea { padding: 12px; width: 100%; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: Arial, sans-serif; font-size: 1rem; }
-        
         .form-buttons { display: flex; gap: 10px; }
         button.add-btn { background: #FF6600; color: white; border: none; padding: 12px; cursor: pointer; width: 100%; border-radius: 4px; font-weight: bold; font-size: 1rem; }
         button.cancel-btn { background: #888; color: white; border: none; padding: 12px; cursor: pointer; width: 100%; border-radius: 4px; font-weight: bold; font-size: 1rem; display: none; }
         button.save-btn { background: green; color: white; border: none; padding: 15px; cursor: pointer; width: 100%; font-size: 1.1rem; border-radius: 4px; margin-top: 30px; font-weight: bold; }
+        
+        /* PUSH MELDINGEN SECTIE */
+        .push-section { background: #eee; padding: 15px; border-radius: 8px; }
+        .push-section p { margin-top: 0; font-size: 0.9rem; color: #555; }
+        #push-status { margin-top: 10px; font-weight: bold; text-align: center; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>⚙️ Toernooi & Darter Beheer</h1>
+    <div class="top-bar">
+        <div class="top-bar-side top-bar-left">
+            <a href="/" class="btn-back">⬅ TERUG</a>
+        </div>
+        <h1>⚙️ Beheer</h1>
+        <div class="top-bar-side"></div>
+    </div>
 
     <h2>1. Toernooien (API Links)</h2>
     <div id="tournaments-list" class="item-list"></div>
@@ -60,18 +77,18 @@
     <button class="save-btn" onclick="saveSettings()">💾 Alles Opslaan</button>
 
     <h2>3. 📢 App-Melding Versturen</h2>
-    <div style="background: #eee; padding: 15px; border-radius: 8px;">
-        <p style="margin-top: 0; font-size: 0.9rem; color: #555;">Stuur een handmatig bericht naar alle telefoons die de meldingen aan hebben staan.</p>
+    <div class="push-section">
+        <p>Stuur een handmatig bericht naar alle telefoons die de meldingen aan hebben staan.</p>
         <input type="text" id="custom-push-title" placeholder="Titel (bijv: Klaar voor morgen?!)">
         <textarea id="custom-push-body" rows="3" placeholder="Bericht (bijv: Vergeet niet je pijlen te slijpen en op tijd te zijn...)"></textarea>
         <button class="add-btn" onclick="sendCustomPush()">🚀 Verstuur Melding Naar Iedereen</button>
-        <div id="push-status" style="margin-top: 10px; font-weight: bold; text-align: center;"></div>
+        <div id="push-status"></div>
     </div>
 </div>
 
 <script>
     let db = { tournaments: [] };
-    let editingTournamentIndex = null; // Houdt bij of we een toernooi aan het bewerken zijn
+    let editingTournamentIndex = null;
 
     async function loadSettings() {
         const res = await fetch('/api/settings');
@@ -105,13 +122,11 @@
         
         editingTournamentIndex = index;
         
-        // Knoppen updaten
         const addBtn = document.getElementById('btn-add-tournament');
         addBtn.innerText = "Toernooi Bijwerken";
-        addBtn.style.backgroundColor = "#2ecc71"; // Groen om aan te geven dat het opslaan is
+        addBtn.style.backgroundColor = "#2ecc71";
         document.getElementById('btn-cancel-edit').style.display = "block";
-        
-        window.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll rustig naar boven
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function cancelEdit() {
@@ -120,7 +135,6 @@
         document.getElementById('t-url').value = '';
         document.getElementById('t-matchlist').value = '';
         
-        // Knoppen herstellen
         const addBtn = document.getElementById('btn-add-tournament');
         addBtn.innerText = "Toevoegen";
         addBtn.style.backgroundColor = "#FF6600";
@@ -136,32 +150,25 @@
             return alert("Vul in ieder geval een toernooinaam en Bracket URL in!");
         }
 
-        // --- URL CONTROLES ---
-        // 1. Check de Bracket URL
         if (!url.toLowerCase().includes('api') || !url.toLowerCase().includes('bracket')) {
             return alert("❌ De Bracket URL is ongeldig.\n\nZorg dat je de juiste DartConnect API-link hebt gekopieerd (deze moet de woorden 'api' en 'bracket' bevatten).");
         }
 
-        // 2. Check de Matchlist URL (alleen als deze is ingevuld)
         if (matchlistUrl !== "" && (!matchlistUrl.toLowerCase().includes('api') || !matchlistUrl.toLowerCase().includes('matches'))) {
             return alert("❌ De Matchlist URL is ongeldig.\n\nZorg dat je de juiste DartConnect API-link hebt gekopieerd (deze moet de woorden 'api' en 'matches' bevatten).");
         }
 
-        // --- OPSLAAN ALS ALLES KLOPT ---
         if (editingTournamentIndex !== null) {
-            // Toernooi updaten (spelers blijven behouden!)
             db.tournaments[editingTournamentIndex].name = name;
             db.tournaments[editingTournamentIndex].url = url;
             db.tournaments[editingTournamentIndex].matchlistUrl = matchlistUrl;
         } else {
-            // Nieuw toernooi toevoegen
             db.tournaments.push({ name, url, matchlistUrl, darters: [] });
         }
         
-        cancelEdit(); // Velden en knoppen resetten
+        cancelEdit();
         renderTournaments();
     }
-
 
     function removeTournament(index) {
         if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
@@ -201,7 +208,6 @@
     function editDarter(tIndex, dIndex) {
         const huidigeNaam = db.tournaments[tIndex].darters[dIndex];
         const nieuweNaam = prompt("Wijzig de naam van de darter:", huidigeNaam);
-        
         if (nieuweNaam && nieuweNaam.trim() !== "") {
             db.tournaments[tIndex].darters[dIndex] = nieuweNaam.trim();
             renderDarters();
@@ -228,7 +234,6 @@
         alert('Opgeslagen!');
     }
 
-    // --- PUSH MELDINGEN VERSTUREN ---
     async function sendCustomPush() {
         const titleInput = document.getElementById('custom-push-title');
         const bodyInput = document.getElementById('custom-push-body');
