@@ -35,13 +35,13 @@
         .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600; }
         .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
         .board-badge { background: black; color: white; padding: 5px 10px; border-radius: 5px; font-size: 1.1rem; border: 1px solid rgba(255,255,255,0.2); }
-        .card-subheader { background: #333; padding: 5px 15px; font-size: 0.85rem; color: #ccc; display: flex; justify-content: space-between; align-items: center; }
+        .card-subheader { background: #333; padding: 5px 15px; font-size: 0.85rem; color: #ccc; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px; }
         .match-id { background: #555; padding: 2px 6px; border-radius: 3px; font-family: monospace; color: white; }
         .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1; }
         .player-name { flex: 1; text-align: center; word-wrap: break-word; }
         .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center; }
         
-        .recap-btn { background: #FF6600; color: white; text-decoration: none; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.8rem; border: 1px solid #e65c00; }
+        .recap-btn { background: #FF6600; color: white; text-decoration: none; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-left: auto; font-size: 0.8rem; border: 1px solid #e65c00; white-space: nowrap; display: inline-block; }
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
         .match-card.mogelijk .card-header { background: #444; color: #bbb; }
         .match-card.gespeeld { border-left-width: 10px; opacity: 0.8; }
