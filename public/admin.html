@@ -128,24 +128,40 @@
     }
 
     function addTournament() {
-        const name = document.getElementById('t-name').value;
-        const url = document.getElementById('t-url').value;
-        const matchlistUrl = document.getElementById('t-matchlist').value;
+        const name = document.getElementById('t-name').value.trim();
+        const url = document.getElementById('t-url').value.trim();
+        const matchlistUrl = document.getElementById('t-matchlist').value.trim();
         
-        if (name && url) {
-            if (editingTournamentIndex !== null) {
-                // Toernooi updaten (spelers blijven behouden!)
-                db.tournaments[editingTournamentIndex].name = name;
-                db.tournaments[editingTournamentIndex].url = url;
-                db.tournaments[editingTournamentIndex].matchlistUrl = matchlistUrl;
-            } else {
-                // Nieuw toernooi toevoegen
-                db.tournaments.push({ name, url, matchlistUrl, darters: [] });
-            }
-            cancelEdit(); // Velden en knoppen resetten
-            renderTournaments();
+        if (!name || !url) {
+            return alert("Vul in ieder geval een toernooinaam en Bracket URL in!");
         }
+
+        // --- URL CONTROLES ---
+        // 1. Check de Bracket URL
+        if (!url.toLowerCase().includes('api') || !url.toLowerCase().includes('bracket')) {
+            return alert("❌ De Bracket URL is ongeldig.\n\nZorg dat je de juiste DartConnect API-link hebt gekopieerd (deze moet de woorden 'api' en 'bracket' bevatten).");
+        }
+
+        // 2. Check de Matchlist URL (alleen als deze is ingevuld)
+        if (matchlistUrl !== "" && (!matchlistUrl.toLowerCase().includes('api') || !matchlistUrl.toLowerCase().includes('matches'))) {
+            return alert("❌ De Matchlist URL is ongeldig.\n\nZorg dat je de juiste DartConnect API-link hebt gekopieerd (deze moet de woorden 'api' en 'matches' bevatten).");
+        }
+
+        // --- OPSLAAN ALS ALLES KLOPT ---
+        if (editingTournamentIndex !== null) {
+            // Toernooi updaten (spelers blijven behouden!)
+            db.tournaments[editingTournamentIndex].name = name;
+            db.tournaments[editingTournamentIndex].url = url;
+            db.tournaments[editingTournamentIndex].matchlistUrl = matchlistUrl;
+        } else {
+            // Nieuw toernooi toevoegen
+            db.tournaments.push({ name, url, matchlistUrl, darters: [] });
+        }
+        
+        cancelEdit(); // Velden en knoppen resetten
+        renderTournaments();
     }
+
 
     function removeTournament(index) {
         if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
