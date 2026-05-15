@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const webpush = require('web-push');
 
+// IMPORT VOOR 2K DARTS! (Nu staat hij er wel!)
+const api2K = require('./api_2kdarts');
+
 const app = express();
 const PORT = 3000;
 
@@ -38,8 +41,7 @@ function readDB() {
     if (!db.tournaments) db.tournaments = [];
     if (!db.subscriptions) db.subscriptions = [];
     if (!db.notifiedMatches) db.notifiedMatches = []; 
-    // NIEUW: Poule-geheugen om spam te voorkomen
-    if (!db.notifiedPoules) db.notifiedPoules = []; 
+    if (!db.notifiedPoules) db.notifiedPoules = [];
     db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
     
     if (!db.vapidKeys) {
@@ -62,14 +64,12 @@ webpush.setVapidDetails(
 
 app.get('/api/vapidPublicKey', (req, res) => res.send(readDB().vapidKeys.publicKey));
 
-// --- NIEUW: Spelers ophalen voor de push-vinkjes ---
 app.get('/api/darters', (req, res) => {
     const db = readDB();
     const tournament = db.tournaments.find(t => t.name === req.query.tournament);
     res.json(tournament && tournament.darters ? tournament.darters : []);
 });
 
-// --- GEÜPDATE: Slaat voorkeuren per toernooi op! ---
 app.post('/api/subscribe', (req, res) => {
     const { subscription, tournament, players } = req.body;
     const db = readDB();
@@ -84,7 +84,6 @@ app.post('/api/subscribe', (req, res) => {
         if (!existingSub.preferences) existingSub.preferences = {};
     }
 
-    // Sla de gekozen spelers in kleine letters op onder de naam van dit specifieke toernooi
     if (tournament && Array.isArray(players)) {
         existingSub.preferences[tournament] = players.map(p => p.toLowerCase());
     }
@@ -95,6 +94,10 @@ app.post('/api/subscribe', (req, res) => {
 
 app.get('/api/settings', (req, res) => res.json(readDB()));
 app.post('/api/settings', (req, res) => {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
+
     writeDB(req.body);
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
@@ -112,9 +115,8 @@ async function fetchMatchesForTournament(requestedTournament) {
     if (!tournament) return [];
 
     let rawMatches = [];
-    let matchlistData = [];
+    let dcMatchesList = [];
     let spelersDict = {};
-    let matchesList = [];
 
     try {
         let bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(u => u !== "");
@@ -123,7 +125,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             let bUrl = bracketUrls[i];
             let bracketType = "";
             
-            // Labels voor Winnaars en Verliezersronde
             if (bracketUrls.length === 3) {
                 if (i === 0) bracketType = "Groepsfase";
                 if (i === 1) bracketType = "WR";
@@ -133,37 +134,49 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (i === 1) bracketType = "Knockout";
             }
 
+            let is2K = bUrl.toLowerCase().includes('2k-dart') || bUrl.toLowerCase().includes('3k-dart');
+
             try {
-                const response = await axios.post(bUrl, {});
-                let dataContainer = response.data.payload || response.data || {};
-                let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
+                if (is2K) {
+                    // --- 2K DARTS (via apart bestand) ---
+                    let matches2K = await api2K.fetchMatches(bUrl, tournament.name, bracketType);
+                    rawMatches = rawMatches.concat(matches2K);
+                } else {
+                    // --- DARTCONNECT (blijft gewoon netjes hier) ---
+                    const response = await axios.post(bUrl, {});
+                    let dataContainer = response.data.payload || response.data || {};
+                    let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
 
-                function bouwWoordenboek(obj) {
-                    if (!obj || typeof obj !== 'object') return;
-                    if (obj.name && (obj.dcid || obj.id || obj.player_id)) {
-                        spelersDict[obj.dcid || obj.id || obj.player_id] = obj.name;
+                    function bouwWoordenboek(obj) {
+                        if (!obj || typeof obj !== 'object') return;
+                        if (obj.name && (obj.dcid || obj.id || obj.player_id)) {
+                            spelersDict[obj.dcid || obj.id || obj.player_id] = obj.name;
+                        }
+                        Object.values(obj).forEach(val => bouwWoordenboek(val));
                     }
-                    Object.values(obj).forEach(val => bouwWoordenboek(val));
-                }
-                bouwWoordenboek(dataContainer);
+                    bouwWoordenboek(dataContainer);
 
-                function zoekWedstrijden(obj) {
-                    if (!obj || typeof obj !== 'object') return;
-                    if ('p1' in obj || 'd1' in obj) { 
-                        obj._bron_url = bUrl; 
-                        obj._bracket_type = bracketType;
-                        matchesList.push(obj); 
-                    } 
-                    else { Object.values(obj).forEach(val => zoekWedstrijden(val)); }
+                    function zoekWedstrijden(obj) {
+                        if (!obj || typeof obj !== 'object') return;
+                        if ('p1' in obj || 'd1' in obj) { 
+                            obj._bron_url = bUrl;
+                            obj._bracket_type = bracketType;
+                            dcMatchesList.push(obj); 
+                        } 
+                        else { Object.values(obj).forEach(val => zoekWedstrijden(val)); }
+                    }
+                    zoekWedstrijden(bronMap);
                 }
-                zoekWedstrijden(bronMap);
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
+        // --- MATCHLIST OPHALEN (VOOR RECAPS, DARTCONNECT) ---
+        let matchlistData = [];
         if (tournament.matchlistUrl) {
             let mUrls = tournament.matchlistUrl.split(',').map(u => u.trim()).filter(u => u !== "");
             for (let mUrl of mUrls) {
                 try {
+                    if (mUrl.toLowerCase().includes('2k-dart') || mUrl.toLowerCase().includes('3k-dart')) continue;
                     let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
                     if (mlRes.data && mlRes.data.payload && mlRes.data.payload.completed) {
                         matchlistData = matchlistData.concat(mlRes.data.payload.completed);
@@ -181,8 +194,9 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
+        // --- DARTCONNECT MATCHES CONVERTEREN ---
         let rondeTellingen = {};
-        matchesList.forEach(m => {
+        dcMatchesList.forEach(m => {
             let matchId = (m.id || m.match_id || "").toString();
             let rndMatch = matchId.match(/^(\d+)[_-]/);
             if (rndMatch) {
@@ -202,74 +216,67 @@ async function fetchMatchesForTournament(requestedTournament) {
             return spelersDict[idOrArray] || `Speler ${idOrArray}`;
         }
 
-        // --- HIER VERZAMELEN WE DE POULE-INDELINGEN ---
-        let pouleIndelingen = {};
+        const dcConverted = dcMatchesList.map(m => {
+            let matchId = m.id || m.match_id || "";
+            if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
 
-        if (matchesList.length > 0) {
-            const matchesMetToernooi = matchesList.map(m => {
-                let matchId = m.id || m.match_id || "";
-                if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
-
-                let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
-
-                // Poule letters detecteren (bijv. ID: "C5" -> "Poule C")
-                if (m._bracket_type === "Groepsfase" && matchId) {
-                    let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
-                    if (pouleMatch) {
-                        rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
-                    }
+            let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
+            
+            if (m._bracket_type === "Groepsfase" && matchId) {
+                let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
+                if (pouleMatch) {
+                    rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
                 }
+            }
 
-                let rondeMatch = matchId.match(/^(\d+)-/);
-                if (rondeMatch) {
-                    let rndKey = m._bron_url + "_" + rondeMatch[1];
-                    let aW = rondeTellingen[rndKey];
-                    if (aW === 1) rondeNaam = "Finale";
-                    else if (aW === 2) rondeNaam = "Halve Finale";
-                    else if (aW === 4) rondeNaam = "Kwartfinale";
-                    else if (aW === 8) rondeNaam = "Laatste 16";
-                    else if (aW === 16) rondeNaam = "Laatste 32";
-                    else if (aW === 32) rondeNaam = "Laatste 64";
-                    else rondeNaam = "Ronde " + rondeMatch[1];
-                }
+            let rondeMatch = matchId.match(/^(\d+)-/);
+            if (rondeMatch) {
+                let rndKey = m._bron_url + "_" + rondeMatch[1];
+                let aW = rondeTellingen[rndKey];
+                if (aW === 1) rondeNaam = "Finale";
+                else if (aW === 2) rondeNaam = "Halve Finale";
+                else if (aW === 4) rondeNaam = "Kwartfinale";
+                else if (aW === 8) rondeNaam = "Laatste 16";
+                else if (aW === 16) rondeNaam = "Laatste 32";
+                else if (aW === 32) rondeNaam = "Laatste 64";
+                else rondeNaam = "Ronde " + rondeMatch[1];
+            }
 
-                // PLAK DE BRACKET NAAM ERACHTER (BEHALVE BIJ GROEPEN)
-                if (m._bracket_type && m._bracket_type !== "Groepsfase" && m._bracket_type !== "") {
-                    rondeNaam += ` (${m._bracket_type})`;
-                }
+            let markerData = m.ch && m.ch.v ? m.ch.v : null;
+            let markerNaam = "";
+            if (Array.isArray(markerData) || typeof markerData === 'number') markerNaam = getSpelerNaam(markerData);
+            else if (typeof markerData === 'string') markerNaam = markerData;
 
-                let markerData = m.ch && m.ch.v ? m.ch.v : null;
-                let markerNaam = "";
-                if (Array.isArray(markerData) || typeof markerData === 'number') markerNaam = getSpelerNaam(markerData);
-                else if (typeof markerData === 'string') markerNaam = markerData;
+            return {
+                id: matchId,
+                _bron_url: m._bron_url,
+                ronde: rondeNaam,
+                player1: getSpelerNaam(m.d1 || m.p1),
+                player2: getSpelerNaam(m.d2 || m.p2),
+                marker: markerNaam,
+                score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
+                score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
+                board: m.bn || m.b || m.board || m.bd || "?",
+                time: m.tm || m.t || m.time || m.st || "Niet bekend",
+                toernooi: tournament.name,
+                isFinished: m.fn === true,
+                _bracket_type: m._bracket_type
+            };
+        });
 
-                let p1Name = getSpelerNaam(m.d1 || m.p1);
-                let p2Name = getSpelerNaam(m.d2 || m.p2);
+        rawMatches = rawMatches.concat(dcConverted);
 
-                // --- VUL DE POULE LIJSTEN AAN ---
-                if (rondeNaam.startsWith("Poule ")) {
-                    if (!pouleIndelingen[rondeNaam]) pouleIndelingen[rondeNaam] = new Set();
-                    if (p1Name !== "Onbekend") pouleIndelingen[rondeNaam].add(p1Name);
-                    if (p2Name !== "Onbekend") pouleIndelingen[rondeNaam].add(p2Name);
-                }
-
-                return {
-                    id: matchId,
-                    _bron_url: m._bron_url,
-                    ronde: rondeNaam,
-                    player1: p1Name,
-                    player2: p2Name,
-                    marker: markerNaam,
-                    score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
-                    score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
-                    board: m.bn || m.b || m.board || m.bd || "?",
-                    time: m.tm || m.t || m.time || m.st || "Niet bekend",
-                    toernooi: tournament.name,
-                    isFinished: m.fn === true
-                };
-            });
-            rawMatches = rawMatches.concat(matchesMetToernooi);
-        }
+        // --- POULE DEELNEMERS VERZAMELEN & LABELS ---
+        let pouleIndelingen = {}; 
+        rawMatches.forEach(m => {
+            if (m._bracket_type && m._bracket_type !== "Groepsfase" && !m.ronde.includes('(')) m.ronde += ` (${m._bracket_type})`;
+            
+            if (m.ronde.startsWith("Poule ") || m.ronde.startsWith("Group ")) {
+                if (!pouleIndelingen[m.ronde]) pouleIndelingen[m.ronde] = new Set();
+                if (m.player1 !== "Onbekend") pouleIndelingen[m.ronde].add(m.player1);
+                if (m.player2 !== "Onbekend") pouleIndelingen[m.ronde].add(m.player2);
+            }
+        });
 
         const dartersLower = (tournament.darters || []).map(d => d.toLowerCase());
         let definitieveLijst = [];
@@ -288,47 +295,37 @@ async function fetchMatchesForTournament(requestedTournament) {
             let isMarker = dartersLower.find(d => match.marker && match.marker.toLowerCase().includes(d));
 
             if (!isSpeler && isMarker && match.status === "gespeeld") continue; 
-
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
-            // --- PUSH MELDING LOGICA MET DE CHECKBOX FILTERS EN POULE HERKENNING ---
+            // --- PUSH MELDING LOGICA ---
             let isBetrokken = isSpeler || isMarker;
 
             if (match.status === "gepland" && isBetrokken) {
-                let isPoule = match.ronde.startsWith("Poule ");
+                let isPoule = match.ronde.startsWith("Poule ") || match.ronde.startsWith("Group ");
                 let hasTime = match.time && match.time.includes(':');
 
-                // --- 1. POULE BEKEND MELDING (Slechts 1x per speler per poule!) ---
                 if (isPoule && !hasTime && isSpeler) {
                     let pouleKey = `${tournament.name}_${isSpeler}_${match.ronde}`;
-                    
                     if (!db.notifiedPoules.includes(pouleKey)) {
                         db.notifiedPoules.push(pouleKey);
-                        
-                        // Genereer de slimme tekst
                         let spelersInPoule = Array.from(pouleIndelingen[match.ronde] || []);
                         let ik = spelersInPoule.find(p => p.toLowerCase().includes(isSpeler)) || isSpeler;
                         let anderen = spelersInPoule.filter(p => p !== ik);
-
+                        
                         let titel = `📊 Poule Indeling Bekend!`;
                         let body = `${ik} is ingedeeld in ${match.ronde} met: ${anderen.join(', ')}`;
-
+                        
                         if (!isFirstRun && db.subscriptions.length > 0) {
                             const payload = JSON.stringify({ title: titel, body: body });
-                            
                             let activeSubs = [];
                             await Promise.all(db.subscriptions.map(async (sub) => {
                                 let wilHoren = false;
                                 if (sub.preferences && sub.preferences[tournament.name]) {
                                     let gekozenSpelers = sub.preferences[tournament.name];
                                     if (gekozenSpelers.length > 0) {
-                                        wilHoren = gekozenSpelers.some(filter => 
-                                            match.player1.toLowerCase().includes(filter) || 
-                                            match.player2.toLowerCase().includes(filter)
-                                        );
+                                        wilHoren = gekozenSpelers.some(filter => match.player1.toLowerCase().includes(filter) || match.player2.toLowerCase().includes(filter));
                                     }
                                 }
-
                                 if (wilHoren) {
                                     try {
                                         await webpush.sendNotification(sub, payload);
@@ -344,10 +341,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                         }
                         nieuwGeplandCount++;
                     }
-                }
-
-                // --- 2. INDIVIDUELE WEDSTRIJD MELDING (10-minuten of Knockout) ---
-                if (!db.notifiedMatches.includes(match.id)) {
+                } else if (!db.notifiedMatches.includes(match.id)) {
                     let stuurMelding = false;
                     let titel = "";
 
@@ -365,17 +359,14 @@ async function fetchMatchesForTournament(requestedTournament) {
                             titel = "🎯 Over 10 minuten de volgende wedstrijd";
                         }
                     } else if (!isPoule) {
-                        // Geen poule, dus Knockout zonder tijd
                         stuurMelding = true;
                         titel = "🎯 Nieuwe wedstrijd gepland!";
                     }
 
                     if (stuurMelding) {
                         db.notifiedMatches.push(match.id);
-                        
                         if (!isFirstRun && db.subscriptions.length > 0) {
                             if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
-
                             const payload = JSON.stringify({
                                 title: titel,
                                 body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`
@@ -406,7 +397,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                                     activeSubs.push(sub);
                                 }
                             }));
-                            
                             if (db.subscriptions.length !== activeSubs.length) db.subscriptions = activeSubs;
                         }
                         nieuwGeplandCount++;
@@ -496,7 +486,6 @@ app.get('/api/matches', async (req, res) => {
 });
 
 // --- ADMIN: HANDMATIGE PUSH MELDING VERSTUREN ---
-// (Deze negeert de nieuwe filters en stuurt je omroepbericht naar IEDEREEN)
 app.post('/api/admin/send-push', async (req, res) => {
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
@@ -539,16 +528,48 @@ app.post('/api/admin/send-push', async (req, res) => {
     res.json({ success: true, message: `✅ Succes! Melding verstuurd naar ${successCount} actieve apparaten.` });
 });
 
+// --- GEHEIME TEST ROUTE VOOR PUSH MELDINGEN ---
+app.get('/api/test-push', async (req, res) => {
+    const db = readDB();
+    if (!db.subscriptions || db.subscriptions.length === 0) {
+        return res.send("<h1>❌ Geen abonnees gevonden!</h1><p>Heb je wel ergens in de app op de groene 'Zet Meldingen Aan' knop geklikt?</p>");
+    }
+
+    const payload = JSON.stringify({
+        title: "🎯 Over 10 minuten de volgende wedstrijd",
+        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20"
+    });
+
+    let successCount = 0;
+    for (let sub of db.subscriptions) {
+        try {
+            await webpush.sendNotification(sub, payload);
+            successCount++;
+        } catch (err) {
+            console.log('Test push faalde:', err.message);
+        }
+    }
+
+    res.send(`<h1>✅ Test Voltooid!</h1><p>Er is succesvol een melding gestuurd naar ${successCount} van de ${db.subscriptions.length} geabonneerde apparaten.</p>`);
+});
+
+// --- DE HARTSLAG (ACHTERGROND POLLER) ---
 async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
     
+    console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien voor nieuwe wedstrijden...`);
     for (let t of db.tournaments) {
         await fetchMatchesForTournament(t.name);
     }
-    if (isFirstRun) isFirstRun = false;
+    
+    if (isFirstRun) {
+        isFirstRun = false;
+        console.log("[HARTSLAG] Eerste run voltooid. Vanaf nu worden er meldingen verstuurd.");
+    }
 }
 
+// Start de hartslag 1x direct op, en daarna elke 60 seconden
 runHeartbeat();
 setInterval(runHeartbeat, 60000);
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
