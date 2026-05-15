@@ -91,156 +91,16 @@
     let editingTournamentIndex = null;
 
     async function loadSettings() {
-        const res = await fetch('/api/settings');
-        db = await res.json();
-        if (!db.tournaments) db.tournaments = [];
-        db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
-        renderTournaments();
-        renderTournamentDropdown();
-    }
-
-    function renderTournaments() {
-        const list = document.getElementById('tournaments-list');
-        list.innerHTML = '';
-        db.tournaments.forEach((t, i) => {
-            list.innerHTML += `<div class="item">
-                <span><b>${t.name}</b><br><small style="color:#666;">Bracket: ${t.url}</small><br><small style="color:#666;">Matchlist: ${t.matchlistUrl || 'Geen'}</small></span>
-                <div class="item-actions">
-                    <button class="btn-edit" onclick="editTournament(${i})">✏️</button>
-                    <button class="btn-delete" onclick="removeTournament(${i})">X</button>
-                </div>
-            </div>`;
-        });
-        renderTournamentDropdown();
-    }
-
-    function editTournament(index) {
-        const t = db.tournaments[index];
-        document.getElementById('t-name').value = t.name;
-        document.getElementById('t-url').value = t.url;
-        document.getElementById('t-matchlist').value = t.matchlistUrl || '';
-        
-        editingTournamentIndex = index;
-        
-        const addBtn = document.getElementById('btn-add-tournament');
-        addBtn.innerText = "Toernooi Bijwerken";
-        addBtn.style.backgroundColor = "#2ecc71";
-        document.getElementById('btn-cancel-edit').style.display = "block";
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function cancelEdit() {
-        editingTournamentIndex = null;
-        document.getElementById('t-name').value = '';
-        document.getElementById('t-url').value = '';
-        document.getElementById('t-matchlist').value = '';
-        
-        const addBtn = document.getElementById('btn-add-tournament');
-        addBtn.innerText = "Toevoegen";
-        addBtn.style.backgroundColor = "#FF6600";
-        document.getElementById('btn-cancel-edit').style.display = "none";
-    }
-
-     function addTournament() {
-        const name = document.getElementById('t-name').value.trim();
-        let url = document.getElementById('t-url').value.trim();
-        let matchlistUrl = document.getElementById('t-matchlist').value.trim();
-        
-        if (!name || !url) {
-            return alert("Vul in ieder geval een toernooinaam en Bracket URL in!");
-        }
-
-        // --- SLIMME AUTO-VERTALER VOOR BRACKET URL ---
-        if (url.includes('/event/') && !url.includes('/api/event/')) {
-            // Maakt van /event/ -> /api/event/ en van /brackets/ -> /bracket/
-            url = url.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/');
-        }
-
-        // --- SLIMME AUTO-VERTALER VOOR MATCHLIST URL ---
-        if (matchlistUrl.includes('/event/') && !matchlistUrl.includes('/api/event/')) {
-            // Maakt van /event/ -> /api/event/ (de rest van de URL, /matches, blijft gelijk!)
-            matchlistUrl = matchlistUrl.replace('/event/', '/api/event/');
-        }
-
-        // --- URL CONTROLES (Check of de vertaling is gelukt) ---
-        if (!url.toLowerCase().includes('api') || !url.toLowerCase().includes('bracket')) {
-            return alert("❌ De Bracket URL is ongeldig.\n\nKopieer de link direct uit DartConnect.");
-        }
-
-        if (matchlistUrl !== "" && (!matchlistUrl.toLowerCase().includes('api') || !matchlistUrl.toLowerCase().includes('matches'))) {
-            return alert("❌ De Matchlist URL is ongeldig.\n\nKopieer de link direct uit DartConnect.");
-        }
-
-        // --- OPSLAAN ALS ALLES KLOPT ---
-        if (editingTournamentIndex !== null) {
-            db.tournaments[editingTournamentIndex].name = name;
-            db.tournaments[editingTournamentIndex].url = url;
-            db.tournaments[editingTournamentIndex].matchlistUrl = matchlistUrl;
-        } else {
-            db.tournaments.push({ name, url, matchlistUrl, darters: [] });
-        }
-        
-        cancelEdit();
-        renderTournaments();
-     }
-    
-
-    function removeTournament(index) {
-        if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
-            if(editingTournamentIndex === index) cancelEdit();
-            db.tournaments.splice(index, 1);
+        try {
+            const res = await fetch('/api/settings');
+            db = await res.json();
+            if (!db.tournaments) db.tournaments = [];
+            db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
             renderTournaments();
-            renderDarters();
+            renderTournamentDropdown();
+        } catch(e) {
+            console.error("Kon instellingen niet laden", e);
         }
-    }
-
-    function renderTournamentDropdown() {
-        const select = document.getElementById('d-toernooi-select');
-        select.innerHTML = db.tournaments.map((t, i) => `<option value="${i}">${t.name}</option>`).join('');
-        select.onchange = renderDarters;
-        renderDarters();
-    }
-
-    function renderDarters() {
-        const list = document.getElementById('darters-list');
-        list.innerHTML = '';
-        const tIndex = document.getElementById('d-toernooi-select').value;
-        if (tIndex === "") return;
-        const tournament = db.tournaments[tIndex];
-        if (tournament && tournament.darters) {
-            tournament.darters.forEach((d, i) => {
-                list.innerHTML += `<div class="item">
-                    <span><b>${d}</b></span>
-                    <div class="item-actions">
-                        <button class="btn-edit" onclick="editDarter(${tIndex}, ${i})">✏️</button>
-                        <button class="btn-delete" onclick="removeDarter(${tIndex}, ${i})">X</button>
-                    </div>
-                </div>`;
-            });
-        }
-    }
-
-    function editDarter(tIndex, dIndex) {
-        const huidigeNaam = db.tournaments[tIndex].darters[dIndex];
-        const nieuweNaam = prompt("Wijzig de naam van de darter:", huidigeNaam);
-        if (nieuweNaam && nieuweNaam.trim() !== "") {
-            db.tournaments[tIndex].darters[dIndex] = nieuweNaam.trim();
-            renderDarters();
-        }
-    }
-
-    function addDarter() {
-<script>
-    let db = { tournaments: [] };
-    let editingTournamentIndex = null;
-
-    async function loadSettings() {
-        const res = await fetch('/api/settings');
-        db = await res.json();
-        if (!db.tournaments) db.tournaments = [];
-        db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
-        renderTournaments();
-        renderTournamentDropdown();
     }
 
     function renderTournaments() {
@@ -303,11 +163,11 @@
         }
 
         if (!url.toLowerCase().includes('api') || !url.toLowerCase().includes('bracket')) {
-            return alert("❌ De Bracket URL is ongeldig.\n\nKopieer de link direct uit DartConnect.");
+            return alert("❌ De Bracket URL is ongeldig.\\n\\nKopieer de link direct uit DartConnect.");
         }
 
         if (matchlistUrl !== "" && (!matchlistUrl.toLowerCase().includes('api') || !matchlistUrl.toLowerCase().includes('matches'))) {
-            return alert("❌ De Matchlist URL is ongeldig.\n\nKopieer de link direct uit DartConnect.");
+            return alert("❌ De Matchlist URL is ongeldig.\\n\\nKopieer de link direct uit DartConnect.");
         }
 
         if (editingTournamentIndex !== null) {
@@ -320,17 +180,16 @@
         
         cancelEdit();
         renderTournaments();
-        saveSettings(true); // <--- Zorgt voor auto-save!
+        saveSettings(true); // Auto-save
     }
     
-
     function removeTournament(index) {
         if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
             if(editingTournamentIndex === index) cancelEdit();
             db.tournaments.splice(index, 1);
             renderTournaments();
             renderDarters();
-            saveSettings(true); // <--- Zorgt voor auto-save!
+            saveSettings(true); // Auto-save
         }
     }
 
@@ -366,7 +225,7 @@
         if (nieuweNaam && nieuweNaam.trim() !== "") {
             db.tournaments[tIndex].darters[dIndex] = nieuweNaam.trim();
             renderDarters();
-            saveSettings(true); // <--- Zorgt voor auto-save!
+            saveSettings(true); // Auto-save
         }
     }
 
@@ -377,17 +236,16 @@
             db.tournaments[tIndex].darters.push(name);
             document.getElementById('d-name').value = '';
             renderDarters();
-            saveSettings(true); // <--- Zorgt voor auto-save!
+            saveSettings(true); // Auto-save
         }
     }
 
     function removeDarter(tIndex, dIndex) {
         db.tournaments[tIndex].darters.splice(dIndex, 1);
         renderDarters();
-        saveSettings(true); // <--- Zorgt voor auto-save!
+        saveSettings(true); // Auto-save
     }
 
-    // AANGEPAST: accepteert nu een "silent" argument om de pop-up over te slaan
     async function saveSettings(silent = false) {
         await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
         if (!silent) alert('Opgeslagen!');
@@ -426,6 +284,5 @@
 
     loadSettings();
 </script>
-
 </body>
 </html>
