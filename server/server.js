@@ -224,13 +224,15 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (!isSpeler && isMarker && match.status === "gespeeld") continue; 
 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
-
             // --- PUSH MELDING LOGICA ---
             let isBetrokken = isSpeler || isMarker;
 
             if (match.status === "gepland" && isBetrokken && !db.notifiedMatches.includes(match.id)) {
-                let timeDiff = null;
+                let stuurMelding = false;
+                let titel = "";
+
                 if (match.time && match.time.includes(':')) {
+                    // SCENARIO 1: Er is een vaste kloktijd (bijv. 14:20)
                     let parts = match.time.split(':');
                     let amsterdamTime = new Date().toLocaleString("en-US", {timeZone: "Europe/Amsterdam"});
                     let amsDate = new Date(amsterdamTime);
@@ -238,15 +240,26 @@ async function fetchMatchesForTournament(requestedTournament) {
                     let currentTotalMins = (amsDate.getHours() * 60) + amsDate.getMinutes();
                     let matchTotalMins = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
                     
-                    timeDiff = matchTotalMins - currentTotalMins;
+                    let timeDiff = matchTotalMins - currentTotalMins;
                     if (timeDiff < -1000) timeDiff += 1440; 
+                    
+                    // Alleen sturen als het binnen nu en 10 minuten is
+                    if (timeDiff <= 10 && timeDiff >= 0) {
+                        stuurMelding = true;
+                        titel = "🎯 Over 10 minuten de volgende wedstrijd";
+                    }
+                } else {
+                    // SCENARIO 2: Er is GEEN tijd (bijv. "Later" of leeg)
+                    // We sturen direct een melding zodra de tegenstander bekend is!
+                    stuurMelding = true;
+                    titel = "🎯 Nieuwe wedstrijd gepland!";
                 }
 
-                if (timeDiff !== null && timeDiff <= 10 && timeDiff >= 0) {
+                // Stuur de melding als aan één van de scenario's is voldaan
+                if (stuurMelding) {
                     db.notifiedMatches.push(match.id);
                     
                     if (!isFirstRun && db.subscriptions.length > 0) {
-                        let titel = "🎯 Over 10 minuten de volgende wedstrijd";
                         if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
 
                         const payload = JSON.stringify({
@@ -274,6 +287,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                     nieuwGeplandCount++;
                 }
             }
+
 
             if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
