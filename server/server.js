@@ -10,7 +10,27 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// --- ADMIN BEVEILIGING (BASIC AUTH) ---
+const ADMIN_USER = "matchapp";
+const ADMIN_PASS = "dutchopen2026"; // Verander dit naar je eigen wachtwoord!
+
+// Zorg dat admin.html om een wachtwoord vraagt VOORDAT de map wordt geladen
+app.use('/admin.html', (req, res, next) => {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+
+    if (login && password && login === ADMIN_USER && password === ADMIN_PASS) {
+        return next(); // Inlog klopt, laat het bestand zien!
+    }
+
+    res.set('WWW-Authenticate', 'Basic realm="Admin Area"');
+    res.status(401).send('Inloggen vereist voor beheer.');
+});
+
+// Nu pas laden we de rest van de website in
 app.use(express.static(path.join(__dirname, '../public')));
+
 
 const DB_FILE = path.join(__dirname, 'database.json');
 
@@ -56,9 +76,15 @@ app.post('/api/subscribe', (req, res) => {
 
 app.get('/api/settings', (req, res) => res.json(readDB()));
 app.post('/api/settings', (req, res) => {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
+
     writeDB(req.body);
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
+
+
 
 app.get('/api/tournaments', (req, res) => {
     res.json(readDB().tournaments.map(t => t.name));
@@ -331,6 +357,11 @@ app.get('/api/matches', async (req, res) => {
 
 // --- ADMIN: HANDMATIGE PUSH MELDING VERSTUREN (MET ZELFREINIGING) ---
 app.post('/api/admin/send-push', async (req, res) => {
+    // Basic Auth Check
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
+
     const { title, body } = req.body;
     const db = readDB();
 
