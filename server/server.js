@@ -124,8 +124,8 @@ async function fetchMatchesForTournament(requestedTournament) {
             // Labels voor Winnaars en Verliezersronde
             if (bracketUrls.length === 3) {
                 if (i === 0) bracketType = "Groepsfase";
-                if (i === 1) bracketType = "Winnaarsronde";
-                if (i === 2) bracketType = "Verliezersronde";
+                if (i === 1) bracketType = "WR";
+                if (i === 2) bracketType = "VR";
             } else if (bracketUrls.length === 2) {
                 if (i === 0) bracketType = "Groepsfase";
                 if (i === 1) bracketType = "Knockout";
