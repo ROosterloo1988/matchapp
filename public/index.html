@@ -242,8 +242,13 @@
         }
     }
 
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => navigator.serviceWorker.register('/service-worker.js').catch(() => {}));
+     if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js').then(reg => {
+                // Forceer de app om op de achtergrond te checken of er een nieuwe versie is!
+                reg.update();
+            }).catch(() => {});
+        });
     }
 
     // --- GEAVANCEERDE PUSH LOGICA MET VINKJES ---
