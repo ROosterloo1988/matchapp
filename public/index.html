@@ -2,18 +2,25 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Live Matches</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#FF6600">
     <link rel="apple-touch-icon" href="/icon-192x192.png">
     
     <style>
+        * { box-sizing: border-box; }
         body { font-family: 'Arial', sans-serif; background-color: #121212; color: white; margin: 0; padding: 20px; }
-        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 10px; text-align: center; }
-        h1 { color: #FF6600; margin: 0; text-transform: uppercase; letter-spacing: 2px; font-size: 2.5rem; flex-grow: 1;}
-        .btn-back { background: #333; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; display: none; font-weight: bold;}
-        .btn-placeholder { width: 80px; display: none; } 
+        
+        /* TOP BAR */
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+        .top-bar-side { width: 85px; display: flex; align-items: center; }
+        .top-bar-side.left { justify-content: flex-start; }
+        .top-bar-side.right { justify-content: flex-end; }
+        h1 { color: #FF6600; margin: 0; text-transform: uppercase; letter-spacing: 2px; font-size: 2.5rem; text-align: center; flex: 1; }
+        .btn-back { background: #333; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; display: none; font-weight: bold; }
+        .admin-link { text-decoration: none; font-size: 1.5rem; filter: grayscale(1); opacity: 0.6; transition: 0.3s; }
+        .admin-link:hover { opacity: 1; filter: none; }
 
         /* MENU STYLING */
         #menu-container { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-top: 40px; }
@@ -28,16 +35,16 @@
 
         /* MATCH STYLING */
         #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); display: none; }
-        .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600;}
-        .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;}
-        .board-badge { background: black; color: white; padding: 5px 10px; border-radius: 5px; font-size: 1.1rem; border: 1px solid rgba(255,255,255,0.2);}
-        .card-subheader { background: #333; padding: 5px 15px; font-size: 0.85rem; color: #ccc; display: flex; justify-content: space-between; align-items: center;}
-        .match-id { background: #555; padding: 2px 6px; border-radius: 3px; font-family: monospace; color: white;}
-        .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1;}
-        .player-name { flex: 1; text-align: center; word-wrap: break-word;}
-        .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center;}
+        .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600; }
+        .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
+        .board-badge { background: black; color: white; padding: 5px 10px; border-radius: 5px; font-size: 1.1rem; border: 1px solid rgba(255,255,255,0.2); }
+        .card-subheader { background: #333; padding: 5px 15px; font-size: 0.85rem; color: #ccc; display: flex; justify-content: space-between; align-items: center; }
+        .match-id { background: #555; padding: 2px 6px; border-radius: 3px; font-family: monospace; color: white; }
+        .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1; }
+        .player-name { flex: 1; text-align: center; word-wrap: break-word; }
+        .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center; }
         
-        .recap-btn { background: #FF6600; color: white; text-decoration: none; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.8rem; border: 1px solid #e65c00;}
+        .recap-btn { background: #FF6600; color: white; text-decoration: none; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.8rem; border: 1px solid #e65c00; }
         .recap-btn:hover { background: #e65c00; }
 
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
@@ -48,13 +55,13 @@
         .match-card.gespeeld .card-header { background: #222; color: #888; }
         .match-card.gespeeld .score-box { color: #fff; border-color: #444; }
 
-        .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; text-transform: uppercase; font-size: 0.9rem;}
-        .no-matches { text-align: center; color: #888; margin-top: 50px; grid-column: 1 / -1;}
+        .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; text-transform: uppercase; font-size: 0.9rem; }
+        .no-matches { text-align: center; color: #888; margin-top: 50px; grid-column: 1 / -1; }
 
         @media (max-width: 600px) {
             body { padding: 10px; }
             h1 { font-size: 1.4rem; }
-            .btn-back { padding: 8px 10px; font-size: 0.8rem;}
+            .btn-back { padding: 8px 10px; font-size: 0.8rem; }
             #filter-container { gap: 5px; }
             .filter-btn { padding: 5px 10px; font-size: 0.8rem; }
             #matches-container { grid-template-columns: 1fr; gap: 8px; }
@@ -66,19 +73,26 @@
             .section-title { margin-top: 15px; font-size: 0.8rem; }
             .match-card.gespeeld { border-left-width: 5px; }
         }
+
+        /* PUSH MODAL */
+        #push-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; padding: 20px; }
+        .push-box { background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #FF6600; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .push-box h2 { color: #FF6600; margin-top: 0; font-size: 2rem; }
+        .push-box p { color: #ccc; font-size: 1.1rem; margin-bottom: 25px; }
+        .push-box button.btn-yes { background: #2ecc71; color: white; border: none; padding: 15px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1.2rem; margin-bottom: 15px; }
+        .push-box button.btn-no { background: transparent; color: #888; border: none; text-decoration: underline; cursor: pointer; font-size: 0.9rem; }
     </style>
 </head>
 <body>
     <div class="top-bar">
-        <div style="width: 85px; text-align: left;">
+        <div class="top-bar-side left">
             <button class="btn-back" id="btn-back" onclick="showMenu()">⬅ TERUG</button>
         </div>
         <h1 id="main-title">🎯 TOERNOOIEN</h1>
-        <div style="width: 85px; text-align: right; display: flex; justify-content: flex-end; align-items: center;">
-            <a href="/admin.html" style="text-decoration: none; font-size: 1.5rem; filter: grayscale(1); opacity: 0.7;">⚙️</a>
+        <div class="top-bar-side right">
+            <a href="/admin.html" class="admin-link">⚙️</a>
         </div>
     </div>
-
 
     <div id="filter-container">
         <button class="filter-btn active" onclick="setFilter('alles')" id="filter-alles">Alles</button>
@@ -90,41 +104,45 @@
     <div id="menu-container">Laden...</div>
     <div id="matches-container"></div>
 
-    <div id="push-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
-        <div style="background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #FF6600; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-            <h2 style="color: #FF6600; margin-top: 0; font-size: 2rem;">🔔 Mis Niets!</h2>
-            <p style="color: #ccc; font-size: 1.1rem; margin-bottom: 25px;">Zet je meldingen aan zodat we je direct kunnen waarschuwen als je moet gooien of schrijven op het toernooi.</p>
-            <button onclick="subscribeUser()" style="background: #2ecc71; color: white; border: none; padding: 15px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1.2rem; margin-bottom: 15px;">✅ Meldingen Aanzetten</button>
-            <button onclick="closePushModal()" style="background: transparent; color: #888; border: none; text-decoration: underline; cursor: pointer; font-size: 0.9rem;">Nee bedankt, ik let zelf wel op</button>
+    <div id="push-modal">
+        <div class="push-box">
+            <h2>🔔 Mis Niets!</h2>
+            <p>Zet je meldingen aan zodat we je direct kunnen waarschuwen als je moet gooien of schrijven op het toernooi.</p>
+            <button class="btn-yes" onclick="subscribeUser()">✅ Meldingen Aanzetten</button>
+            <button class="btn-no" onclick="closePushModal()">Nee bedankt, ik let zelf wel op</button>
         </div>
     </div>
 
 <script>
     let activeTournament = null;
     let refreshInterval = null;
-    let currentFilter = 'alles'; // Standaard laten we alles zien
+    let currentFilter = 'alles';
 
     const urlParams = new URLSearchParams(window.location.search);
     const urlTournament = urlParams.get('t');
 
     async function loadTournaments() {
-        const response = await fetch('/api/tournaments');
-        const names = await response.json();
-        const container = document.getElementById('menu-container');
-        
-        if(names.length === 0) {
-            container.innerHTML = "<div class='no-matches'>Geen toernooien gevonden. Voeg ze toe in de admin.</div>";
-            return;
-        }
+        try {
+            const response = await fetch('/api/tournaments');
+            const names = await response.json();
+            const container = document.getElementById('menu-container');
+            
+            if(names.length === 0) {
+                container.innerHTML = "<div class='no-matches'>Geen toernooien gevonden. Voeg ze toe via het tandwieltje rechtsboven.</div>";
+                return;
+            }
 
-        container.innerHTML = names.map(name => `
-            <div class="tournament-card" onclick="selectTournament('${name}')">
-                ${name.toUpperCase()}
-            </div>
-        `).join('');
+            container.innerHTML = names.map(name => `
+                <div class="tournament-card" onclick="selectTournament('${name}')">
+                    ${name.toUpperCase()}
+                </div>
+            `).join('');
 
-        if (urlTournament && names.includes(urlTournament)) {
-            selectTournament(urlTournament, false);
+            if (urlTournament && names.includes(urlTournament)) {
+                selectTournament(urlTournament, false);
+            }
+        } catch (e) {
+            document.getElementById('menu-container').innerHTML = "<div class='no-matches'>Kon niet verbinden met de server.</div>";
         }
     }
 
@@ -138,7 +156,7 @@
         }
 
         document.getElementById('menu-container').style.display = 'none';
-        document.getElementById('filter-container').style.display = 'flex'; // Laat filter zien
+        document.getElementById('filter-container').style.display = 'flex';
         document.getElementById('matches-container').style.display = 'grid';
         document.getElementById('btn-back').style.display = 'block';
         document.getElementById('main-title').innerText = name.toUpperCase();
@@ -156,21 +174,16 @@
         window.history.pushState({}, '', url);
 
         document.getElementById('menu-container').style.display = 'grid';
-        document.getElementById('filter-container').style.display = 'none'; // Verberg filter
+        document.getElementById('filter-container').style.display = 'none';
         document.getElementById('matches-container').style.display = 'none';
         document.getElementById('btn-back').style.display = 'none';
         document.getElementById('main-title').innerText = "🎯 TOERNOOIEN";
     }
 
-    // NIEUW: Functie om het filter aan te passen
     function setFilter(status) {
         currentFilter = status;
-        
-        // Update de kleuren van de knoppen
         document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`filter-${status}`).classList.add('active');
-        
-        // Herlaad direct de wedstrijden met de nieuwe filter
         loadMatches();
     }
 
@@ -181,21 +194,20 @@
             const allMatches = await response.json();
             const container = document.getElementById('matches-container');
             
-            // Filter de wedstrijden op basis van de ingedrukte knop
             let matches = allMatches;
             if (currentFilter !== 'alles') {
                 matches = allMatches.filter(m => m.status === currentFilter);
             }
 
             if (matches.length === 0) { 
-                container.innerHTML = `<div class='no-matches'>Geen wedstrijden gevonden voor dit filter.</div>`; 
+                container.innerHTML = `<div class='no-matches'>Geen wedstrijden gevonden voor dit filter.</div>`;
                 return; 
             }
 
             let htmlString = "";
             let huidigeStatus = "";
             const titels = { "gepland": "⚡ Geplande Wedstrijden", "mogelijk": "🔮 Mogelijke Volgende Ronde", "gespeeld": "✅ Gespeelde Wedstrijden" };
-
+            
             matches.forEach(match => {
                 if (match.status !== huidigeStatus) {
                     huidigeStatus = match.status;
@@ -204,7 +216,6 @@
 
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
-                
                 if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
 
                 let resultClass = match.resultaat ? match.resultaat : "";
@@ -228,19 +239,18 @@
                 </div>`;
             });
             container.innerHTML = htmlString;
-        } catch (error) { document.getElementById('matches-container').innerHTML = "Fout bij laden."; }
+        } catch (error) { 
+            document.getElementById('matches-container').innerHTML = "<div class='no-matches'>Fout bij laden van data.</div>";
+        }
     }
 
-        // Registreer de Service Worker voor PWA functionaliteit
+    // --- PWA & SERVICE WORKER ---
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/service-worker.js')
-                .then(reg => console.log('Service Worker geregistreerd!'))
-                .catch(err => console.error('Service Worker registratie mislukt:', err));
+            navigator.serviceWorker.register('/service-worker.js').catch(() => {});
         });
     }
 
-    // --- PUSH MELDINGEN LOGICA ---
     // --- PUSH MELDINGEN LOGICA ---
     const pushModal = document.getElementById('push-modal');
 
@@ -249,12 +259,10 @@
             const registration = await navigator.serviceWorker.ready;
             const subscription = await registration.pushManager.getSubscription();
             
-            // Check of de app als "Echte App" is gestart (Standalone mode)
             const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
             
-            // Als het een app is, er géén abonnement is, en ze notificaties niet eerder hebben geblokkeerd:
             if (isStandalone && !subscription && Notification.permission !== 'denied') {
-                pushModal.style.display = 'flex'; // Laat de grote pop-up zien!
+                pushModal.style.display = 'flex';
             }
         }
     }
@@ -270,7 +278,6 @@
             const vapidPublicKey = await response.text();
             
             const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
-            
             const subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: convertedVapidKey
@@ -282,10 +289,9 @@
                 headers: { 'Content-Type': 'application/json' }
             });
 
-            closePushModal(); // Sluit de pop-up na succes!
+            closePushModal();
             alert("Meldingen staan aan! Je krijgt nu een trilsignaal als je moet spelen.");
         } catch (error) { 
-            console.error('Kon niet abonneren: ', error);
             alert("Oeps! Het instellen van meldingen is mislukt. Misschien moet je ze aanzetten in je telefoon-instellingen.");
             closePushModal();
         }
@@ -301,7 +307,6 @@
     }
 
     initPush();
-
     loadTournaments();
 </script>
 </body>
