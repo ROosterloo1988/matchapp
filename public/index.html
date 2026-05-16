@@ -23,27 +23,23 @@
 
         #menu-container { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-top: 40px; }
         
-        /* AANGEPAST VOOR ICONEN */
         .tournament-card { position: relative; background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #333; cursor: pointer; transition: 0.3s; font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; }
         .tournament-card:hover { border-color: #FF6600; background: #252525; }
         .card-icon { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); }
         .delete-btn { background: #e74c3c; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 1.2rem; transition: 0.2s; }
         .delete-btn:hover { background: #c0392b; transform: scale(1.1); }
 
-        /* FILTER & KNOPPEN */
         #filter-container { display: none; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
         .filter-btn { background: #222; color: #888; border: 1px solid #444; padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: 0.2s; }
         .filter-btn:hover { background: #333; color: white; }
         .filter-btn.active { background: #FF6600; color: white; border-color: #FF6600; }
         .btn-push { background: #2ecc71; color: white; border-color: #2ecc71; margin-left: 10px; }
 
-        /* GEBRUIKER TOEVOEGEN KNOP */
         .btn-user-add { background: #333; color: #888; border: 2px dashed #444; padding: 20px; border-radius: 10px; text-align: center; cursor: pointer; margin-top: 20px; font-weight: bold; width: 100%; grid-column: 1 / -1; }
         .btn-user-add:hover { border-color: #FF6600; color: white; }
         .info-icon { display: inline-block; width: 20px; height: 20px; background: #FF6600; color: white; border-radius: 50%; font-size: 0.8rem; line-height: 20px; cursor: help; margin-left: 5px; text-align: center; }
         .search-filter { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #444; background: #222; color: white; }
 
-        /* MATCH STYLING */
         #matches-container { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); display: none; }
         .match-card { background: #1E1E1E; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; flex-direction: column; border-left: 5px solid #FF6600; }
         .card-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
@@ -85,7 +81,6 @@
             .match-card.gespeeld { border-left-width: 5px; }
         }
 
-        /* MODALS */
         .push-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; padding: 20px; }
         .push-box { background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #2ecc71; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: flex; flex-direction: column; max-height: 90vh; }
         .push-box h2 { color: #2ecc71; margin-top: 0; font-size: 1.8rem; }
@@ -97,7 +92,6 @@
         .push-box button.btn-yes { background: #2ecc71; color: white; border: none; padding: 15px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1.1rem; margin-bottom: 10px; }
         .push-box button.btn-no { background: transparent; color: #888; border: none; text-decoration: underline; cursor: pointer; font-size: 0.9rem; }
 
-        /* iOS INSTALL BANNER */
         #ios-install-banner { display: none; position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; color: #333; padding: 15px 20px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); z-index: 10000; align-items: center; justify-content: space-between; flex-direction: column; text-align: center; }
         .ios-install-text { font-size: 0.95rem; margin-bottom: 10px; font-weight: bold; }
         .ios-install-icon { display: inline-block; background: #f4f4f4; border-radius: 5px; padding: 2px 6px; border: 1px solid #ccc; font-size: 1.2rem; }
@@ -182,7 +176,6 @@
     const urlParams = new URLSearchParams(window.location.search);
     const urlTournament = urlParams.get('t');
 
-    // --- PWA & INSTALLATIE CHECK ---
     const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
     const isPWA = () => {
         return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
@@ -192,40 +185,38 @@
         document.getElementById('ios-install-banner').style.display = 'flex';
     }
 
-    // --- TOERNOOIEN INLADEN ---
+    // --- TOERNOOIEN INLADEN (Met Cache Buster) ---
     async function loadTournaments() {
+        const container = document.getElementById('menu-container');
+        container.innerHTML = "Laden..."; // Harde reset van de weergave 
+
         try {
-            // Haal de lijst op die Openbaar is
-            const response = await fetch('/api/tournaments');
+            // Door Date.now() erbij te zetten, kan je telefoon dit verzoek NOOIT vast laten lopen in zijn geheugen!
+            const response = await fetch('/api/tournaments?_t=' + Date.now());
+            if (!response.ok) throw new Error("Server error");
             let publicNames = await response.json();
             
-            // Haal de lijst op met ALLE (ook verborgen) toernooien ter controle
-            const validResponse = await fetch('/api/tournaments/valid');
+            const validResponse = await fetch('/api/tournaments/valid?_t=' + Date.now());
+            if (!validResponse.ok) throw new Error("Server error");
             let allValidNames = await validResponse.json();
 
-            // Haal lokaal toegevoegde (verborgen) toernooien op
             let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
             
-            // SCHOONMAAK: Wis lokale toernooien als de Admin ze van de server heeft verwijderd!
             let origineleLengte = myHidden.length;
             myHidden = myHidden.filter(h => allValidNames.includes(h));
             if (myHidden.length !== origineleLengte) {
                 localStorage.setItem('my_tournaments', JSON.stringify(myHidden));
             }
 
-            // Combineer de openbare en persoonlijke toernooien (zonder dubbelingen)
             let combinedNames = [...new Set([...publicNames, ...myHidden])];
-
-            const container = document.getElementById('menu-container');
             
             if(combinedNames.length === 0) {
                 container.innerHTML = "<div class='no-matches'>Geen toernooien gevonden.</div>";
             } else {
                 container.innerHTML = combinedNames.map(name => {
                     let isAdmin = publicNames.includes(name);
-                    let safeName = name.replace(/'/g, "\\'"); // Voorkom fouten bij toernooien met ' erin
+                    let safeName = name.replace(/'/g, "\\'"); 
                     
-                    // Laat een Slotje of Prullenbakje zien
                     let iconHtml = isAdmin 
                         ? `<div class="card-icon" title="Officieel Toernooi"><span style="font-size:1.5rem; opacity:0.5;">🔒</span></div>` 
                         : `<div class="card-icon"><button class="delete-btn" onclick="removeUserTournament(event, '${safeName}')" title="Toernooi Verwijderen">🗑️</button></div>`;
@@ -245,240 +236,390 @@
                 selectTournament(urlTournament, false);
             }
         } catch (e) {
-            document.getElementById('menu-container').innerHTML = "<div class='no-matches'>Kon niet verbinden met de server.</div>";
+            container.innerHTML = "<div class='no-matches'>Kan niet verbinden met de server. Probeer het over een minuutje nog eens!</div>";
         }
     }
 
-<script>
-    let db = { tournaments: [] };
-    let editingTournamentIndex = null;
+    async function removeUserTournament(event, name) {
+        event.stopPropagation(); 
+        if(confirm(`Weet je zeker dat je '${name}' van jouw scherm wilt verwijderen?`)) {
+            let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
+            myHidden = myHidden.filter(t => t !== name);
+            localStorage.setItem('my_tournaments', JSON.stringify(myHidden));
 
-    function updateTournamentFields() {
-        const format = parseInt(document.getElementById('t-format').value);
-        const container = document.getElementById('dynamic-fields');
+            localStorage.removeItem('pushPrefs_' + name);
+            try {
+                if ('serviceWorker' in navigator && 'PushManager' in window) {
+                    const registration = await navigator.serviceWorker.ready;
+                    const vapidRes = await fetch('/api/vapidPublicKey?_t=' + Date.now());
+                    const vapidKey = urlBase64ToUint8Array(await vapidRes.text());
+                    const sub = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: vapidKey});
+
+                    await fetch('/api/subscribe', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ subscription: sub, tournament: name, players: [] }) 
+                    });
+                }
+            } catch(e) {}
+
+            loadTournaments(); 
+        }
+    }
+
+    function renderAddButton() {
+        if(document.querySelector('.btn-user-add')) return; 
+        
+        const container = document.getElementById('menu-container');
+        const btn = document.createElement('div');
+        btn.className = 'btn-user-add';
+        btn.innerHTML = '➕ ZELF TOERNOOI TOEVOEGEN';
+        btn.onclick = () => { 
+            updateUserTournamentFields();
+            document.getElementById('add-step-1').style.display = 'block';
+            document.getElementById('add-step-2').style.display = 'none';
+            document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
+            document.getElementById('user-add-modal').style.display = 'flex'; 
+        };
+        container.after(btn);
+    }
+
+    function updateUserTournamentFields() {
+        const format = parseInt(document.getElementById('user-t-format').value);
+        const container = document.getElementById('user-dynamic-fields');
         let html = '';
 
-        const labels = format === 1 ? ['Schema Link(s)'] :
-                       format === 2 ? ['De Groepsfase', 'De Knockoutfase'] :
-                       ['De Groepsfase', 'De Winnaarsronde', 'De Verliezersronde'];
+        const labels = format === 1 ? ['Schema Link'] :
+                       format === 2 ? ['Link van de Poules', 'Link van de Knockout'] :
+                       ['Link van de Poules', 'Link van de Winnaarsronde', 'Link van de Verliezersronde'];
                        
         labels.forEach((label, i) => {
             html += `
-            <div class="bracket-group">
-                <label>${label}</label>
-                <input type="text" class="t-url-input" placeholder="Bracket URL (Verplicht)" data-index="${i}">
+            <div style="text-align: left; margin-bottom: 10px;">
+                <label style="font-size: 0.85rem; color: #aaa;">${label}:</label>
+                <input type="text" class="user-t-url-input" placeholder="Plak hier de link" style="width: 100%; padding: 12px; margin-top: 5px; border-radius: 5px; border: 1px solid #444; background: #222; color: white;">
             </div>
             `;
         });
         container.innerHTML = html;
     }
 
-    async function loadSettings() {
+    function selectTournament(name, pushUrl = true) {
+        activeTournament = name;
+        if (pushUrl) {
+            const url = new URL(window.location);
+            url.searchParams.set('t', name);
+            window.history.pushState({}, '', url);
+        }
+        document.getElementById('menu-container').style.display = 'none';
+        
+        const addBtn = document.querySelector('.btn-user-add');
+        if(addBtn) addBtn.style.display = 'none';
+
+        document.getElementById('filter-container').style.display = 'flex';
+        document.getElementById('matches-container').style.display = 'grid';
+        document.getElementById('btn-back').style.display = 'block';
+        document.getElementById('main-title').innerText = name.toUpperCase();
+        
+        loadMatches();
+        refreshInterval = setInterval(loadMatches, 30000);
+    }
+
+    function showMenu() {
+        activeTournament = null;
+        clearInterval(refreshInterval);
+        const url = new URL(window.location);
+        url.searchParams.delete('t');
+        window.history.pushState({}, '', url);
+        document.getElementById('menu-container').style.display = 'grid';
+        
+        const addBtn = document.querySelector('.btn-user-add');
+        if(addBtn) addBtn.style.display = 'block';
+
+        document.getElementById('filter-container').style.display = 'none';
+        document.getElementById('matches-container').style.display = 'none';
+        document.getElementById('btn-back').style.display = 'none';
+        document.getElementById('main-title').innerText = "🎯 TOERNOOIEN";
+    }
+
+    function setFilter(status) {
+        currentFilter = status;
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`filter-${status}`).classList.add('active');
+        loadMatches();
+    }
+
+    async function loadMatches() {
+        if (!activeTournament) return;
         try {
-            const res = await fetch('/api/settings');
-            db = await res.json();
-            if (!db.tournaments) db.tournaments = [];
-            db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
-            renderTournaments();
-            renderTournamentDropdown();
-        } catch(e) {
-            console.error("Kon instellingen niet laden", e);
-        }
-    }
-
-    function renderTournaments() {
-        const list = document.getElementById('tournaments-list');
-        list.innerHTML = '';
-        db.tournaments.forEach((t, i) => {
-            let bCount = t.url ? t.url.split(',').length : 0;
-            let badge = t.unlisted ? '<span style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; margin-left: 10px; vertical-align: middle;">🔒 VERBORGEN</span>' : '';
+            // Wederom de Cache-Buster, direct verbonden met de server!
+            const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            if (!response.ok) throw new Error("Server error");
+            const allMatches = await response.json();
+            const container = document.getElementById('matches-container');
             
-            list.innerHTML += `<div class="item">
-                <span><b>${t.name}</b> ${badge}<br><small style="color:#666;">🔗 ${bCount} Bracket(s) gekoppeld</small></span>
-                <div class="item-actions">
-                    <button class="btn-edit" onclick="editTournament(${i})">✏️</button>
-                    <button class="btn-delete" onclick="removeTournament(${i})">X</button>
-                </div>
-            </div>`;
-        });
-        renderTournamentDropdown();
-    }
+            let matches = allMatches;
+            if (currentFilter !== 'alles') matches = allMatches.filter(m => m.status === currentFilter);
+            if (matches.length === 0) { 
+                container.innerHTML = `<div class='no-matches'>Geen wedstrijden gevonden voor dit filter.</div>`;
+                return; 
+            }
 
-    function editTournament(index) {
-        const t = db.tournaments[index];
-        document.getElementById('t-name').value = t.name;
-        document.getElementById('t-unlisted').checked = !!t.unlisted;
+            let htmlString = "";
+            let huidigeStatus = "";
+            const titels = { "gepland": "⚡ Geplande Wedstrijden", "mogelijk": "🔮 Mogelijke Volgende Ronde", "gespeeld": "✅ Gespeelde Wedstrijden" };
+            
+            matches.forEach(match => {
+                if (match.status !== huidigeStatus) {
+                    huidigeStatus = match.status;
+                    htmlString += `<div class="section-title">${titels[huidigeStatus]}</div>`;
+                }
 
-        let urls = t.url ? t.url.split(',') : [];
-        let format = urls.length <= 1 ? 1 : urls.length === 2 ? 2 : 3;
-        document.getElementById('t-format').value = format;
-        updateTournamentFields();
+                let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
+                let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
+                if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
 
-        let urlInputs = document.querySelectorAll('.t-url-input');
-        urls.forEach((u, i) => { if(urlInputs[i]) urlInputs[i].value = u; });
-        
-        editingTournamentIndex = index;
-        
-        const addBtn = document.getElementById('btn-add-tournament');
-        addBtn.innerText = "Toernooi Bijwerken";
-        addBtn.style.backgroundColor = "#2ecc71";
-        document.getElementById('btn-cancel-edit').style.display = "block";
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+                let resultClass = match.resultaat ? match.resultaat : "";
+                let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="recap-btn">📊 RECAP</a>` : "";
 
-    function cancelEdit() {
-        editingTournamentIndex = null;
-        document.getElementById('t-name').value = '';
-        document.getElementById('t-unlisted').checked = false;
-        document.getElementById('t-format').value = '1';
-        updateTournamentFields(); 
-        
-        const addBtn = document.getElementById('btn-add-tournament');
-        addBtn.innerText = "Toevoegen";
-        addBtn.style.backgroundColor = "#FF6600";
-        document.getElementById('btn-cancel-edit').style.display = "none";
-    }
-
-    function addTournament() {
-        const name = document.getElementById('t-name').value.trim();
-        const isUnlisted = document.getElementById('t-unlisted').checked;
-        
-        let urlInputs = Array.from(document.querySelectorAll('.t-url-input')).map(i => i.value.trim());
-
-        if (!name || urlInputs.some(url => url === "")) {
-            return alert("Vul in ieder geval een toernooinaam in en de verplichte Bracket URL('s)!");
+                htmlString += `
+                <div class="match-card ${match.status} ${resultClass}">
+                    <div class="card-header">
+                        <span>${headerText}</span>
+                        <span class="board-badge">BORD ${match.board}</span>
+                    </div>
+                    <div class="card-subheader">
+                        <span>Tijd: ${match.time} ${match.status === "mogelijk" ? '('+match.toernooi+')' : ''}</span>
+                        <span style="display: flex; align-items: center; gap: 10px;">
+                            <span>${match.ronde} | ID: <span class="match-id">${match.id || '?'}</span></span>
+                            ${recapKnop}
+                        </span>
+                    </div>
+                    <div class="players-area">
+                        <div class="player-name">${match.player1}</div>
+                        <div class="score-box">${scoreText}</div>
+                        <div class="player-name">${match.player2}</div>
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = htmlString;
+        } catch (error) { 
+            document.getElementById('matches-container').innerHTML = "<div class='no-matches'>Verbinding met server verloren...</div>";
         }
+    }
 
-        // Auto-vertaler
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js').then(reg => {
+                reg.update();
+            }).catch(() => {});
+        });
+    }
+
+    function closeUserAddModal() {
+        document.getElementById('user-add-modal').style.display = 'none';
+        document.getElementById('user-t-name').value = '';
+    }
+
+    async function fetchPlayersForNewTournament() {
+        const name = document.getElementById('user-t-name').value.trim();
+        let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
+
+        if(!name || urlInputs.some(url => url === "")) return alert("Vul een naam in en alle gevraagde links!");
+
         let translatedUrls = urlInputs.map(u => {
             if (u.includes('/event/') && !u.includes('/api/event/')) {
                 return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
             }
             return u;
         });
-
-        let validBrackets = translatedUrls.every(u => u.toLowerCase().includes('api') && u.toLowerCase().includes('bracket'));
-        if (!validBrackets) return alert("❌ Een van de Bracket URLs is ongeldig.\n\nKopieer de link direct uit DartConnect.");
-
-        let finalUrl = translatedUrls.join(',');
-
-        if (editingTournamentIndex !== null) {
-            db.tournaments[editingTournamentIndex].name = name;
-            db.tournaments[editingTournamentIndex].url = finalUrl;
-            db.tournaments[editingTournamentIndex].matchlistUrl = ""; // Wordt nu genegeerd door auto-detect
-            db.tournaments[editingTournamentIndex].unlisted = isUnlisted;
-        } else {
-            db.tournaments.push({ name, url: finalUrl, matchlistUrl: "", darters: [], unlisted: isUnlisted });
-        }
         
-        cancelEdit();
-        renderTournaments();
-        saveSettings(true);
-    }
-    
-    function removeTournament(index) {
-        if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
-            if(editingTournamentIndex === index) cancelEdit();
-            db.tournaments.splice(index, 1);
-            renderTournaments();
-            renderDarters();
-            saveSettings(true);
-        }
-    }
-
-    function renderTournamentDropdown() {
-        const select = document.getElementById('d-toernooi-select');
-        select.innerHTML = db.tournaments.map((t, i) => `<option value="${i}">${t.name}</option>`).join('');
-        select.onchange = renderDarters;
-        renderDarters();
-    }
-
-    function renderDarters() {
-        const list = document.getElementById('darters-list');
-        list.innerHTML = '';
-        const tIndex = document.getElementById('d-toernooi-select').value;
-        if (tIndex === "") return;
-        const tournament = db.tournaments[tIndex];
-
-        if (tournament && tournament.darters) {
-            tournament.darters.forEach((d, i) => {
-                list.innerHTML += `<div class="item">
-                    <span><b>${d}</b></span>
-                    <div class="item-actions">
-                        <button class="btn-edit" onclick="editDarter(${tIndex}, ${i})">✏️</button>
-                        <button class="btn-delete" onclick="removeDarter(${tIndex}, ${i})">X</button>
-                    </div>
-                </div>`;
-            });
-        }
-    }
-
-    function editDarter(tIndex, dIndex) {
-        const huidigeNaam = db.tournaments[tIndex].darters[dIndex];
-        const nieuweNaam = prompt("Wijzig de naam van de darter:", huidigeNaam);
-
-        if (nieuweNaam && nieuweNaam.trim() !== "") {
-            db.tournaments[tIndex].darters[dIndex] = nieuweNaam.trim();
-            renderDarters();
-            saveSettings(true);
-        }
-    }
-
-    function addDarter() {
-        const tIndex = document.getElementById('d-toernooi-select').value;
-        const name = document.getElementById('d-name').value;
-        if (tIndex !== "" && name) {
-            db.tournaments[tIndex].darters.push(name);
-            document.getElementById('d-name').value = '';
-            renderDarters();
-            saveSettings(true);
-        }
-    }
-
-    function removeDarter(tIndex, dIndex) {
-        db.tournaments[tIndex].darters.splice(dIndex, 1);
-        renderDarters();
-        saveSettings(true);
-    }
-
-    async function saveSettings(silent = false) {
-        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
-        if (!silent) alert('Opgeslagen!');
-    }
-
-    async function sendCustomPush() {
-        const titleInput = document.getElementById('custom-push-title');
-        const bodyInput = document.getElementById('custom-push-body');
-        const statusDiv = document.getElementById('push-status');
+        document.getElementById('add-step-title').innerText = "Spelers Laden...";
         
-        if (!bodyInput.value) return alert('Vul in ieder geval een bericht in!');
-        statusDiv.innerText = "⏳ Bezig met versturen...";
-        statusDiv.style.color = "#888";
-
         try {
-            const res = await fetch('/api/admin/send-push', {
+            const res = await fetch('/api/fetch-players-preview', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    title: titleInput.value, 
-                    body: bodyInput.value 
-                })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url: translatedUrls[0] })
             });
-            const data = await res.json();
-            statusDiv.innerText = data.message || data.error;
-            statusDiv.style.color = data.success ? "green" : "red";
-            if (data.success) {
-                titleInput.value = '';
-                bodyInput.value = '';
+            const allNames = await res.json();
+
+            let singlePlayers = new Set();
+            allNames.forEach(n => {
+                if(n.includes(' & ')) {
+                    n.split(' & ').forEach(p => singlePlayers.add(p.trim()));
+                } else {
+                    singlePlayers.add(n);
+                }
+            });
+
+            const listDiv = document.getElementById('user-players-list');
+            listDiv.innerHTML = Array.from(singlePlayers).sort().map(p => `
+                <label class="checkbox-label player-row">
+                    <input type="checkbox" value="${p}" class="user-darter-cb"> ${p}
+                </label>
+            `).join('');
+
+            document.getElementById('add-step-1').style.display = 'none';
+            document.getElementById('add-step-2').style.display = 'block';
+            document.getElementById('add-step-title').innerText = "Wie wil je volgen?";
+        } catch(e) {
+            alert("Fout bij inladen van het toernooi. Klopt de link?");
+            document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
+        }
+    }
+
+    function filterAddPlayers() {
+        const val = document.getElementById('player-search').value.toLowerCase();
+        document.querySelectorAll('.player-row').forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(val) ? 'flex' : 'none';
+        });
+    }
+
+    async function finalizeUserAdd() {
+        try {
+            document.getElementById('add-step-title').innerText = "Opslaan & Verwerken...";
+            const name = document.getElementById('user-t-name').value.trim();
+            let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
+            
+            let translatedUrls = urlInputs.map(u => {
+                if (u.includes('/event/') && !u.includes('/api/event/')) {
+                    return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
+                }
+                return u;
+            });
+            
+            let finalUrl = translatedUrls.join(',');
+            const selected = Array.from(document.querySelectorAll('.user-darter-cb:checked')).map(cb => cb.value);
+
+            await fetch('/api/user-add-tournament', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name, url: finalUrl, darters: selected })
+            });
+
+            try {
+                let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
+                if(!myHidden.includes(name)) myHidden.push(name);
+                localStorage.setItem('my_tournaments', JSON.stringify(myHidden));
+            } catch(e) { 
+                console.warn('Kon toernooi niet lokaal opslaan:', e); 
+            }
+
+            try {
+                if ('serviceWorker' in navigator && 'PushManager' in window) {
+                    let registration = await navigator.serviceWorker.getRegistration();
+                    if (registration) {
+                        const vapidRes = await fetch('/api/vapidPublicKey?_t=' + Date.now());
+                        const vapidKey = urlBase64ToUint8Array(await vapidRes.text());
+                        const sub = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: vapidKey});
+
+                        localStorage.setItem('pushPrefs_' + name, JSON.stringify(selected));
+
+                        await fetch('/api/subscribe', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ subscription: sub, tournament: name, players: selected })
+                        });
+                    }
+                }
+            } catch(e) {
+                console.warn("Push is overgeslagen (geen rechten):", e);
+            }
+
+            closeUserAddModal();
+            alert("Toernooi toegevoegd! Je ontvangt meldingen voor de gekozen spelers.");
+            location.reload(); 
+
+        } catch(error) {
+            console.error("Fout bij toevoegen toernooi:", error);
+            alert("Er is iets misgegaan tijdens het toevoegen. Probeer het opnieuw.");
+            closeUserAddModal();
+        }
+    }
+
+    async function openPushSettings() {
+        if (!activeTournament) return;
+        const pushModal = document.getElementById('push-modal');
+        const listDiv = document.getElementById('push-players-list');
+        listDiv.innerHTML = "Spelers laden...";
+        pushModal.style.display = 'flex';
+        
+        try {
+            const res = await fetch(`/api/darters?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            const darters = await res.json();
+            
+            const savedPrefs = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
+            
+            if (darters.length === 0) {
+                listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
+            } else {
+                listDiv.innerHTML = darters.map(d => {
+                    const isChecked = savedPrefs.includes(d) ? 'checked' : '';
+                    return `
+                    <label class="checkbox-label">
+                        <input type="checkbox" value="${d}" class="darter-checkbox" ${isChecked}>
+                        ${d}
+                    </label>
+                `}).join('');
             }
         } catch(e) {
-            statusDiv.innerText = "❌ Fout bij verbinden met de server.";
-            statusDiv.style.color = "red";
+            listDiv.innerHTML = "Fout bij ophalen spelers.";
         }
     }
 
-    updateTournamentFields();
-    loadSettings();
+    function closePushModal() {
+        document.getElementById('push-modal').style.display = 'none';
+    }
+
+    async function savePushSettings() {
+        const checkboxes = document.querySelectorAll('.darter-checkbox:checked');
+        const selectedPlayers = Array.from(checkboxes).map(cb => cb.value);
+
+        try {
+            const registration = await navigator.serviceWorker.ready;
+            const response = await fetch('/api/vapidPublicKey?_t=' + Date.now());
+            const vapidPublicKey = await response.text();
+            const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: convertedVapidKey
+            });
+            
+            localStorage.setItem('pushPrefs_' + activeTournament, JSON.stringify(selectedPlayers));
+            
+            await fetch('/api/subscribe', {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    subscription: subscription, 
+                    tournament: activeTournament, 
+                    players: selectedPlayers 
+                }),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            closePushModal();
+            if (selectedPlayers.length > 0) {
+                alert(`✅ Opgeslagen! Je ontvangt nu meldingen voor ${selectedPlayers.length} speler(s).`);
+            } else {
+                alert(`🔕 Opgeslagen! Je hebt meldingen voor dit toernooi uitgezet.`);
+            }
+        } catch (error) { 
+            alert("Oeps! Het opslaan is mislukt. Zorg dat notificaties zijn toegestaan in je telefoon-instellingen.");
+            closePushModal();
+        }
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+        return outputArray;
+    }
+
+    loadTournaments();
 </script>
 </body>
 </html>
