@@ -193,7 +193,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
                 bouwWoordenboek(dataContainer);
 
-                // SLIMME BOOM-ZOEKER: Neemt de naam van de 'map' over als Ronde naam!
                 function zoekWedstrijden(obj, currentRound = "Ronde ?") {
                     if (!obj || typeof obj !== 'object') return;
                     if ('p1' in obj || 'd1' in obj) { 
@@ -205,7 +204,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                     else { 
                         Object.keys(obj).forEach(key => {
                             let nextRound = currentRound;
-                            // Pakt ronde-namen (zoals Last 32) maar negeert data/system keys
                             if (typeof key === 'string' && isNaN(key) && key !== "proBracket" && key !== "bracketData" && key !== "matches" && key !== "payload") {
                                 nextRound = key;
                             }
@@ -251,6 +249,15 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         function getSpelerNaam(idOrArray) {
             if (!idOrArray) return "Onbekend";
+            
+            // Fix voor PDC String-verwijzingen (bijv. "W-502487")
+            if (typeof idOrArray === 'string') {
+                if (idOrArray.startsWith('W-')) return "Winnaar ID " + idOrArray.replace('W-','');
+                if (idOrArray.startsWith('L-')) return "Verliezer ID " + idOrArray.replace('L-','');
+                if (spelersDict[idOrArray]) return spelersDict[idOrArray];
+                return isNaN(idOrArray) ? idOrArray : `Speler ${idOrArray}`;
+            }
+
             if (Array.isArray(idOrArray)) {
                 const validIds = idOrArray.filter(id => id && id !== -1);
                 if (validIds.length === 0) return "Onbekend";
@@ -264,16 +271,20 @@ async function fetchMatchesForTournament(requestedTournament) {
             let matchId = m.id || m.match_id || "";
             if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
 
+            // --- RONDE NAAM SLIM OPHALEN (PDC FIX) ---
             let rondeNaam = "Ronde ?";
-            if (m._tree_round && m._tree_round !== "Ronde ?") rondeNaam = m._tree_round;
+            if (m.rn) rondeNaam = m.rn;
+            else if (m.round_name) rondeNaam = m.round_name;
+            else if (m.rName) rondeNaam = m.rName;
+            else if (m._tree_round && m._tree_round !== "Ronde ?") rondeNaam = m._tree_round;
             else if (m._bracket_type === "Groepsfase") rondeNaam = "Groepsfase";
+            else if (m.r && !isNaN(m.r)) rondeNaam = "Ronde " + m.r;
 
             if (m._bracket_type === "Groepsfase" && matchId) {
                 let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
                 if (pouleMatch) rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
             }
 
-            // Gebruik wiskunde alleen nog als fallback als de naam écht onbekend is
             let rondeMatch = matchId.match(/^(\d+)-/);
             if (rondeMatch && rondeNaam === "Ronde ?") {
                 let rndKey = m._bron_url + "_" + rondeMatch[1];
@@ -294,9 +305,11 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             return {
                 id: matchId,
-                n: m.n || m.wn || m.next, // Forward link voor PDC/Numerieke brackets
-                p1m: m.p1m || m.m1 || m.d1m, // Backward link p1
-                p2m: m.p2m || m.m2 || m.d2m, // Backward link p2
+                n: m.w || m.wn || m.n || m.next || m.winner_to,     // Alle varianten van een PDC Forward link
+                p1m: m.p1_from || m.p1m || m.m1,                    // Backward link P1
+                p2m: m.p2_from || m.p2m || m.m2,                    // Backward link P2
+                raw_p1: m.p1 || m.d1,                               // Originele ruwe P1 code (bijv W-502487)
+                raw_p2: m.p2 || m.d2,                               // Originele ruwe P2 code
                 _bron_url: m._bron_url,
                 ronde: rondeNaam,
                 player1: getSpelerNaam(m.d1 || m.p1),
@@ -480,25 +493,28 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         if (nieuwGeplandCount > 0) writeDB(db);
 
-        // --- MOGELIJKE WEDSTRIJD LOGICA (VERNIEUWD) ---
+        // --- PDC PRO MOGELIJKE WEDSTRIJD ONDERZOEKER ---
         eigenWedstrijden.forEach(match => {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win"));
 
-            if (magDoor) {
-                // Multi-check: Kijkt naar onzichtbare links én wiskunde
+            if (magDoor && match.id) {
                 let mogelijkeMatch = rawMatches.find(rm => {
                     if (rm._bron_url !== match._bron_url) return false;
                     
-                    // 1. Directe link vooruit
+                    // 1. Directe link vooruit (PDC)
                     if (match.n && rm.id == match.n) return true;
                     
-                    // 2. Directe link achteruit (de nieuwe wedstrijd verwijst terug)
+                    // 2. Directe link achteruit 
                     if (rm.p1m && rm.p1m == match.id) return true;
                     if (rm.p2m && rm.p2m == match.id) return true;
+
+                    // 3. String-gebaseerde link (vaak bij PDC: W-502487 betekent Winnaar van 502487)
+                    if (rm.raw_p1 === "W-" + match.id || rm.raw_p1 == match.id) return true;
+                    if (rm.raw_p2 === "W-" + match.id || rm.raw_p2 == match.id) return true;
                     
-                    // 3. Wiskunde (Alleen als er écht een '-' instaat, bijv 2-5 -> 3-3)
-                    if (match.id && match.id.includes('-')) {
+                    // 4. Wiskunde (alleen als de ID echt een koppelstreepje heeft, zoals '3-4')
+                    if (match.id.includes('-') && isNaN(match.id.replace('-', ''))) {
                         let parts = match.id.match(/(\d+)-(\d+)$/);
                         if (parts && rm.id) {
                             let volgendeRonde = parseInt(parts[1]) + 1;
