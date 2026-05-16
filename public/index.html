@@ -22,8 +22,13 @@
         .admin-link:hover { opacity: 1; filter: none; }
 
         #menu-container { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-top: 40px; }
-        .tournament-card { background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #333; cursor: pointer; transition: 0.3s; font-size: 1.5rem; font-weight: bold; }
+        
+        /* AANGEPAST VOOR ICONEN */
+        .tournament-card { position: relative; background: #1E1E1E; padding: 30px; border-radius: 10px; text-align: center; border: 2px solid #333; cursor: pointer; transition: 0.3s; font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; }
         .tournament-card:hover { border-color: #FF6600; background: #252525; }
+        .card-icon { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); }
+        .delete-btn { background: #e74c3c; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 1.2rem; transition: 0.2s; }
+        .delete-btn:hover { background: #c0392b; transform: scale(1.1); }
 
         /* FILTER & KNOPPEN */
         #filter-container { display: none; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -190,28 +195,53 @@
     // --- TOERNOOIEN INLADEN ---
     async function loadTournaments() {
         try {
+            // Haal de lijst op die Openbaar is
             const response = await fetch('/api/tournaments');
-            let names = await response.json();
+            let publicNames = await response.json();
             
-            const myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
-            myHidden.forEach(h => { if(!names.includes(h)) names.push(h); });
+            // Haal de lijst op met ALLE (ook verborgen) toernooien ter controle
+            const validResponse = await fetch('/api/tournaments/valid');
+            let allValidNames = await validResponse.json();
+
+            // Haal lokaal toegevoegde (verborgen) toernooien op
+            let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
+            
+            // SCHOONMAAK: Wis lokale toernooien als de Admin ze van de server heeft verwijderd!
+            let origineleLengte = myHidden.length;
+            myHidden = myHidden.filter(h => allValidNames.includes(h));
+            if (myHidden.length !== origineleLengte) {
+                localStorage.setItem('my_tournaments', JSON.stringify(myHidden));
+            }
+
+            // Combineer de openbare en persoonlijke toernooien (zonder dubbelingen)
+            let combinedNames = [...new Set([...publicNames, ...myHidden])];
 
             const container = document.getElementById('menu-container');
             
-            if(names.length === 0) {
+            if(combinedNames.length === 0) {
                 container.innerHTML = "<div class='no-matches'>Geen toernooien gevonden.</div>";
             } else {
-                // De "name.replace" beveiligt de app tegen enkele aanhalingstekens in toernooinamen!
-                container.innerHTML = names.map(name => `
-                    <div class="tournament-card" onclick="selectTournament('${name.replace(/'/g, "\\'")}')">
-                        ${name.toUpperCase()}
+                container.innerHTML = combinedNames.map(name => {
+                    let isAdmin = publicNames.includes(name);
+                    let safeName = name.replace(/'/g, "\\'"); // Voorkom fouten bij toernooien met ' erin
+                    
+                    // Laat een Slotje of Prullenbakje zien
+                    let iconHtml = isAdmin 
+                        ? `<div class="card-icon" title="Officieel Toernooi"><span style="font-size:1.5rem; opacity:0.5;">🔒</span></div>` 
+                        : `<div class="card-icon"><button class="delete-btn" onclick="removeUserTournament(event, '${safeName}')" title="Toernooi Verwijderen">🗑️</button></div>`;
+
+                    return `
+                    <div class="tournament-card" onclick="selectTournament('${safeName}')">
+                        <span>${name.toUpperCase()}</span>
+                        ${iconHtml}
                     </div>
-                `).join('');
+                    `;
+                }).join('');
             }
 
             renderAddButton();
 
-            if (urlTournament && names.includes(urlTournament)) {
+            if (urlTournament && combinedNames.includes(urlTournament)) {
                 selectTournament(urlTournament, false);
             }
         } catch (e) {
@@ -219,8 +249,37 @@
         }
     }
 
+    // NIEUW: De gebruiker kan zijn ZELF toegevoegde toernooi wissen
+    async function removeUserTournament(event, name) {
+        event.stopPropagation(); // Voorkom dat de klik het toernooi opent
+        if(confirm(`Weet je zeker dat je '${name}' van jouw scherm wilt verwijderen?`)) {
+            let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
+            myHidden = myHidden.filter(t => t !== name);
+            localStorage.setItem('my_tournaments', JSON.stringify(myHidden));
+
+            // Wis lokaal zijn vinkjes en vertel de server om hem van dit toernooi "uit te schrijven"
+            localStorage.removeItem('pushPrefs_' + name);
+            try {
+                if ('serviceWorker' in navigator && 'PushManager' in window) {
+                    const registration = await navigator.serviceWorker.ready;
+                    const vapidRes = await fetch('/api/vapidPublicKey');
+                    const vapidKey = urlBase64ToUint8Array(await vapidRes.text());
+                    const sub = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: vapidKey});
+
+                    await fetch('/api/subscribe', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ subscription: sub, tournament: name, players: [] }) // Lege spelers = meldingen UIT
+                    });
+                }
+            } catch(e) {}
+
+            loadTournaments(); // Ververs het menu
+        }
+    }
+
     function renderAddButton() {
-        if(document.querySelector('.btn-user-add')) return; // Voorkom dubbele knoppen
+        if(document.querySelector('.btn-user-add')) return; 
         
         const container = document.getElementById('menu-container');
         const btn = document.createElement('div');
