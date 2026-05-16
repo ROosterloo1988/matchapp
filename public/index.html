@@ -223,14 +223,19 @@
     }
 
 function renderAddButton() {
-        if (isPWA()) {
+        // We tonen de knop ALTIJD, behalve op een iPhone/iPad als hij nog niet op het startscherm staat.
+        // Op Android en Laptops (Edge/Chrome) werken meldingen namelijk overal.
+        const magTonen = !isIos() || isPWA();
+
+        if (magTonen) {
             if(document.querySelector('.btn-user-add')) return; // Voorkom dubbele knoppen
+            
             const container = document.getElementById('menu-container');
             const btn = document.createElement('div');
             btn.className = 'btn-user-add';
             btn.innerHTML = '➕ ZELF TOERNOOI TOEVOEGEN';
             btn.onclick = () => { 
-                updateUserTournamentFields(); // Zet de velden klaar
+                updateUserTournamentFields(); // Zet de velden (1, 2 of 3 links) klaar
                 document.getElementById('add-step-1').style.display = 'block';
                 document.getElementById('add-step-2').style.display = 'none';
                 document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
