@@ -327,54 +327,69 @@
     }
 
     async function finalizeUserAdd() {
-        const name = document.getElementById('user-t-name').value.trim();
-        let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
-        
-        let translatedUrls = urlInputs.map(u => {
-            if (u.includes('/event/') && !u.includes('/api/event/')) {
-                return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
-            }
-            return u;
-        });
-        
-        // Knoop de links netjes aan elkaar vast met een komma, net als de admin!
-        let finalUrl = translatedUrls.join(',');
-
-        const selected = Array.from(document.querySelectorAll('.user-darter-cb:checked')).map(cb => cb.value);
-
-        // 1. Opslaan op server als verborgen toernooi
-        await fetch('/api/user-add-tournament', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ name, url: finalUrl, darters: selected })
-        });
-
-        // 2. Opslaan in lokale browser van de gebruiker
-        let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
-        if(!myHidden.includes(name)) myHidden.push(name);
-        localStorage.setItem('my_tournaments', JSON.stringify(myHidden));
-
-        // 3. Pushmeldingen aanzetten
         try {
-            const registration = await navigator.serviceWorker.ready;
-            const vapidRes = await fetch('/api/vapidPublicKey');
-            const vapidKey = urlBase64ToUint8Array(await vapidRes.text());
-            const sub = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: vapidKey});
+            document.getElementById('add-step-title').innerText = "Opslaan & Verwerken...";
+            const name = document.getElementById('user-t-name').value.trim();
+            let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
+            
+            let translatedUrls = urlInputs.map(u => {
+                if (u.includes('/event/') && !u.includes('/api/event/')) {
+                    return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
+                }
+                return u;
+            });
+            
+            let finalUrl = translatedUrls.join(',');
+            const selected = Array.from(document.querySelectorAll('.user-darter-cb:checked')).map(cb => cb.value);
 
-            localStorage.setItem('pushPrefs_' + name, JSON.stringify(selected));
-
-            await fetch('/api/subscribe', {
+            // 1. Opslaan op server
+            await fetch('/api/user-add-tournament', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ subscription: sub, tournament: name, players: selected })
+                body: JSON.stringify({ name, url: finalUrl, darters: selected })
             });
-        } catch(e) {
-            console.log("Push instellen mislukt", e);
-        }
 
-        closeUserAddModal();
-        alert("Toernooi toegevoegd! Je ontvangt meldingen voor de gekozen spelers.");
-        location.reload(); 
+            // 2. Lokaal opslaan op de telefoon
+            try {
+                let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
+                if(!myHidden.includes(name)) myHidden.push(name);
+                localStorage.setItem('my_tournaments', JSON.stringify(myHidden));
+            } catch(e) { 
+                console.warn('Kon toernooi niet lokaal opslaan:', e); 
+            }
+
+            // 3. Pushmeldingen veilig aanzetten
+            try {
+                if ('serviceWorker' in navigator && 'PushManager' in window) {
+                    let registration = await navigator.serviceWorker.getRegistration();
+                    if (registration) {
+                        const vapidRes = await fetch('/api/vapidPublicKey');
+                        const vapidKey = urlBase64ToUint8Array(await vapidRes.text());
+                        const sub = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: vapidKey});
+
+                        localStorage.setItem('pushPrefs_' + name, JSON.stringify(selected));
+
+                        await fetch('/api/subscribe', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ subscription: sub, tournament: name, players: selected })
+                        });
+                    }
+                }
+            } catch(e) {
+                console.warn("Push instellen is overgeslagen (geen rechten of niet ondersteund):", e);
+            }
+
+            // Sluit pas als alles is verwerkt
+            closeUserAddModal();
+            alert("Toernooi toegevoegd! Je ontvangt meldingen voor de gekozen spelers.");
+            location.reload(); 
+
+        } catch(error) {
+            console.error("Fout bij toevoegen toernooi:", error);
+            alert("Er is iets misgegaan tijdens het toevoegen. Probeer het opnieuw.");
+            closeUserAddModal();
+        }
     }
 
 
