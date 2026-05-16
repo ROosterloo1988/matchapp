@@ -179,7 +179,10 @@ async function fetchMatchesForTournament(requestedTournament) {
             try {
                 const response = await axios.post(bUrl, {});
                 let dataContainer = response.data.payload || response.data || {};
-                let bronMap = dataContainer.proBracket || dataContainer.bracketData || dataContainer;
+                
+                // --- DE ECHTE FIX: Zorg dat de app de proBracket array altijd vindt, ook als hij verstopt zit in bracketData ---
+                let proBracketArray = dataContainer.proBracket || (dataContainer.bracketData && dataContainer.bracketData.proBracket);
+                let bronMap = proBracketArray || dataContainer.bracketData || dataContainer;
 
                 function bouwWoordenboek(obj) {
                     if (!obj || typeof obj !== 'object') return;
@@ -190,7 +193,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
                 bouwWoordenboek(dataContainer);
 
-                // --- DE GOUDEN PDC FIX ---
                 // Controleer of dit een "Structuur" bracket is (zoals PDC European Tour)
                 let isStructural = Array.isArray(bronMap) && bronMap.length > 0 && Array.isArray(bronMap[0]);
 
@@ -214,7 +216,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                                 m._bracket_type = bracketType;
                                 m._tree_round = rName;
                                 
-                                // FORCEER het wiskundige ID om het "Ronde ?" en "502487" probleem op te lossen!
+                                // FORCEER het wiskundige ID
                                 if (m.bn) {
                                     m._custom_id = (rIndex + 1) + "-" + m.bn;
                                 }
@@ -223,7 +225,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                         });
                     });
                 } else {
-                    // Standaard DartConnect Zoeker voor de normale toernooien
+                    // Standaard DartConnect Zoeker
                     function zoekWedstrijden(obj, currentRound = "Ronde ?") {
                         if (!obj || typeof obj !== 'object') return;
                         if ('p1' in obj || 'd1' in obj) { 
