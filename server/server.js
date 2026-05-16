@@ -194,6 +194,13 @@ async function fetchMatchesForTournament(requestedTournament) {
 
                 let isStructural = Array.isArray(bronMap) && bronMap.length > 0 && Array.isArray(bronMap[0]);
 
+                // --- DE POULE / ROUND ROBIN UITZONDERING ---
+                // Als de engname "Round Robin" bevat, moeten we de PDC-magie forceren naar FALSE!
+                let eventName = (dataContainer.bracketData && dataContainer.bracketData.engname) || dataContainer.engname || "";
+                if (isStructural && String(eventName).toLowerCase().includes("round robin")) {
+                    isStructural = false;
+                }
+
                 if (isStructural) {
                     bronMap.forEach((roundArray, rIndex) => {
                         let rName = "Ronde " + (rIndex + 1);
@@ -534,6 +541,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         if (nieuwGeplandCount > 0) writeDB(db);
 
+        // --- PDC PRO MOGELIJKE WEDSTRIJD ONDERZOEKER ---
         eigenWedstrijden.forEach(match => {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win"));
