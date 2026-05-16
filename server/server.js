@@ -239,7 +239,8 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         let rondeTellingen = {};
         dcMatchesList.forEach(m => {
-            let matchId = (m.id || m.match_id || "").toString();
+            // FIX: Geef altijd prioriteit aan de leesbare match_id (bijv "4-2")!
+            let matchId = (m.match_id || m.id || "").toString();
             let rndMatch = matchId.match(/^(\d+)[_-]/);
             if (rndMatch) {
                 let rndKey = m._bron_url + "_" + rndMatch[1]; 
@@ -250,7 +251,6 @@ async function fetchMatchesForTournament(requestedTournament) {
         function getSpelerNaam(idOrArray) {
             if (!idOrArray) return "Onbekend";
             
-            // Fix voor PDC String-verwijzingen (bijv. "W-502487")
             if (typeof idOrArray === 'string') {
                 if (idOrArray.startsWith('W-')) return "Winnaar ID " + idOrArray.replace('W-','');
                 if (idOrArray.startsWith('L-')) return "Verliezer ID " + idOrArray.replace('L-','');
@@ -268,10 +268,11 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         const dcConverted = dcMatchesList.map(m => {
-            let matchId = m.id || m.match_id || "";
+            // FIX: Prioriteit aan match_id!
+            let matchId = m.match_id || m.id || "";
+            if (typeof matchId === 'number') matchId = matchId.toString();
             if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
 
-            // --- RONDE NAAM SLIM OPHALEN (PDC FIX) ---
             let rondeNaam = "Ronde ?";
             if (m.rn) rondeNaam = m.rn;
             else if (m.round_name) rondeNaam = m.round_name;
@@ -304,12 +305,13 @@ async function fetchMatchesForTournament(requestedTournament) {
             else if (typeof markerData === 'string') markerNaam = markerData;
 
             return {
-                id: matchId,
-                n: m.w || m.wn || m.n || m.next || m.winner_to,     // Alle varianten van een PDC Forward link
-                p1m: m.p1_from || m.p1m || m.m1,                    // Backward link P1
-                p2m: m.p2_from || m.p2m || m.m2,                    // Backward link P2
-                raw_p1: m.p1 || m.d1,                               // Originele ruwe P1 code (bijv W-502487)
-                raw_p2: m.p2 || m.d2,                               // Originele ruwe P2 code
+                id: matchId, // De mooie ID, bijv "4-2"
+                db_id: m.id ? m.id.toString() : "", // Bewaar de echte database ID voor verborgen links!
+                n: m.w || m.wn || m.n || m.next || m.winner_to, 
+                p1m: m.p1_from || m.p1m || m.m1, 
+                p2m: m.p2_from || m.p2m || m.m2, 
+                raw_p1: m.p1 || m.d1, 
+                raw_p2: m.p2 || m.d2, 
                 _bron_url: m._bron_url,
                 ronde: rondeNaam,
                 player1: getSpelerNaam(m.d1 || m.p1),
@@ -502,18 +504,20 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let mogelijkeMatch = rawMatches.find(rm => {
                     if (rm._bron_url !== match._bron_url) return false;
                     
-                    // 1. Directe link vooruit (PDC)
-                    if (match.n && rm.id == match.n) return true;
+                    // 1. Directe link vooruit (PDC Database ID's)
+                    if (match.n && rm.db_id == match.n) return true;
                     
-                    // 2. Directe link achteruit 
-                    if (rm.p1m && rm.p1m == match.id) return true;
-                    if (rm.p2m && rm.p2m == match.id) return true;
+                    // 2. Directe link achteruit (Database ID's)
+                    if (match.db_id && rm.p1m && rm.p1m == match.db_id) return true;
+                    if (match.db_id && rm.p2m && rm.p2m == match.db_id) return true;
 
                     // 3. String-gebaseerde link (vaak bij PDC: W-502487 betekent Winnaar van 502487)
-                    if (rm.raw_p1 === "W-" + match.id || rm.raw_p1 == match.id) return true;
-                    if (rm.raw_p2 === "W-" + match.id || rm.raw_p2 == match.id) return true;
+                    if (match.db_id) {
+                        if (rm.raw_p1 === "W-" + match.db_id || rm.raw_p1 == match.db_id) return true;
+                        if (rm.raw_p2 === "W-" + match.db_id || rm.raw_p2 == match.db_id) return true;
+                    }
                     
-                    // 4. Wiskunde (alleen als de ID echt een koppelstreepje heeft, zoals '3-4')
+                    // 4. Wiskunde (alleen als de zichtbare ID écht een koppelstreepje heeft, zoals '3-4')
                     if (match.id.includes('-') && isNaN(match.id.replace('-', ''))) {
                         let parts = match.id.match(/(\d+)-(\d+)$/);
                         if (parts && rm.id) {
