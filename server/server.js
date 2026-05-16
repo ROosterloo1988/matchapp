@@ -99,14 +99,13 @@ app.post('/api/settings', (req, res) => {
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
 
-// --- TOERNOOI LIJSTEN ---
 // Zorg dat we openbaar GEEN verborgen toernooien tonen
 app.get('/api/tournaments', (req, res) => {
     const publicTournaments = readDB().tournaments.filter(t => !t.unlisted);
     res.json(publicTournaments.map(t => t.name));
 });
 
-// NIEUW: Een lijst van ALLE toernooien, zodat de app lokaal kan checken of de Admin hem heeft verwijderd.
+// Een lijst van ALLE toernooien, zodat de app lokaal kan checken of de Admin hem heeft verwijderd.
 app.get('/api/tournaments/valid', (req, res) => {
     res.json(readDB().tournaments.map(t => t.name));
 });
@@ -123,7 +122,6 @@ app.post('/api/user-add-tournament', async (req, res) => {
         });
         writeDB(db);
     } else {
-        // Toernooi bestaat al: als het unlisted is, update dan de darter-lijst met nieuwe namen
         let existingT = db.tournaments.find(t => t.name === name);
         if(existingT && existingT.unlisted) {
             darters.forEach(d => { if(!existingT.darters.includes(d)) existingT.darters.push(d); });
@@ -152,7 +150,6 @@ app.post('/api/fetch-players-preview', async (req, res) => {
         res.status(500).json({ error: "Kon spelers niet ophalen" });
     }
 });
-
 
 let isFirstRun = true;
 
@@ -231,10 +228,12 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
+        // --- RONDE BEPALING LOGICA (Geüpdatet voor PDC voorloopnullen en prefixes) ---
         let rondeTellingen = {};
         dcMatchesList.forEach(m => {
             let matchId = (m.id || m.match_id || "").toString();
-            let rndMatch = matchId.match(/^(\d+)[_-]/);
+            // Zoekt de ronde vlak voor het laatste koppelteken/underscore
+            let rndMatch = matchId.match(/(\d+)[_-]\d+$/); 
             if (rndMatch) {
                 let rndKey = m._bron_url + "_" + rndMatch[1]; 
                 rondeTellingen[rndKey] = (rondeTellingen[rndKey] || 0) + 1;
@@ -254,18 +253,20 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         const dcConverted = dcMatchesList.map(m => {
             let matchId = m.id || m.match_id || "";
-            if (typeof matchId === 'string') matchId = matchId.replace('_', '-');
+            // Vervang ALLE underscores door streepjes voor een consistent ID
+            if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
 
             let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
             
             if (m._bracket_type === "Groepsfase" && matchId) {
-                let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
+                let pouleMatch = matchId.match(/([A-Za-z]+)\d+$/);
                 if (pouleMatch) {
                     rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
                 }
             }
 
-            let rondeMatch = matchId.match(/^(\d+)-/);
+            // Gebruik dezelfde slimme regex voor de rondenaam
+            let rondeMatch = matchId.match(/(\d+)-\d+$/);
             if (rondeMatch) {
                 let rndKey = m._bron_url + "_" + rondeMatch[1];
                 let aW = rondeTellingen[rndKey];
@@ -302,7 +303,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         rawMatches = rawMatches.concat(dcConverted);
 
-        // --- POULE DEELNEMERS VERZAMELEN & LABELS ---
         let pouleIndelingen = {}; 
         rawMatches.forEach(m => {
             if (m._bracket_type && m._bracket_type !== "Groepsfase" && !m.ronde.includes('(')) m.ronde += ` (${m._bracket_type})`;
@@ -333,7 +333,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (!isSpeler && isMarker && match.status === "gespeeld") continue; 
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
-            // --- PUSH MELDING LOGICA ---
             let isBetrokken = isSpeler || isMarker;
 
             if (match.status === "gepland" && isBetrokken) {
@@ -470,15 +469,29 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         if (nieuwGeplandCount > 0) writeDB(db);
 
+        // --- MOGELIJKE WEDSTRIJD LOGICA (Vernieuwd voor voorloopnullen!) ---
         eigenWedstrijden.forEach(match => {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win"));
 
-            if (magDoor && match.id && match.id.includes('-')) {
-                let matchRegex = match.id.match(/^(\d+)-(\d+)$/);
-                if (matchRegex) {
-                    let nextId = (parseInt(matchRegex[1]) + 1) + "-" + Math.ceil(parseInt(matchRegex[2]) / 2); 
-                    let mogelijkeMatch = rawMatches.find(rm => rm.id === nextId && rm._bron_url === match._bron_url);
+            if (magDoor && match.id) {
+                // Zoek de laatste twee cijfers, we gebruiken parseInt om voorloopnullen zoals 01 te negeren
+                let parts = match.id.match(/(\d+)-(\d+)$/);
+                
+                if (parts) {
+                    let volgendeRonde = parseInt(parts[1]) + 1;
+                    let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
+                    
+                    let mogelijkeMatch = rawMatches.find(rm => {
+                        if (rm._bron_url !== match._bron_url) return false;
+                        if (!rm.id) return false;
+                        
+                        let rmParts = rm.id.match(/(\d+)-(\d+)$/);
+                        if (rmParts) {
+                            return parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr;
+                        }
+                        return false;
+                    });
 
                     if (mogelijkeMatch) {
                         let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
