@@ -179,8 +179,6 @@
 
     // --- PWA & INSTALLATIE CHECK ---
     const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
-    
-    // Checkt feilloos op zowel iOS als Android of de app fullscreen draait
     const isPWA = () => {
         return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
     };
@@ -195,7 +193,6 @@
             const response = await fetch('/api/tournaments');
             let names = await response.json();
             
-            // Haal lokaal toegevoegde (verborgen) toernooien op
             const myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
             myHidden.forEach(h => { if(!names.includes(h)) names.push(h); });
 
@@ -204,14 +201,14 @@
             if(names.length === 0) {
                 container.innerHTML = "<div class='no-matches'>Geen toernooien gevonden.</div>";
             } else {
+                // De "name.replace" beveiligt de app tegen enkele aanhalingstekens in toernooinamen!
                 container.innerHTML = names.map(name => `
-                    <div class="tournament-card" onclick="selectTournament('${name}')">
+                    <div class="tournament-card" onclick="selectTournament('${name.replace(/'/g, "\\'")}')">
                         ${name.toUpperCase()}
                     </div>
                 `).join('');
             }
 
-            // Render de Zelf-Toevoegen knop als app geïnstalleerd is
             renderAddButton();
 
             if (urlTournament && names.includes(urlTournament)) {
@@ -223,8 +220,6 @@
     }
 
     function renderAddButton() {
-        // PWA check is verwijderd: de knop wordt nu ALTIJD getoond. 
-        // Pushmeldingen werken op Android & Laptops namelijk ook gewoon in de browser!
         if(document.querySelector('.btn-user-add')) return; // Voorkom dubbele knoppen
         
         const container = document.getElementById('menu-container');
@@ -232,7 +227,7 @@
         btn.className = 'btn-user-add';
         btn.innerHTML = '➕ ZELF TOERNOOI TOEVOEGEN';
         btn.onclick = () => { 
-            updateUserTournamentFields(); // Zet de velden (1, 2 of 3 links) klaar
+            updateUserTournamentFields();
             document.getElementById('add-step-1').style.display = 'block';
             document.getElementById('add-step-2').style.display = 'none';
             document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
@@ -241,8 +236,6 @@
         container.after(btn);
     }
 
-
-    // Genereert de invulvelden o.b.v. de keuze (1, 2 of 3 links)
     function updateUserTournamentFields() {
         const format = parseInt(document.getElementById('user-t-format').value);
         const container = document.getElementById('user-dynamic-fields');
@@ -251,7 +244,7 @@
         const labels = format === 1 ? ['Schema Link'] :
                        format === 2 ? ['Link van de Poules', 'Link van de Knockout'] :
                        ['Link van de Poules', 'Link van de Winnaarsronde', 'Link van de Verliezersronde'];
-
+                       
         labels.forEach((label, i) => {
             html += `
             <div style="text-align: left; margin-bottom: 10px;">
@@ -263,6 +256,117 @@
         container.innerHTML = html;
     }
 
+    function selectTournament(name, pushUrl = true) {
+        activeTournament = name;
+        if (pushUrl) {
+            const url = new URL(window.location);
+            url.searchParams.set('t', name);
+            window.history.pushState({}, '', url);
+        }
+        document.getElementById('menu-container').style.display = 'none';
+        
+        const addBtn = document.querySelector('.btn-user-add');
+        if(addBtn) addBtn.style.display = 'none';
+
+        document.getElementById('filter-container').style.display = 'flex';
+        document.getElementById('matches-container').style.display = 'grid';
+        document.getElementById('btn-back').style.display = 'block';
+        document.getElementById('main-title').innerText = name.toUpperCase();
+        
+        loadMatches();
+        refreshInterval = setInterval(loadMatches, 30000);
+    }
+
+    function showMenu() {
+        activeTournament = null;
+        clearInterval(refreshInterval);
+        const url = new URL(window.location);
+        url.searchParams.delete('t');
+        window.history.pushState({}, '', url);
+        document.getElementById('menu-container').style.display = 'grid';
+        
+        const addBtn = document.querySelector('.btn-user-add');
+        if(addBtn) addBtn.style.display = 'block';
+
+        document.getElementById('filter-container').style.display = 'none';
+        document.getElementById('matches-container').style.display = 'none';
+        document.getElementById('btn-back').style.display = 'none';
+        document.getElementById('main-title').innerText = "🎯 TOERNOOIEN";
+    }
+
+    function setFilter(status) {
+        currentFilter = status;
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`filter-${status}`).classList.add('active');
+        loadMatches();
+    }
+
+    async function loadMatches() {
+        if (!activeTournament) return;
+        try {
+            const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}`);
+            const allMatches = await response.json();
+            const container = document.getElementById('matches-container');
+            
+            let matches = allMatches;
+            if (currentFilter !== 'alles') matches = allMatches.filter(m => m.status === currentFilter);
+            if (matches.length === 0) { 
+                container.innerHTML = `<div class='no-matches'>Geen wedstrijden gevonden voor dit filter.</div>`;
+                return; 
+            }
+
+            let htmlString = "";
+            let huidigeStatus = "";
+            const titels = { "gepland": "⚡ Geplande Wedstrijden", "mogelijk": "🔮 Mogelijke Volgende Ronde", "gespeeld": "✅ Gespeelde Wedstrijden" };
+            
+            matches.forEach(match => {
+                if (match.status !== huidigeStatus) {
+                    huidigeStatus = match.status;
+                    htmlString += `<div class="section-title">${titels[huidigeStatus]}</div>`;
+                }
+
+                let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
+                let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
+                if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
+
+                let resultClass = match.resultaat ? match.resultaat : "";
+                let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="recap-btn">📊 RECAP</a>` : "";
+
+                htmlString += `
+                <div class="match-card ${match.status} ${resultClass}">
+                    <div class="card-header">
+                        <span>${headerText}</span>
+                        <span class="board-badge">BORD ${match.board}</span>
+                    </div>
+                    <div class="card-subheader">
+                        <span>Tijd: ${match.time} ${match.status === "mogelijk" ? '('+match.toernooi+')' : ''}</span>
+                        <span style="display: flex; align-items: center; gap: 10px;">
+                            <span>${match.ronde} | ID: <span class="match-id">${match.id || '?'}</span></span>
+                            ${recapKnop}
+                        </span>
+                    </div>
+                    <div class="players-area">
+                        <div class="player-name">${match.player1}</div>
+                        <div class="score-box">${scoreText}</div>
+                        <div class="player-name">${match.player2}</div>
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = htmlString;
+        } catch (error) { 
+            document.getElementById('matches-container').innerHTML = "<div class='no-matches'>Fout bij laden van data.</div>";
+        }
+    }
+
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js').then(reg => {
+                reg.update();
+            }).catch(() => {});
+        });
+    }
+
+    // --- ZELF TOERNOOI TOEVOEGEN LOGICA ---
     function closeUserAddModal() {
         document.getElementById('user-add-modal').style.display = 'none';
         document.getElementById('user-t-name').value = '';
@@ -274,7 +378,6 @@
 
         if(!name || urlInputs.some(url => url === "")) return alert("Vul een naam in en alle gevraagde links!");
 
-        // Auto-vertaler voor alle ingevulde links
         let translatedUrls = urlInputs.map(u => {
             if (u.includes('/event/') && !u.includes('/api/event/')) {
                 return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
@@ -285,7 +388,6 @@
         document.getElementById('add-step-title').innerText = "Spelers Laden...";
         
         try {
-            // We halen de spelers gewoon uit de EERSTE link (daar staat meestal iedereen wel in)
             const res = await fetch('/api/fetch-players-preview', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -293,7 +395,6 @@
             });
             const allNames = await res.json();
 
-            // Split koppels naar enkele personen
             let singlePlayers = new Set();
             allNames.forEach(n => {
                 if(n.includes(' & ')) {
@@ -342,14 +443,12 @@
             let finalUrl = translatedUrls.join(',');
             const selected = Array.from(document.querySelectorAll('.user-darter-cb:checked')).map(cb => cb.value);
 
-            // 1. Opslaan op server
             await fetch('/api/user-add-tournament', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ name, url: finalUrl, darters: selected })
             });
 
-            // 2. Lokaal opslaan op de telefoon
             try {
                 let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
                 if(!myHidden.includes(name)) myHidden.push(name);
@@ -358,7 +457,6 @@
                 console.warn('Kon toernooi niet lokaal opslaan:', e); 
             }
 
-            // 3. Pushmeldingen veilig aanzetten
             try {
                 if ('serviceWorker' in navigator && 'PushManager' in window) {
                     let registration = await navigator.serviceWorker.getRegistration();
@@ -377,10 +475,9 @@
                     }
                 }
             } catch(e) {
-                console.warn("Push instellen is overgeslagen (geen rechten of niet ondersteund):", e);
+                console.warn("Push is overgeslagen (geen rechten):", e);
             }
 
-            // Sluit pas als alles is verwerkt
             closeUserAddModal();
             alert("Toernooi toegevoegd! Je ontvangt meldingen voor de gekozen spelers.");
             location.reload(); 
@@ -391,7 +488,6 @@
             closeUserAddModal();
         }
     }
-
 
     // --- NORMALE PUSH LOGICA MET VINKJES ---
     async function openPushSettings() {
@@ -408,7 +504,7 @@
             const savedPrefs = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
             
             if (darters.length === 0) {
-                listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd door admin.</div>";
+                listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
             } else {
                 listDiv.innerHTML = darters.map(d => {
                     const isChecked = savedPrefs.includes(d) ? 'checked' : '';
