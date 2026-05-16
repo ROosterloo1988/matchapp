@@ -123,7 +123,6 @@
             <div class="bracket-group">
                 <label>${label}</label>
                 <input type="text" class="t-url-input" placeholder="Bracket URL (Verplicht)" data-index="${i}">
-                <input type="text" class="t-matchlist-input" placeholder="Matchlist URL (Optioneel, voor recap)" data-index="${i}">
             </div>
             `;
         });
@@ -148,13 +147,12 @@
         list.innerHTML = '';
         db.tournaments.forEach((t, i) => {
             let bCount = t.url ? t.url.split(',').length : 0;
-            let mCount = t.matchlistUrl ? t.matchlistUrl.split(',').filter(u => u !== "").length : 0;
             
             // Controleer of dit toernooi verborgen is
             let badge = t.unlisted ? '<span style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; margin-left: 10px; vertical-align: middle;">🔒 VERBORGEN</span>' : '';
             
             list.innerHTML += `<div class="item">
-                <span><b>${t.name}</b> ${badge}<br><small style="color:#666;">🔗 ${bCount} Bracket(s) gekoppeld | 📊 ${mCount} Matchlist(s)</small></span>
+                <span><b>${t.name}</b> ${badge}<br><small style="color:#666;">🔗 ${bCount} Bracket(s) gekoppeld</small></span>
                 <div class="item-actions">
                     <button class="btn-edit" onclick="editTournament(${i})">✏️</button>
                     <button class="btn-delete" onclick="removeTournament(${i})">X</button>
@@ -170,17 +168,14 @@
         document.getElementById('t-unlisted').checked = !!t.unlisted;
 
         let urls = t.url ? t.url.split(',') : [];
-        let mUrls = t.matchlistUrl ? t.matchlistUrl.split(',') : [];
 
         let format = urls.length <= 1 ? 1 : urls.length === 2 ? 2 : 3;
         document.getElementById('t-format').value = format;
         updateTournamentFields();
 
         let urlInputs = document.querySelectorAll('.t-url-input');
-        let matchlistInputs = document.querySelectorAll('.t-matchlist-input');
 
         urls.forEach((u, i) => { if(urlInputs[i]) urlInputs[i].value = u; });
-        mUrls.forEach((u, i) => { if(matchlistInputs[i]) matchlistInputs[i].value = u; });
         
         editingTournamentIndex = index;
         
@@ -209,7 +204,6 @@
         const isUnlisted = document.getElementById('t-unlisted').checked;
         
         let urlInputs = Array.from(document.querySelectorAll('.t-url-input')).map(i => i.value.trim());
-        let matchlistInputs = Array.from(document.querySelectorAll('.t-matchlist-input')).map(i => i.value.trim());
 
         if (!name || urlInputs.some(url => url === "")) {
             return alert("Vul in ieder geval een toernooinaam in en de verplichte Bracket URL('s)!");
@@ -223,30 +217,19 @@
             return u;
         });
 
-        let translatedMUrls = matchlistInputs.map(u => {
-            if (u === "") return "";
-            if (u.includes('/event/') && !u.includes('/api/event/')) {
-                return u.replace('/event/', '/api/event/');
-            }
-            return u;
-        });
-
+        // Bracket check (deze laten we staan!)
         let validBrackets = translatedUrls.every(u => u.toLowerCase().includes('api') && u.toLowerCase().includes('bracket'));
         if (!validBrackets) return alert("❌ Een van de Bracket URLs is ongeldig.\n\nKopieer de link direct uit DartConnect.");
 
-        let validMatches = translatedMUrls.every(u => u === "" || (u.toLowerCase().includes('api') && u.toLowerCase().includes('matches')));
-        if (!validMatches) return alert("❌ Een van de Matchlist URLs is ongeldig.");
-
         let finalUrl = translatedUrls.join(',');
-        let finalMatchlistUrl = translatedMUrls.every(u => u === "") ? "" : translatedMUrls.join(',');
 
         if (editingTournamentIndex !== null) {
             db.tournaments[editingTournamentIndex].name = name;
             db.tournaments[editingTournamentIndex].url = finalUrl;
-            db.tournaments[editingTournamentIndex].matchlistUrl = finalMatchlistUrl;
+            db.tournaments[editingTournamentIndex].matchlistUrl = ""; // Wordt nu genegeerd door auto-detect op server
             db.tournaments[editingTournamentIndex].unlisted = isUnlisted;
         } else {
-            db.tournaments.push({ name, url: finalUrl, matchlistUrl: finalMatchlistUrl, darters: [], unlisted: isUnlisted });
+            db.tournaments.push({ name, url: finalUrl, matchlistUrl: "", darters: [], unlisted: isUnlisted });
         }
         
         cancelEdit();
