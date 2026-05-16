@@ -222,28 +222,25 @@
         }
     }
 
-function renderAddButton() {
-        // We tonen de knop ALTIJD, behalve op een iPhone/iPad als hij nog niet op het startscherm staat.
-        // Op Android en Laptops (Edge/Chrome) werken meldingen namelijk overal.
-        const magTonen = !isIos() || isPWA();
-
-        if (magTonen) {
-            if(document.querySelector('.btn-user-add')) return; // Voorkom dubbele knoppen
-            
-            const container = document.getElementById('menu-container');
-            const btn = document.createElement('div');
-            btn.className = 'btn-user-add';
-            btn.innerHTML = '➕ ZELF TOERNOOI TOEVOEGEN';
-            btn.onclick = () => { 
-                updateUserTournamentFields(); // Zet de velden (1, 2 of 3 links) klaar
-                document.getElementById('add-step-1').style.display = 'block';
-                document.getElementById('add-step-2').style.display = 'none';
-                document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
-                document.getElementById('user-add-modal').style.display = 'flex'; 
-            };
-            container.after(btn);
-        }
+    function renderAddButton() {
+        // PWA check is verwijderd: de knop wordt nu ALTIJD getoond. 
+        // Pushmeldingen werken op Android & Laptops namelijk ook gewoon in de browser!
+        if(document.querySelector('.btn-user-add')) return; // Voorkom dubbele knoppen
+        
+        const container = document.getElementById('menu-container');
+        const btn = document.createElement('div');
+        btn.className = 'btn-user-add';
+        btn.innerHTML = '➕ ZELF TOERNOOI TOEVOEGEN';
+        btn.onclick = () => { 
+            updateUserTournamentFields(); // Zet de velden (1, 2 of 3 links) klaar
+            document.getElementById('add-step-1').style.display = 'block';
+            document.getElementById('add-step-2').style.display = 'none';
+            document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
+            document.getElementById('user-add-modal').style.display = 'flex'; 
+        };
+        container.after(btn);
     }
+
 
     // Genereert de invulvelden o.b.v. de keuze (1, 2 of 3 links)
     function updateUserTournamentFields() {
