@@ -99,10 +99,16 @@ app.post('/api/settings', (req, res) => {
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
 
+// --- TOERNOOI LIJSTEN ---
 // Zorg dat we openbaar GEEN verborgen toernooien tonen
 app.get('/api/tournaments', (req, res) => {
     const publicTournaments = readDB().tournaments.filter(t => !t.unlisted);
     res.json(publicTournaments.map(t => t.name));
+});
+
+// NIEUW: Een lijst van ALLE toernooien, zodat de app lokaal kan checken of de Admin hem heeft verwijderd.
+app.get('/api/tournaments/valid', (req, res) => {
+    res.json(readDB().tournaments.map(t => t.name));
 });
 
 // --- ROUTES VOOR 'ZELF TOEVOEGEN' LOGICA ---
