@@ -99,18 +99,15 @@ app.post('/api/settings', (req, res) => {
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
 
-// Zorg dat we openbaar GEEN verborgen toernooien tonen
 app.get('/api/tournaments', (req, res) => {
     const publicTournaments = readDB().tournaments.filter(t => !t.unlisted);
     res.json(publicTournaments.map(t => t.name));
 });
 
-// Een lijst van ALLE toernooien
 app.get('/api/tournaments/valid', (req, res) => {
     res.json(readDB().tournaments.map(t => t.name));
 });
 
-// --- ROUTES VOOR 'ZELF TOEVOEGEN' LOGICA ---
 app.post('/api/user-add-tournament', async (req, res) => {
     const { name, url, darters } = req.body;
     const db = readDB();
@@ -193,25 +190,61 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
                 bouwWoordenboek(dataContainer);
 
-                function zoekWedstrijden(obj, currentRound = "Ronde ?") {
-                    if (!obj || typeof obj !== 'object') return;
-                    if ('p1' in obj || 'd1' in obj) { 
-                        obj._bron_url = bUrl;
-                        obj._bracket_type = bracketType;
-                        obj._tree_round = currentRound;
-                        dcMatchesList.push(obj); 
-                    } 
-                    else { 
-                        Object.keys(obj).forEach(key => {
-                            let nextRound = currentRound;
-                            if (typeof key === 'string' && isNaN(key) && key !== "proBracket" && key !== "bracketData" && key !== "matches" && key !== "payload") {
-                                nextRound = key;
+                // --- DE GOUDEN PDC FIX ---
+                // Controleer of dit een "Structuur" bracket is (zoals PDC European Tour)
+                let isStructural = Array.isArray(bronMap) && bronMap.length > 0 && Array.isArray(bronMap[0]);
+
+                if (isStructural) {
+                    bronMap.forEach((roundArray, rIndex) => {
+                        let rName = "Ronde " + (rIndex + 1);
+                        let matchCount = roundArray.length;
+                        
+                        // Automatische ronde-naam op basis van het aantal wedstrijden!
+                        if (matchCount === 32) rName = "Laatste 64";
+                        else if (matchCount === 16) rName = "Laatste 32";
+                        else if (matchCount === 8) rName = "Laatste 16";
+                        else if (matchCount === 4) rName = "Kwartfinale";
+                        else if (matchCount === 2) rName = "Halve Finale";
+                        else if (matchCount === 1) rName = "Finale";
+
+                        roundArray.forEach(m => {
+                            if (!m || typeof m !== 'object') return;
+                            if ('p1' in m || 'd1' in m) {
+                                m._bron_url = bUrl;
+                                m._bracket_type = bracketType;
+                                m._tree_round = rName;
+                                
+                                // FORCEER het wiskundige ID om het "Ronde ?" en "502487" probleem op te lossen!
+                                if (m.bn) {
+                                    m._custom_id = (rIndex + 1) + "-" + m.bn;
+                                }
+                                dcMatchesList.push(m);
                             }
-                            zoekWedstrijden(obj[key], nextRound); 
                         });
+                    });
+                } else {
+                    // Standaard DartConnect Zoeker voor de normale toernooien
+                    function zoekWedstrijden(obj, currentRound = "Ronde ?") {
+                        if (!obj || typeof obj !== 'object') return;
+                        if ('p1' in obj || 'd1' in obj) { 
+                            obj._bron_url = bUrl;
+                            obj._bracket_type = bracketType;
+                            obj._tree_round = currentRound;
+                            dcMatchesList.push(obj); 
+                        } 
+                        else { 
+                            Object.keys(obj).forEach(key => {
+                                let nextRound = currentRound;
+                                if (typeof key === 'string' && isNaN(key) && key !== "proBracket" && key !== "bracketData" && key !== "matches" && key !== "payload") {
+                                    nextRound = key;
+                                }
+                                zoekWedstrijden(obj[key], nextRound); 
+                            });
+                        }
                     }
+                    zoekWedstrijden(bronMap);
                 }
-                zoekWedstrijden(bronMap);
+
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
@@ -239,8 +272,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         let rondeTellingen = {};
         dcMatchesList.forEach(m => {
-            // FIX: Geef altijd prioriteit aan de leesbare match_id (bijv "4-2")!
-            let matchId = (m.match_id || m.id || "").toString();
+            let matchId = (m._custom_id || m.match_id || m.id || "").toString();
             let rndMatch = matchId.match(/^(\d+)[_-]/);
             if (rndMatch) {
                 let rndKey = m._bron_url + "_" + rndMatch[1]; 
@@ -268,8 +300,8 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         const dcConverted = dcMatchesList.map(m => {
-            // FIX: Prioriteit aan match_id!
-            let matchId = m.match_id || m.id || "";
+            // Geef prioriteit aan het door ons geforceerde PDC wiskunde-ID (bijv. "3-2")
+            let matchId = m._custom_id || m.match_id || m.id || "";
             if (typeof matchId === 'number') matchId = matchId.toString();
             if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
 
@@ -305,8 +337,8 @@ async function fetchMatchesForTournament(requestedTournament) {
             else if (typeof markerData === 'string') markerNaam = markerData;
 
             return {
-                id: matchId, // De mooie ID, bijv "4-2"
-                db_id: m.id ? m.id.toString() : "", // Bewaar de echte database ID voor verborgen links!
+                id: matchId, 
+                db_id: m.id ? m.id.toString() : "", 
                 n: m.w || m.wn || m.n || m.next || m.winner_to, 
                 p1m: m.p1_from || m.p1m || m.m1, 
                 p2m: m.p2_from || m.p2m || m.m2, 
@@ -517,13 +549,13 @@ async function fetchMatchesForTournament(requestedTournament) {
                         if (rm.raw_p2 === "W-" + match.db_id || rm.raw_p2 == match.db_id) return true;
                     }
                     
-                    // 4. Wiskunde (alleen als de zichtbare ID écht een koppelstreepje heeft, zoals '3-4')
-                    if (match.id.includes('-') && isNaN(match.id.replace('-', ''))) {
-                        let parts = match.id.match(/(\d+)-(\d+)$/);
+                    // 4. Wiskunde (Dankzij onze GOUDEN FIX heeft het PDC toernooi nu ook streepjes-ID's!)
+                    if (match.id.includes('-')) {
+                        let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
                             let volgendeRonde = parseInt(parts[1]) + 1;
                             let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
-                            let rmParts = rm.id.match(/(\d+)-(\d+)$/);
+                            let rmParts = rm.id.match(/^(\d+)-(\d+)$/);
                             if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
                                 return true;
                             }
