@@ -180,7 +180,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 const response = await axios.post(bUrl, {});
                 let dataContainer = response.data.payload || response.data || {};
                 
-                // --- DE ECHTE FIX: Zorg dat de app de proBracket array altijd vindt, ook als hij verstopt zit in bracketData ---
                 let proBracketArray = dataContainer.proBracket || (dataContainer.bracketData && dataContainer.bracketData.proBracket);
                 let bronMap = proBracketArray || dataContainer.bracketData || dataContainer;
 
@@ -193,7 +192,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
                 bouwWoordenboek(dataContainer);
 
-                // Controleer of dit een "Structuur" bracket is (zoals PDC European Tour)
                 let isStructural = Array.isArray(bronMap) && bronMap.length > 0 && Array.isArray(bronMap[0]);
 
                 if (isStructural) {
@@ -201,7 +199,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                         let rName = "Ronde " + (rIndex + 1);
                         let matchCount = roundArray.length;
                         
-                        // Automatische ronde-naam op basis van het aantal wedstrijden!
                         if (matchCount === 32) rName = "Laatste 64";
                         else if (matchCount === 16) rName = "Laatste 32";
                         else if (matchCount === 8) rName = "Laatste 16";
@@ -216,7 +213,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                                 m._bracket_type = bracketType;
                                 m._tree_round = rName;
                                 
-                                // FORCEER het wiskundige ID
                                 if (m.bn) {
                                     m._custom_id = (rIndex + 1) + "-" + m.bn;
                                 }
@@ -225,7 +221,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                         });
                     });
                 } else {
-                    // Standaard DartConnect Zoeker
                     function zoekWedstrijden(obj, currentRound = "Ronde ?") {
                         if (!obj || typeof obj !== 'object') return;
                         if ('p1' in obj || 'd1' in obj) { 
@@ -252,9 +247,8 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         // --- AUTO-DETECT MATCHLIST URL ---
         let matchlistData = [];
-        let mUrlsToFetch = new Set(); // Een Set voorkomt dubbele links
+        let mUrlsToFetch = new Set(); 
 
-        // 1. Haal de 'event code' automatisch uit de ingevulde bracket links
         bracketUrls.forEach(bUrl => {
             let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
             if (eventMatch) {
@@ -262,12 +256,10 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
         
-        // 2. Voeg eventuele oude links toe (zodat je al opgeslagen toernooien niet stuk gaan)
         if (tournament.matchlistUrl) {
             tournament.matchlistUrl.split(',').map(u => u.trim()).filter(u => u !== "").forEach(u => mUrlsToFetch.add(u));
         }
 
-        // 3. Haal de recaps op
         for (let mUrl of Array.from(mUrlsToFetch)) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
@@ -278,7 +270,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             } catch(e) { console.error("Fout bij ophalen Auto-Matchlist URL:", mUrl); }
         }
-
 
         let alleRecaps = [];
         matchlistData.forEach(match => {
@@ -317,7 +308,6 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         const dcConverted = dcMatchesList.map(m => {
-            // Geef prioriteit aan het door ons geforceerde PDC wiskunde-ID (bijv. "3-2")
             let matchId = m._custom_id || m.match_id || m.id || "";
             if (typeof matchId === 'number') matchId = matchId.toString();
             if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
@@ -544,7 +534,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         if (nieuwGeplandCount > 0) writeDB(db);
 
-        // --- PDC PRO MOGELIJKE WEDSTRIJD ONDERZOEKER ---
         eigenWedstrijden.forEach(match => {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win"));
@@ -553,20 +542,15 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let mogelijkeMatch = rawMatches.find(rm => {
                     if (rm._bron_url !== match._bron_url) return false;
                     
-                    // 1. Directe link vooruit (PDC Database ID's)
                     if (match.n && rm.db_id == match.n) return true;
-                    
-                    // 2. Directe link achteruit (Database ID's)
                     if (match.db_id && rm.p1m && rm.p1m == match.db_id) return true;
                     if (match.db_id && rm.p2m && rm.p2m == match.db_id) return true;
 
-                    // 3. String-gebaseerde link (vaak bij PDC: W-502487 betekent Winnaar van 502487)
                     if (match.db_id) {
                         if (rm.raw_p1 === "W-" + match.db_id || rm.raw_p1 == match.db_id) return true;
                         if (rm.raw_p2 === "W-" + match.db_id || rm.raw_p2 == match.db_id) return true;
                     }
                     
-                    // 4. Wiskunde (Dankzij onze GOUDEN FIX heeft het PDC toernooi nu ook streepjes-ID's!)
                     if (match.id.includes('-')) {
                         let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
