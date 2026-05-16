@@ -105,7 +105,7 @@ app.get('/api/tournaments', (req, res) => {
     res.json(publicTournaments.map(t => t.name));
 });
 
-// Een lijst van ALLE toernooien, zodat de app lokaal kan checken of de Admin hem heeft verwijderd.
+// Een lijst van ALLE toernooien
 app.get('/api/tournaments/valid', (req, res) => {
     res.json(readDB().tournaments.map(t => t.name));
 });
@@ -193,14 +193,25 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
                 bouwWoordenboek(dataContainer);
 
-                function zoekWedstrijden(obj) {
+                // SLIMME BOOM-ZOEKER: Neemt de naam van de 'map' over als Ronde naam!
+                function zoekWedstrijden(obj, currentRound = "Ronde ?") {
                     if (!obj || typeof obj !== 'object') return;
                     if ('p1' in obj || 'd1' in obj) { 
                         obj._bron_url = bUrl;
                         obj._bracket_type = bracketType;
+                        obj._tree_round = currentRound;
                         dcMatchesList.push(obj); 
                     } 
-                    else { Object.values(obj).forEach(val => zoekWedstrijden(val)); }
+                    else { 
+                        Object.keys(obj).forEach(key => {
+                            let nextRound = currentRound;
+                            // Pakt ronde-namen (zoals Last 32) maar negeert data/system keys
+                            if (typeof key === 'string' && isNaN(key) && key !== "proBracket" && key !== "bracketData" && key !== "matches" && key !== "payload") {
+                                nextRound = key;
+                            }
+                            zoekWedstrijden(obj[key], nextRound); 
+                        });
+                    }
                 }
                 zoekWedstrijden(bronMap);
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
@@ -228,12 +239,10 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        // --- RONDE BEPALING LOGICA (Geüpdatet voor PDC voorloopnullen en prefixes) ---
         let rondeTellingen = {};
         dcMatchesList.forEach(m => {
             let matchId = (m.id || m.match_id || "").toString();
-            // Zoekt de ronde vlak voor het laatste koppelteken/underscore
-            let rndMatch = matchId.match(/(\d+)[_-]\d+$/); 
+            let rndMatch = matchId.match(/^(\d+)[_-]/);
             if (rndMatch) {
                 let rndKey = m._bron_url + "_" + rndMatch[1]; 
                 rondeTellingen[rndKey] = (rondeTellingen[rndKey] || 0) + 1;
@@ -253,21 +262,20 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         const dcConverted = dcMatchesList.map(m => {
             let matchId = m.id || m.match_id || "";
-            // Vervang ALLE underscores door streepjes voor een consistent ID
             if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
 
-            let rondeNaam = m._bracket_type === "Groepsfase" ? "Groepsfase" : "Ronde ?";
-            
+            let rondeNaam = "Ronde ?";
+            if (m._tree_round && m._tree_round !== "Ronde ?") rondeNaam = m._tree_round;
+            else if (m._bracket_type === "Groepsfase") rondeNaam = "Groepsfase";
+
             if (m._bracket_type === "Groepsfase" && matchId) {
-                let pouleMatch = matchId.match(/([A-Za-z]+)\d+$/);
-                if (pouleMatch) {
-                    rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
-                }
+                let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
+                if (pouleMatch) rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
             }
 
-            // Gebruik dezelfde slimme regex voor de rondenaam
-            let rondeMatch = matchId.match(/(\d+)-\d+$/);
-            if (rondeMatch) {
+            // Gebruik wiskunde alleen nog als fallback als de naam écht onbekend is
+            let rondeMatch = matchId.match(/^(\d+)-/);
+            if (rondeMatch && rondeNaam === "Ronde ?") {
                 let rndKey = m._bron_url + "_" + rondeMatch[1];
                 let aW = rondeTellingen[rndKey];
                 if (aW === 1) rondeNaam = "Finale";
@@ -286,6 +294,9 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             return {
                 id: matchId,
+                n: m.n || m.wn || m.next, // Forward link voor PDC/Numerieke brackets
+                p1m: m.p1m || m.m1 || m.d1m, // Backward link p1
+                p2m: m.p2m || m.m2 || m.d2m, // Backward link p2
                 _bron_url: m._bron_url,
                 ronde: rondeNaam,
                 player1: getSpelerNaam(m.d1 || m.p1),
@@ -469,37 +480,44 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         if (nieuwGeplandCount > 0) writeDB(db);
 
-        // --- MOGELIJKE WEDSTRIJD LOGICA (Vernieuwd voor voorloopnullen!) ---
+        // --- MOGELIJKE WEDSTRIJD LOGICA (VERNIEUWD) ---
         eigenWedstrijden.forEach(match => {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win"));
 
-            if (magDoor && match.id) {
-                // Zoek de laatste twee cijfers, we gebruiken parseInt om voorloopnullen zoals 01 te negeren
-                let parts = match.id.match(/(\d+)-(\d+)$/);
-                
-                if (parts) {
-                    let volgendeRonde = parseInt(parts[1]) + 1;
-                    let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
+            if (magDoor) {
+                // Multi-check: Kijkt naar onzichtbare links én wiskunde
+                let mogelijkeMatch = rawMatches.find(rm => {
+                    if (rm._bron_url !== match._bron_url) return false;
                     
-                    let mogelijkeMatch = rawMatches.find(rm => {
-                        if (rm._bron_url !== match._bron_url) return false;
-                        if (!rm.id) return false;
-                        
-                        let rmParts = rm.id.match(/(\d+)-(\d+)$/);
-                        if (rmParts) {
-                            return parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr;
+                    // 1. Directe link vooruit
+                    if (match.n && rm.id == match.n) return true;
+                    
+                    // 2. Directe link achteruit (de nieuwe wedstrijd verwijst terug)
+                    if (rm.p1m && rm.p1m == match.id) return true;
+                    if (rm.p2m && rm.p2m == match.id) return true;
+                    
+                    // 3. Wiskunde (Alleen als er écht een '-' instaat, bijv 2-5 -> 3-3)
+                    if (match.id && match.id.includes('-')) {
+                        let parts = match.id.match(/(\d+)-(\d+)$/);
+                        if (parts && rm.id) {
+                            let volgendeRonde = parseInt(parts[1]) + 1;
+                            let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
+                            let rmParts = rm.id.match(/(\d+)-(\d+)$/);
+                            if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
+                                return true;
+                            }
                         }
-                        return false;
-                    });
+                    }
+                    return false;
+                });
 
-                    if (mogelijkeMatch) {
-                        let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
-                        let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
-                        if (!toegevoegdeIds.has(uniekeVolgendeID) && !isAlGeweest) {
-                            definitieveLijst.push({ ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: isSpeler, rol: "speler" });
-                            toegevoegdeIds.add(uniekeVolgendeID);
-                        }
+                if (mogelijkeMatch) {
+                    let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
+                    let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
+                    if (!toegevoegdeIds.has(uniekeVolgendeID) && !isAlGeweest) {
+                        definitieveLijst.push({ ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: isSpeler, rol: "speler" });
+                        toegevoegdeIds.add(uniekeVolgendeID);
                     }
                 }
             }
