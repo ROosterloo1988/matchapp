@@ -250,20 +250,35 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
+        // --- AUTO-DETECT MATCHLIST URL ---
         let matchlistData = [];
-        if (tournament.matchlistUrl) {
-            let mUrls = tournament.matchlistUrl.split(',').map(u => u.trim()).filter(u => u !== "");
-            for (let mUrl of mUrls) {
-                try {
-                    let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
-                    if (mlRes.data && mlRes.data.payload && mlRes.data.payload.completed) {
-                        matchlistData = matchlistData.concat(mlRes.data.payload.completed);
-                    } else if (Array.isArray(mlRes.data)) {
-                        matchlistData = matchlistData.concat(mlRes.data);
-                    }
-                } catch(e) { console.error("Fout bij Matchlist URL:", mUrl); }
+        let mUrlsToFetch = new Set(); // Een Set voorkomt dubbele links
+
+        // 1. Haal de 'event code' automatisch uit de ingevulde bracket links
+        bracketUrls.forEach(bUrl => {
+            let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
+            if (eventMatch) {
+                mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
             }
+        });
+        
+        // 2. Voeg eventuele oude links toe (zodat je al opgeslagen toernooien niet stuk gaan)
+        if (tournament.matchlistUrl) {
+            tournament.matchlistUrl.split(',').map(u => u.trim()).filter(u => u !== "").forEach(u => mUrlsToFetch.add(u));
         }
+
+        // 3. Haal de recaps op
+        for (let mUrl of Array.from(mUrlsToFetch)) {
+            try {
+                let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
+                if (mlRes.data && mlRes.data.payload && mlRes.data.payload.completed) {
+                    matchlistData = matchlistData.concat(mlRes.data.payload.completed);
+                } else if (Array.isArray(mlRes.data)) {
+                    matchlistData = matchlistData.concat(mlRes.data);
+                }
+            } catch(e) { console.error("Fout bij ophalen Auto-Matchlist URL:", mUrl); }
+        }
+
 
         let alleRecaps = [];
         matchlistData.forEach(match => {
