@@ -69,6 +69,10 @@
     <div class="tournament-box">
         <input type="text" id="t-name" placeholder="Naam toernooi (bijv. Dutch Open Single)">
         
+        <label style="display: block; margin-bottom: 15px; background: #fff3cd; padding: 10px; border-left: 4px solid #ffc107; border-radius: 4px; font-weight: bold; color: #555; cursor: pointer;">
+            <input type="checkbox" id="t-unlisted" style="width: auto; margin-right: 10px; transform: scale(1.3);"> 🔒 Verborgen (User) Toernooi
+        </label>
+
         <select id="t-format" onchange="updateTournamentFields()" style="font-weight: bold; margin-bottom: 15px; background: #fdfdfd;">
             <option value="1">👉 Enkel Schema (Alleen Knockout of Poule)</option>
             <option value="2">👉 Poules + Hoofdschema (2 Links)</option>
@@ -105,7 +109,6 @@
     let db = { tournaments: [] };
     let editingTournamentIndex = null;
 
-    // --- DYNAMISCH TOERNOOI VELDEN BEHEREN ---
     function updateTournamentFields() {
         const format = parseInt(document.getElementById('t-format').value);
         const container = document.getElementById('dynamic-fields');
@@ -114,7 +117,7 @@
         const labels = format === 1 ? ['Schema Link(s)'] :
                        format === 2 ? ['De Groepsfase', 'De Knockoutfase'] :
                        ['De Groepsfase', 'De Winnaarsronde', 'De Verliezersronde'];
-
+                       
         labels.forEach((label, i) => {
             html += `
             <div class="bracket-group">
@@ -147,8 +150,11 @@
             let bCount = t.url ? t.url.split(',').length : 0;
             let mCount = t.matchlistUrl ? t.matchlistUrl.split(',').filter(u => u !== "").length : 0;
             
+            // Controleer of dit toernooi verborgen is
+            let badge = t.unlisted ? '<span style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; margin-left: 10px; vertical-align: middle;">🔒 VERBORGEN</span>' : '';
+            
             list.innerHTML += `<div class="item">
-                <span><b>${t.name}</b><br><small style="color:#666;">🔗 ${bCount} Bracket(s) gekoppeld | 📊 ${mCount} Matchlist(s)</small></span>
+                <span><b>${t.name}</b> ${badge}<br><small style="color:#666;">🔗 ${bCount} Bracket(s) gekoppeld | 📊 ${mCount} Matchlist(s)</small></span>
                 <div class="item-actions">
                     <button class="btn-edit" onclick="editTournament(${i})">✏️</button>
                     <button class="btn-delete" onclick="removeTournament(${i})">X</button>
@@ -161,17 +167,15 @@
     function editTournament(index) {
         const t = db.tournaments[index];
         document.getElementById('t-name').value = t.name;
+        document.getElementById('t-unlisted').checked = !!t.unlisted;
 
-        // Split saved URLs
         let urls = t.url ? t.url.split(',') : [];
         let mUrls = t.matchlistUrl ? t.matchlistUrl.split(',') : [];
 
-        // Stel de dropdown in o.b.v. aantal links
         let format = urls.length <= 1 ? 1 : urls.length === 2 ? 2 : 3;
         document.getElementById('t-format').value = format;
         updateTournamentFields();
 
-        // Vul de zojuist gemaakte velden
         let urlInputs = document.querySelectorAll('.t-url-input');
         let matchlistInputs = document.querySelectorAll('.t-matchlist-input');
 
@@ -190,8 +194,9 @@
     function cancelEdit() {
         editingTournamentIndex = null;
         document.getElementById('t-name').value = '';
+        document.getElementById('t-unlisted').checked = false;
         document.getElementById('t-format').value = '1';
-        updateTournamentFields(); // Reset velden
+        updateTournamentFields(); 
         
         const addBtn = document.getElementById('btn-add-tournament');
         addBtn.innerText = "Toevoegen";
@@ -201,24 +206,23 @@
 
     function addTournament() {
         const name = document.getElementById('t-name').value.trim();
+        const isUnlisted = document.getElementById('t-unlisted').checked;
+        
         let urlInputs = Array.from(document.querySelectorAll('.t-url-input')).map(i => i.value.trim());
         let matchlistInputs = Array.from(document.querySelectorAll('.t-matchlist-input')).map(i => i.value.trim());
-        
+
         if (!name || urlInputs.some(url => url === "")) {
             return alert("Vul in ieder geval een toernooinaam in en de verplichte Bracket URL('s)!");
         }
 
-        // Auto-vertaler Bracket URLs
+        // Auto-vertaler
         let translatedUrls = urlInputs.map(u => {
             if (u.includes('/event/') && !u.includes('/api/event/')) {
-                // Vertaalt zowel /brackets/ als /groups/ naar de juiste API link
                 return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
             }
             return u;
         });
 
-
-        // Auto-vertaler Matchlist URLs
         let translatedMUrls = matchlistInputs.map(u => {
             if (u === "") return "";
             if (u.includes('/event/') && !u.includes('/api/event/')) {
@@ -227,14 +231,12 @@
             return u;
         });
 
-        // Controles
         let validBrackets = translatedUrls.every(u => u.toLowerCase().includes('api') && u.toLowerCase().includes('bracket'));
-        if (!validBrackets) return alert("❌ Een van de Bracket URLs is ongeldig.\\n\\nKopieer de link direct uit DartConnect.");
+        if (!validBrackets) return alert("❌ Een van de Bracket URLs is ongeldig.\n\nKopieer de link direct uit DartConnect.");
 
         let validMatches = translatedMUrls.every(u => u === "" || (u.toLowerCase().includes('api') && u.toLowerCase().includes('matches')));
         if (!validMatches) return alert("❌ Een van de Matchlist URLs is ongeldig.");
 
-        // Alles aan elkaar plakken voor de database
         let finalUrl = translatedUrls.join(',');
         let finalMatchlistUrl = translatedMUrls.every(u => u === "") ? "" : translatedMUrls.join(',');
 
@@ -242,13 +244,14 @@
             db.tournaments[editingTournamentIndex].name = name;
             db.tournaments[editingTournamentIndex].url = finalUrl;
             db.tournaments[editingTournamentIndex].matchlistUrl = finalMatchlistUrl;
+            db.tournaments[editingTournamentIndex].unlisted = isUnlisted;
         } else {
-            db.tournaments.push({ name, url: finalUrl, matchlistUrl: finalMatchlistUrl, darters: [] });
+            db.tournaments.push({ name, url: finalUrl, matchlistUrl: finalMatchlistUrl, darters: [], unlisted: isUnlisted });
         }
         
         cancelEdit();
         renderTournaments();
-        saveSettings(true); // Auto-save
+        saveSettings(true);
     }
     
     function removeTournament(index) {
@@ -257,7 +260,7 @@
             db.tournaments.splice(index, 1);
             renderTournaments();
             renderDarters();
-            saveSettings(true); // Auto-save
+            saveSettings(true);
         }
     }
 
@@ -274,6 +277,7 @@
         const tIndex = document.getElementById('d-toernooi-select').value;
         if (tIndex === "") return;
         const tournament = db.tournaments[tIndex];
+
         if (tournament && tournament.darters) {
             tournament.darters.forEach((d, i) => {
                 list.innerHTML += `<div class="item">
@@ -290,10 +294,11 @@
     function editDarter(tIndex, dIndex) {
         const huidigeNaam = db.tournaments[tIndex].darters[dIndex];
         const nieuweNaam = prompt("Wijzig de naam van de darter:", huidigeNaam);
+
         if (nieuweNaam && nieuweNaam.trim() !== "") {
             db.tournaments[tIndex].darters[dIndex] = nieuweNaam.trim();
             renderDarters();
-            saveSettings(true); // Auto-save
+            saveSettings(true);
         }
     }
 
@@ -304,14 +309,14 @@
             db.tournaments[tIndex].darters.push(name);
             document.getElementById('d-name').value = '';
             renderDarters();
-            saveSettings(true); // Auto-save
+            saveSettings(true);
         }
     }
 
     function removeDarter(tIndex, dIndex) {
         db.tournaments[tIndex].darters.splice(dIndex, 1);
         renderDarters();
-        saveSettings(true); // Auto-save
+        saveSettings(true);
     }
 
     async function saveSettings(silent = false) {
@@ -350,7 +355,6 @@
         }
     }
 
-    // Zorg dat de velden direct goed staan bij het laden
     updateTournamentFields();
     loadSettings();
 </script>
