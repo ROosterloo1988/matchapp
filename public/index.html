@@ -386,7 +386,8 @@ async function loadTournaments() {
                     htmlString += `<div class="section-title">${titels[huidigeStatus]}</div>`;
                 }
 
-                let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
+                let hasScore = match.score1 !== undefined && match.score2 !== undefined && match.score1 !== null && match.score2 !== null && match.score1 !== "" && match.score2 !== "";
+                let scoreText = hasScore ? `${match.score1} - ${match.score2}` : "vs";
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
                 if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
 
