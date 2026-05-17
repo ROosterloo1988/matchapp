@@ -197,17 +197,20 @@
         document.getElementById('ios-install-banner').style.display = 'flex';
     }
 
-    async function loadTournaments() {
+async function loadTournaments() {
         const container = document.getElementById('menu-container');
         container.innerHTML = "Laden...";
 
         try {
-            const response = await fetch('/api/tournaments?_t=' + Date.now());
-            if (!response.ok) throw new Error("Server error");
-            let publicNames = await response.json();
+            // BEIDE bestanden tegelijkertijd ophalen (dat scheelt weer tijd!)
+            const [response, validResponse] = await Promise.all([
+                fetch('/api/tournaments?_t=' + Date.now()),
+                fetch('/api/tournaments/valid?_t=' + Date.now())
+            ]);
+
+            if (!response.ok || !validResponse.ok) throw new Error("Server error");
             
-            const validResponse = await fetch('/api/tournaments/valid?_t=' + Date.now());
-            if (!validResponse.ok) throw new Error("Server error");
+            let publicNames = await response.json();
             let allValidNames = await validResponse.json();
 
             let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
