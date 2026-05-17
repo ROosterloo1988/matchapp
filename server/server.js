@@ -250,6 +250,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
+        // --- AUTO-DETECT MATCHLIST URL (INCLUSIEF LIVE/ACTIVE MATCHES!) ---
         let matchlistData = [];
         let mUrlsToFetch = new Set(); 
 
@@ -267,8 +268,9 @@ async function fetchMatchesForTournament(requestedTournament) {
         for (let mUrl of Array.from(mUrlsToFetch)) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
-                if (mlRes.data && mlRes.data.payload && mlRes.data.payload.completed) {
-                    matchlistData = matchlistData.concat(mlRes.data.payload.completed);
+                if (mlRes.data && mlRes.data.payload) {
+                    if (mlRes.data.payload.completed) matchlistData = matchlistData.concat(mlRes.data.payload.completed);
+                    if (mlRes.data.payload.active) matchlistData = matchlistData.concat(mlRes.data.payload.active); // Haalt de live partijen op!
                 } else if (Array.isArray(mlRes.data)) {
                     matchlistData = matchlistData.concat(mlRes.data);
                 }
@@ -393,7 +395,9 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         for (let match of eigenWedstrijden) {
-            match.status = (match.isFinished || (match.score1 !== "" && match.score2 !== "")) ? "gespeeld" : "gepland";
+            // BEPAAL STATUS: Heeft iemand al pijlen gegooid (een score gezet)? Dan is de partij BEZIG!
+            let hasScores = (match.score1 !== "" || match.score2 !== "");
+            match.status = match.isFinished ? "gespeeld" : (hasScores ? "bezig" : "gepland");
             match.isMogelijk = false;
             
             let isSpeler = dartersLower.find(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d));
@@ -404,6 +408,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             let isBetrokken = isSpeler || isMarker;
 
+            // Push notificatie logica
             if (match.status === "gepland" && isBetrokken) {
                 let isPoule = match.ronde.startsWith("Poule ") || match.ronde.startsWith("Group ");
                 let hasTime = match.time && match.time.includes(':');
@@ -420,7 +425,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                         let body = `${ik} is ingedeeld in ${match.ronde} met: ${anderen.join(', ')}`;
                         
                         if (!isFirstRun && db.subscriptions.length > 0) {
-                            const payload = JSON.stringify({ title: titel, body: body });
+                            const payload = JSON.stringify({ title: titel, body: body, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
                             let activeSubs = [];
                             await Promise.all(db.subscriptions.map(async (sub) => {
                                 let wilHoren = false;
@@ -473,7 +478,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                             if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
                             const payload = JSON.stringify({
                                 title: titel,
-                                body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`
+                                body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`,
+                                icon: '/icon-192x192.png',
+                                badge: '/icon-192x192.png'
                             });
                             
                             let activeSubs = [];
@@ -508,7 +515,8 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             }
 
-            if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
+            // Zoek recaps voor gespeelde EN live (bezig) matches
+            if ((match.status === "gespeeld" || match.status === "bezig") && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
                 let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
                 if (p1Words.length === 0) p1Words = [match.player1.toLowerCase()];
@@ -541,21 +549,20 @@ async function fetchMatchesForTournament(requestedTournament) {
         // --- PDC PRO MOGELIJKE WEDSTRIJD ONDERZOEKER ---
         eigenWedstrijden.forEach(match => {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
-            let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win"));
+            
+            // Toon ook de 'Mogelijke Volgende Ronde' als de speler nu aan het gooien is!
+            let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "bezig") || (match.status === "gespeeld" && match.resultaat === "win"));
 
             if (magDoor && match.id) {
                 let mogelijkeMatch = rawMatches.find(rm => {
                     if (rm._bron_url !== match._bron_url) return false;
-                    
                     if (match.n && rm.db_id == match.n) return true;
                     if (match.db_id && rm.p1m && rm.p1m == match.db_id) return true;
                     if (match.db_id && rm.p2m && rm.p2m == match.db_id) return true;
-
                     if (match.db_id) {
                         if (rm.raw_p1 === "W-" + match.db_id || rm.raw_p1 == match.db_id) return true;
                         if (rm.raw_p2 === "W-" + match.db_id || rm.raw_p2 == match.db_id) return true;
                     }
-                    
                     if (match.id.includes('-')) {
                         let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
@@ -575,7 +582,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                     let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
                     
                     // --- GHOST MATCH PREVENTIE ---
-                    // Controleer of de speler al een 'echte' wedstrijd in deze ronde heeft
                     let heeftAlEchteMatchInDezeRonde = definitieveLijst.some(m => 
                         m.status !== "mogelijk" && 
                         m.ronde === mogelijkeMatch.ronde && 
@@ -591,7 +597,8 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         definitieveLijst.sort((a, b) => {
-            const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
+            // Nu sorteren met "bezig" helemaal bovenaan!
+            const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
             let tijdA = (a.time && !["Onbekend", "Niet bekend", "Later"].includes(a.time)) ? a.time : "24:00";
@@ -633,7 +640,9 @@ app.post('/api/admin/send-push', async (req, res) => {
 
     const payload = JSON.stringify({
         title: title || "🎯 DartApp Bericht",
-        body: body || ""
+        body: body || "",
+        icon: '/icon-192x192.png',
+        badge: '/icon-192x192.png'
     });
 
     let successCount = 0;
@@ -669,7 +678,9 @@ app.get('/api/test-push', async (req, res) => {
 
     const payload = JSON.stringify({
         title: "🎯 Over 10 minuten de volgende wedstrijd",
-        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20"
+        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20",
+        icon: '/icon-192x192.png',
+        badge: '/icon-192x192.png'
     });
 
     let successCount = 0;
