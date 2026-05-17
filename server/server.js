@@ -685,8 +685,20 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
+// --- NIEUW: CACHE SYSTEEM VOOR BLIKSEMSNELLE LAADTIJDEN ---
+let matchCache = {};
+
 app.get('/api/matches', async (req, res) => {
-    const list = await fetchMatchesForTournament(req.query.tournament);
+    const tName = req.query.tournament;
+    
+    // Zit de data in het geheugen? INSTANT terugsturen! (0.01s)
+    if (matchCache[tName]) {
+        return res.json(matchCache[tName]);
+    }
+    
+    // Nog niet in het geheugen? 1x ophalen.
+    const list = await fetchMatchesForTournament(tName);
+    matchCache[tName] = list;
     res.json(list);
 });
 
@@ -764,14 +776,16 @@ async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
     
-    console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien voor nieuwe wedstrijden...`);
+    console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien en werkt de snelle cache bij...`);
     for (let t of db.tournaments) {
-        await fetchMatchesForTournament(t.name);
+        // Laat hem rustig op de achtergrond rekenen en sla het resultaat op
+        const nieuwLijstje = await fetchMatchesForTournament(t.name);
+        matchCache[t.name] = nieuwLijstje;
     }
     
     if (isFirstRun) {
         isFirstRun = false;
-        console.log("[HARTSLAG] Eerste run voltooid. Vanaf nu worden er meldingen verstuurd.");
+        console.log("[HARTSLAG] Eerste run voltooid. Geheugen is vol, app is nu supersnel.");
     }
 }
 
