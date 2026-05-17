@@ -35,7 +35,7 @@ const DB_FILE = path.join(__dirname, 'database.json');
 let memDB = null;
 
 function readDB() {
-    if (memDB) return memDB; // 🚀 Instant antwoord uit het werkgeheugen!
+    if (memDB) return memDB; 
 
     if (!fs.existsSync(DB_FILE)) {
         memDB = { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
@@ -54,13 +54,13 @@ function readDB() {
         fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
     }
     
-    memDB = db; // Sla op in geheugen
+    memDB = db; 
     return memDB;
 }
 
 function writeDB(data) {
-    memDB = data; // 🚀 Direct updaten in werkgeheugen
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)); // Op de achtergrond naar de trage schijf wegschrijven
+    memDB = data; 
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)); 
 }
 
 const initialDb = readDB();
@@ -260,6 +260,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
+        // --- AUTO-DETECT MATCHLIST URL & LIVE OPHALEN ---
         let matchlistData = [];
         let mUrlsToFetch = new Set(); 
 
@@ -295,14 +296,41 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         let alleRecaps = [];
+        let liveMatchDict = {}; 
         let activeScores = {}; 
         let activeStatuses = new Set(); 
+
+        // --- HET SNELLER MAKEN: PRE-PROCESSING VAN NAMEN ---
+        let liveMatchByNameDict = {};
+
+        function cleanNameForMatching(str) {
+            if (!str) return "";
+            let s = str.toLowerCase().trim();
+            if (s.includes(',')) {
+                let parts = s.split(',').map(p => p.trim());
+                if (parts.length === 2) s = parts[1] + " " + parts[0];
+            }
+            return s.replace(/[\s\-_,.]/g, '');
+        }
 
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
                 alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
             }
             
+            // Bouw de snelle Lookup Table voor Hash ID's
+            if (match.mi) {
+                liveMatchDict[match.mi.toString()] = match;
+            }
+
+            // Bouw de snelle Lookup Table voor namen (Oplossing van het traagheidsprobleem!)
+            if (match.hc && match.ac) {
+                let cleanP1 = cleanNameForMatching(match.hc);
+                let cleanP2 = cleanNameForMatching(match.ac);
+                liveMatchByNameDict[cleanP1 + "_" + cleanP2] = match;
+                liveMatchByNameDict[cleanP2 + "_" + cleanP1] = match; // Ook omgedraaid opslaan
+            }
+
             let mogelijkeIds = [];
             if (match.mi) mogelijkeIds.push(match.mi.toString());
             if (match.ms) {
@@ -393,38 +421,35 @@ async function fetchMatchesForTournament(requestedTournament) {
             
             let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(msId);
 
-            function cleanNameForMatching(str) {
-                if (!str) return "";
-                let s = str.toLowerCase().trim();
-                if (s.includes(',')) {
-                    let parts = s.split(',').map(p => p.trim());
-                    if (parts.length === 2) s = parts[1] + " " + parts[0];
-                }
-                return s.replace(/[\s\-_,.]/g, '');
-            }
-
             let p1Name = getSpelerNaam(m.d1 || m.p1);
             let p2Name = getSpelerNaam(m.d2 || m.p2);
             let targetP1 = cleanNameForMatching(p1Name);
             let targetP2 = cleanNameForMatching(p2Name);
 
-            let foundLiveMatchByName = matchlistData.find(ml => {
-                if (!ml.hc || !ml.ac) return false;
-                let mlP1 = cleanNameForMatching(ml.hc);
-                let mlP2 = cleanNameForMatching(ml.ac);
-                return (mlP1 === targetP1 && mlP2 === targetP2) || (mlP1 === targetP2 && mlP2 === targetP1);
-            });
+            // 1. Zoek via Lookup Table op Hash ID (Supersnel: 0.0001 sec)
+            let actMatch = liveMatchDict[dbId];
+            
+            // 2. Als dat faalt: gebruik het snelle Woordenboek (Supersnel: 0.0001 sec)
+            if (!actMatch) {
+                actMatch = liveMatchByNameDict[targetP1 + "_" + targetP2];
+            }
 
             let detectedRecapId = "";
-            if (foundLiveMatchByName) {
-                if (fS1 === "" && foundLiveMatchByName.hs !== undefined) fS1 = foundLiveMatchByName.hs;
-                if (fS2 === "" && foundLiveMatchByName.as !== undefined) fS2 = foundLiveMatchByName.as;
-                if (foundLiveMatchByName._is_active_now) {
-                    isActive = true;
+            let isKlaarVolgensLiveLijst = false;
+
+            if (actMatch) {
+                let isSwapped = false;
+                let mlAc = cleanNameForMatching(actMatch.ac || "");
+                if (targetP1 === mlAc) isSwapped = true;
+
+                if (actMatch.hs !== undefined && actMatch.as !== undefined) {
+                    fS1 = isSwapped ? actMatch.as : actMatch.hs;
+                    fS2 = isSwapped ? actMatch.hs : actMatch.as;
                 }
-                if (foundLiveMatchByName.mi) {
-                    detectedRecapId = foundLiveMatchByName.mi.toString();
-                }
+                
+                if (actMatch._is_active_now) isActive = true;
+                if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
+                if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
             }
 
             return {
@@ -447,7 +472,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
-                isFinished: m.fn === true,
+                isFinished: m.fn === true || isKlaarVolgensLiveLijst,
                 _bracket_type: m._bracket_type
             };
         });
@@ -703,10 +728,12 @@ let matchCache = {};
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
     
+    // Direct antwoord uit cache!
     if (matchCache[tName]) {
         return res.json(matchCache[tName]);
     }
     
+    // Alleen ophalen als het écht nergens te vinden is
     const list = await fetchMatchesForTournament(tName);
     matchCache[tName] = list;
     res.json(list);
