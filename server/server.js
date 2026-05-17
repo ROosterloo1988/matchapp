@@ -245,6 +245,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                     }
                     zoekWedstrijden(bronMap);
                 }
+
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
@@ -267,10 +268,14 @@ async function fetchMatchesForTournament(requestedTournament) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
                 if (mlRes.data && mlRes.data.payload) {
-                    if (mlRes.data.payload.completed) matchlistData = matchlistData.concat(mlRes.data.payload.completed);
+                    if (mlRes.data.payload.completed) {
+                        let compArr = mlRes.data.payload.completed;
+                        compArr.forEach(c => c._is_completed_now = true); // Markeer als klaar!
+                        matchlistData = matchlistData.concat(compArr);
+                    }
                     if (mlRes.data.payload.active) {
                         let activeArr = mlRes.data.payload.active;
-                        activeArr.forEach(a => a._is_active_now = true); 
+                        activeArr.forEach(a => a._is_active_now = true); // Markeer als LIVE!
                         matchlistData = matchlistData.concat(activeArr);
                     }
                 } else if (Array.isArray(mlRes.data)) {
@@ -280,30 +285,16 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         let alleRecaps = [];
-        let activeScores = {}; 
-        let activeStatuses = new Set(); 
+        let liveMatchDict = {}; 
 
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
                 alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
             }
-            
-            let mogelijkeIds = [];
-            if (match.mi) mogelijkeIds.push(match.mi.toString());
-            if (match.ms) {
-                mogelijkeIds.push(match.ms.toString());
-                mogelijkeIds.push(match.ms.toString().replace(/_/g, '-'));
+            // Exclusief opslaan onder het échte, onkraakbare Hash ID
+            if (match.mi) {
+                liveMatchDict[match.mi.toString()] = match;
             }
-            if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
-
-            mogelijkeIds.forEach(pId => {
-                if (match.hs !== undefined || match.as !== undefined) {
-                    activeScores[pId] = { hs: match.hs, as: match.as };
-                }
-                if (match._is_active_now) {
-                    activeStatuses.add(pId);
-                }
-            });
         });
 
         let rondeTellingen = {};
@@ -369,19 +360,13 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (Array.isArray(markerData) || typeof markerData === 'number') markerNaam = getSpelerNaam(markerData);
             else if (typeof markerData === 'string') markerNaam = markerData;
 
-            let dbId = m.id ? m.id.toString() : "";
-            let msId = m.ms ? m.ms.toString() : "";
+            // --- DE NIEUWE MATCHING MOTOR ---
+            let dbId = m.id ? m.id.toString() : ""; 
             
-            let actS = activeScores[matchId] || activeScores[dbId] || activeScores[msId];
-            let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : (actS && actS.hs !== undefined ? actS.hs : "");
-            let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : (actS && actS.as !== undefined ? actS.as : "");
-            
-            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(msId);
-
-            // --- DE BULLETPROOF NAAM-MATCHING MOTOR ---
             function cleanNameForMatching(str) {
                 if (!str) return "";
                 let s = str.toLowerCase().trim();
+                // DartConnect omdraai-truc (Lagou, Charis -> charislagou)
                 if (s.includes(',')) {
                     let parts = s.split(',').map(p => p.trim());
                     if (parts.length === 2) s = parts[1] + " " + parts[0];
@@ -394,23 +379,40 @@ async function fetchMatchesForTournament(requestedTournament) {
             let targetP1 = cleanNameForMatching(p1Name);
             let targetP2 = cleanNameForMatching(p2Name);
 
-            let foundLiveMatchByName = matchlistData.find(ml => {
-                if (!ml.hc || !ml.ac) return false;
-                let mlP1 = cleanNameForMatching(ml.hc);
-                let mlP2 = cleanNameForMatching(ml.ac);
-                return (mlP1 === targetP1 && mlP2 === targetP2) || (mlP1 === targetP2 && mlP2 === targetP1);
-            });
+            // 1. Zoek eerst veilig en strak op het Hash ID
+            let actMatch = liveMatchDict[dbId];
+            
+            // 2. Als dat faalt: gebruik de 100% zekere Naam-Zoeker
+            if (!actMatch) {
+                actMatch = matchlistData.find(ml => {
+                    if (!ml.hc || !ml.ac) return false;
+                    let mlP1 = cleanNameForMatching(ml.hc);
+                    let mlP2 = cleanNameForMatching(ml.ac);
+                    return (mlP1 === targetP1 && mlP2 === targetP2) || (mlP1 === targetP2 && mlP2 === targetP1);
+                });
+            }
 
+            let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
+            let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
+            let isActive = false;
             let detectedRecapId = "";
-            if (foundLiveMatchByName) {
-                if (fS1 === "" && foundLiveMatchByName.hs !== undefined) fS1 = foundLiveMatchByName.hs;
-                if (fS2 === "" && foundLiveMatchByName.as !== undefined) fS2 = foundLiveMatchByName.as;
-                if (foundLiveMatchByName._is_active_now) {
-                    isActive = true;
+            let isKlaarVolgensLiveLijst = false;
+
+            if (actMatch) {
+                // Heeft DartConnect de 'Home' en 'Away' omgedraaid? We fixen het direct!
+                let isSwapped = false;
+                let mlAc = cleanNameForMatching(actMatch.ac || "");
+                if (targetP1 === mlAc) isSwapped = true;
+
+                // Live scores OVERSCHRIJVEN de bracket scores (zodat je nooit meer 'seeds' of spoken als score ziet)
+                if (actMatch.hs !== undefined && actMatch.as !== undefined) {
+                    fS1 = isSwapped ? actMatch.as : actMatch.hs;
+                    fS2 = isSwapped ? actMatch.hs : actMatch.as;
                 }
-                if (foundLiveMatchByName.mi) {
-                    detectedRecapId = foundLiveMatchByName.mi.toString();
-                }
+                
+                if (actMatch._is_active_now) isActive = true;
+                if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
+                if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
             }
 
             return {
@@ -433,7 +435,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
-                isFinished: m.fn === true,
+                isFinished: m.fn === true || isKlaarVolgensLiveLijst, 
                 _bracket_type: m._bracket_type
             };
         });
@@ -462,7 +464,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         for (let match of eigenWedstrijden) {
             let hasScores = (match.score1 !== "" || match.score2 !== "");
-            let isReallyActive = match._is_active || hasScores; 
+            let isReallyActive = match._is_active || (!match.isFinished && hasScores); 
             
             match.status = match.isFinished ? "gespeeld" : (isReallyActive ? "bezig" : "gepland");
             match.isMogelijk = false;
