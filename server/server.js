@@ -171,19 +171,6 @@ async function fetchMatchesForTournament(requestedTournament) {
     let dcMatchesList = [];
     let spelersDict = {};
 
-    // --- KOGELVRIJE NAAM-NORMALISATOR (Tegen volgorde, accenten en komma's) ---
-    function cleanNameForMatching(str) {
-        if (!str) return "";
-        return str.toLowerCase()
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "") // Sloopt accenten (á -> a, š -> s)
-            .replace(/[^a-z0-9\s]/g, "")     // Sloopt komma's en leestekens
-            .split(/\s+/)                    // Knipt op in losse woorden
-            .filter(w => w.length > 0)
-            .sort()                          // Sorteert alfabetisch (volgorde maakt niks meer uit!)
-            .join("");                       // Plakt aan elkaar
-    }
-
     try {
         let bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(u => u !== "");
         
@@ -314,6 +301,19 @@ async function fetchMatchesForTournament(requestedTournament) {
         let activeScores = {}; 
         let activeStatuses = new Set(); 
 
+        // --- DE SLIMME NAAM FILTER ---
+        function cleanNameForMatching(str) {
+            if (!str) return "";
+            return String(str).toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .replace(/[^a-z0-9\s]/g, "")
+                .split(/\s+/)
+                .filter(w => w.length > 0)
+                .sort()
+                .join("");
+        }
+
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
                 alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
@@ -323,7 +323,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 liveMatchDict[match.mi.toString()] = match;
             }
 
-            // Vul het slimme woordenboek in met gecleande namen
             if (match.hc && match.ac) {
                 let cleanP1 = cleanNameForMatching(match.hc);
                 let cleanP2 = cleanNameForMatching(match.ac);
@@ -331,12 +330,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                 liveMatchByNameDict[cleanP2 + "_" + cleanP1] = match; 
             }
 
+            // Exclusief veilige ID's (Match.MS/3-1 geeft valse overlap, dus is hier verwijderd!)
             let mogelijkeIds = [];
             if (match.mi) mogelijkeIds.push(match.mi.toString());
-            if (match.ms) {
-                mogelijkeIds.push(match.ms.toString());
-                mogelijkeIds.push(match.ms.toString().replace(/_/g, '-'));
-            }
             if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
 
             mogelijkeIds.forEach(pId => {
@@ -413,24 +409,23 @@ async function fetchMatchesForTournament(requestedTournament) {
             else if (typeof markerData === 'string') markerNaam = markerData;
 
             let dbId = m.id ? m.id.toString() : "";
-            let msId = m.ms ? m.ms.toString() : "";
             
             let p1Name = getSpelerNaam(m.d1 || m.p1);
             let p2Name = getSpelerNaam(m.d2 || m.p2);
             let targetP1 = cleanNameForMatching(p1Name);
             let targetP2 = cleanNameForMatching(p2Name);
 
-            // 1. Match bliksemsnel via de Hash ID
+            // 1. Zoek veilig op de lange Hash
             let actMatch = liveMatchDict[dbId];
             
-            // 2. Indien niet gevonden: match via het kogelvrije Woordenboek
-            if (!actMatch) {
+            // 2. Indien niet gevonden én spelers zijn bekend: match via het kogelvrije Woordenboek
+            if (!actMatch && targetP1 !== "onbekend" && targetP2 !== "onbekend" && targetP1 !== "" && targetP2 !== "") {
                 actMatch = liveMatchByNameDict[targetP1 + "_" + targetP2];
             }
 
             let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
             let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
-            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(msId);
+            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId);
             let detectedRecapId = "";
             let isKlaarVolgensLiveLijst = false;
 
@@ -447,6 +442,13 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (actMatch._is_active_now) isActive = true;
                 if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
                 if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
+            }
+
+            // OPLOSSING VOOR HET VERDWIJN-MYSTERIE:
+            // DartConnect zet soms alvast 'fn = true' terwijl ze nog bezig zijn. Wij overschrijven dat met de keiharde waarheid!
+            let isFinished = (m.fn === true || isKlaarVolgensLiveLijst);
+            if (isActive) {
+                isFinished = false; 
             }
 
             return {
@@ -469,7 +471,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
-                isFinished: m.fn === true || isKlaarVolgensLiveLijst,
+                isFinished: isFinished,
                 _bracket_type: m._bracket_type
             };
         });
@@ -498,9 +500,18 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         for (let match of eigenWedstrijden) {
             let hasScores = (match.score1 !== "" && match.score2 !== "");
-            let isReallyActive = match._is_active || (!match.isFinished && hasScores); 
             
-            match.status = match.isFinished ? "gespeeld" : (isReallyActive ? "bezig" : "gepland");
+            // De ultieme bepaling of iets Gepland, Bezig of Gespeeld is
+            if (match._is_active) {
+                match.status = "bezig";
+            } else if (match.isFinished) {
+                match.status = "gespeeld";
+            } else if (hasScores) {
+                match.status = "bezig";
+            } else {
+                match.status = "gepland";
+            }
+
             match.isMogelijk = false;
             
             let isSpeler = dartersLower.find(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d));
@@ -667,9 +678,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                         let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
                             let volgendeRonde = parseInt(parts[1]) + 1;
-                            let JodyMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
+                            let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
                             let rmParts = rm.id.match(/^(\d+)-(\d+)$/);
-                            if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === JodyMatchNr) {
+                            if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
                                 return true;
                             }
                         }
@@ -726,12 +737,10 @@ let cacheTimestamps = {};
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
     
-    // Alleen direct terugsturen als de cache JONGER is dan 10 seconden
     if (matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
         return res.json(matchCache[tName]);
     }
     
-    // Ophalen als hij ouder is dan 10 seconden
     const list = await fetchMatchesForTournament(tName);
     matchCache[tName] = list;
     cacheTimestamps[tName] = Date.now();
