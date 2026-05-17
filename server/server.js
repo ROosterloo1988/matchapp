@@ -228,7 +228,10 @@ async function fetchMatchesForTournament(requestedTournament) {
                                 m._bracket_type = bracketType;
                                 m._tree_round = rName;
                                 
-                                if (m.bn) {
+                                // Belangrijk: gebruik bij proBracket altijd de echte bracket-id (bijv. "7_1").
+                                // m.bn is het bordnummer, niet het matchnummer. Een custom id op basis van bn
+                                // breekt de koppeling naar volgende rondes en naar matchlistData.bmi.
+                                if (!m.id && m.bn) {
                                     m._custom_id = (rIndex + 1) + "-" + m.bn;
                                 }
                                 dcMatchesList.push(m);
@@ -265,7 +268,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         let mUrlsToFetch = new Set(); 
 
         bracketUrls.forEach(bUrl => {
-            let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
+            let eventMatch = bUrl.match(/\/api\/event\/([^\/]+)/i) || bUrl.match(/\/event\/([^\/]+)/i);
             if (eventMatch) {
                 mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
             }
@@ -301,6 +304,31 @@ async function fetchMatchesForTournament(requestedTournament) {
         let activeScores = {}; 
         let activeStatuses = new Set(); 
 
+        function normalizeMatchKey(key) {
+            if (key === null || key === undefined || key === "") return "";
+            return String(key).trim();
+        }
+
+        function addMatchListKey(match, key) {
+            const rawKey = normalizeMatchKey(key);
+            if (!rawKey) return;
+            liveMatchDict[rawKey] = match;
+            liveMatchDict[rawKey.replace(/_/g, '-')] = match;
+        }
+
+        function addStatusKey(key, match) {
+            const rawKey = normalizeMatchKey(key);
+            if (!rawKey) return;
+            if (match.hs !== undefined || match.as !== undefined || match.ms) {
+                activeScores[rawKey] = { hs: match.hs, as: match.as, ms: match.ms };
+                activeScores[rawKey.replace(/_/g, '-')] = activeScores[rawKey];
+            }
+            if (match._is_active_now) {
+                activeStatuses.add(rawKey);
+                activeStatuses.add(rawKey.replace(/_/g, '-'));
+            }
+        }
+
         // --- DE SLIMME NAAM FILTER ---
         function cleanNameForMatching(str) {
             if (!str) return "";
@@ -319,8 +347,15 @@ async function fetchMatchesForTournament(requestedTournament) {
                 alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
             }
             
-            if (match.mi) {
-                liveMatchDict[match.mi.toString()] = match;
+            // Koppel de matchlist aan alle bruikbare DartConnect-id's.
+            // - mi  = recap/live hash
+            // - bmi = bracket match id, bijv. "7_1" (dit is de belangrijkste koppeling)
+            // - matchid_pre/post vormen soms samen dezelfde bracket id
+            addMatchListKey(match, match.mi);
+            addMatchListKey(match, match.bmi);
+            addMatchListKey(match, match.match_id);
+            if (match.matchid_pre !== undefined && match.matchid_post !== undefined && match.matchid_pre !== null && match.matchid_post !== null) {
+                addMatchListKey(match, `${match.matchid_pre}_${match.matchid_post}`);
             }
 
             if (match.hc && match.ac) {
@@ -331,18 +366,13 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
 
             // Exclusief veilige ID's (Match.MS/3-1 geeft valse overlap, dus is hier verwijderd!)
-            let mogelijkeIds = [];
-            if (match.mi) mogelijkeIds.push(match.mi.toString());
-            if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
-
-            mogelijkeIds.forEach(pId => {
-                if (match.hs !== undefined || match.as !== undefined) {
-                    activeScores[pId] = { hs: match.hs, as: match.as };
-                }
-                if (match._is_active_now) {
-                    activeStatuses.add(pId);
-                }
-            });
+            // Neem bmi mee, anders wordt een live/active match niet aan het bracket gekoppeld.
+            addStatusKey(match.mi, match);
+            addStatusKey(match.bmi, match);
+            addStatusKey(match.match_id, match);
+            if (match.matchid_pre !== undefined && match.matchid_post !== undefined && match.matchid_pre !== null && match.matchid_post !== null) {
+                addStatusKey(`${match.matchid_pre}_${match.matchid_post}`, match);
+            }
         });
 
         let rondeTellingen = {};
@@ -373,7 +403,9 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         const dcConverted = dcMatchesList.map(m => {
-            let matchId = m._custom_id || m.match_id || m.id || "";
+            // Gebruik de echte DartConnect bracket-id als primaire id.
+            // Bij proBracket is dat bijvoorbeeld "7_1"; in de UI tonen we "7-1".
+            let matchId = m.match_id || m.id || m._custom_id || "";
             if (typeof matchId === 'number') matchId = matchId.toString();
             if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
 
@@ -409,14 +441,15 @@ async function fetchMatchesForTournament(requestedTournament) {
             else if (typeof markerData === 'string') markerNaam = markerData;
 
             let dbId = m.id ? m.id.toString() : "";
+            let dbIdNormalized = dbId ? dbId.replace(/_/g, '-') : "";
             
             let p1Name = getSpelerNaam(m.d1 || m.p1);
             let p2Name = getSpelerNaam(m.d2 || m.p2);
             let targetP1 = cleanNameForMatching(p1Name);
             let targetP2 = cleanNameForMatching(p2Name);
 
-            // 1. Zoek veilig op de lange Hash
-            let actMatch = liveMatchDict[dbId];
+            // 1. Zoek veilig op bracket-id/bmi. Dit is betrouwbaarder dan alleen namen.
+            let actMatch = liveMatchDict[dbId] || liveMatchDict[dbIdNormalized] || liveMatchDict[matchId];
             
             // 2. Indien niet gevonden én spelers zijn bekend: match via het kogelvrije Woordenboek
             if (!actMatch && targetP1 !== "onbekend" && targetP2 !== "onbekend" && targetP1 !== "" && targetP2 !== "") {
@@ -425,9 +458,10 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
             let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
-            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId);
+            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(dbIdNormalized);
             let detectedRecapId = "";
             let isKlaarVolgensLiveLijst = false;
+            let liveBoard = null;
 
             if (actMatch) {
                 let isSwapped = false;
@@ -437,11 +471,19 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (actMatch.hs !== undefined && actMatch.as !== undefined) {
                     fS1 = isSwapped ? actMatch.as : actMatch.hs;
                     fS2 = isSwapped ? actMatch.hs : actMatch.as;
+                } else if (actMatch.ms) {
+                    const scoreParts = String(actMatch.ms).match(/(\d+)\s*[-–]\s*(\d+)/);
+                    if (scoreParts) {
+                        fS1 = isSwapped ? scoreParts[2] : scoreParts[1];
+                        fS2 = isSwapped ? scoreParts[1] : scoreParts[2];
+                    }
                 }
-                
+
                 if (actMatch._is_active_now) isActive = true;
                 if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
                 if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
+                if (Array.isArray(actMatch.bn) && actMatch.bn.length > 0) liveBoard = actMatch.bn[0];
+                else if (actMatch.bn !== undefined && actMatch.bn !== null) liveBoard = actMatch.bn;
             }
 
             // OPLOSSING VOOR HET VERDWIJN-MYSTERIE:
@@ -468,7 +510,8 @@ async function fetchMatchesForTournament(requestedTournament) {
                 score2: fS2,
                 _is_active: isActive, 
                 _detected_recap_id: detectedRecapId,
-                board: m.bn || m.b || m.board || m.bd || "?",
+                recapUrl: detectedRecapId ? `https://recap.dartconnect.com/matches/${detectedRecapId}` : "",
+                board: liveBoard || m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
                 isFinished: isFinished,
