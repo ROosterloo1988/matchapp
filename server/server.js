@@ -171,11 +171,93 @@ async function fetchMatchesForTournament(requestedTournament) {
     let dcMatchesList = [];
     let spelersDict = {};
 
+    function getDCTVPartsFromUrl(url) {
+        const value = String(url || "");
+        const match =
+            value.match(/\/api\/event\/([^\/?#]+)\/(?:bracket|brackets|group|groups)(?:\/([^?#]+))?/i) ||
+            value.match(/\/event\/([^\/?#]+)\/(?:bracket|brackets|group|groups)(?:\/([^?#]+))?/i) ||
+            value.match(/\/live\/([^\/?#]+)(?:\/([^?#]+))?/i) ||
+            value.match(/\/api\/event\/([^\/?#]+)(?:\/([^?#]+))?/i) ||
+            value.match(/\/event\/([^\/?#]+)(?:\/([^?#]+))?/i);
+
+        if (!match) return null;
+        return {
+            eventId: match[1],
+            suffix: (match[2] || "").replace(/^\/+|\/+$/g, "")
+        };
+    }
+
+    function buildDCTVLiveUrl(url) {
+        const parts = getDCTVPartsFromUrl(url);
+        if (!parts || !parts.eventId) return "";
+        return `https://tv.dartconnect.com/live/${parts.eventId}${parts.suffix ? "/" + parts.suffix : ""}`;
+    }
+
+    function addMatchListUrlsForBracket(url, targetSet) {
+        const parts = getDCTVPartsFromUrl(url);
+        if (!parts || !parts.eventId) return;
+
+        // Oude algemene endpoint blijft erin, want die werkt bij sommige DartConnect-events.
+        targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/matches`);
+
+        // Bij links zoals /bracket/M/hungarysuperleague26e12 is de competitie-suffix essentieel.
+        // Zonder deze suffix zie je soms wel het schema, maar niet de actieve live matches.
+        if (parts.suffix) {
+            targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/matches/${parts.suffix}`);
+            targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/live/${parts.suffix}`);
+            targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/active/${parts.suffix}`);
+        }
+    }
+
+    function looksLikeDCTVMatch(obj) {
+        if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+        return !!(
+            obj.mi || obj.bmi || obj.match_id ||
+            obj.matchid_pre !== undefined || obj.matchid_post !== undefined ||
+            (obj.hc && obj.ac) ||
+            (obj.hs !== undefined && obj.as !== undefined)
+        );
+    }
+
+    function extractDCTVMatches(obj, flags = {}) {
+        const found = [];
+        function walk(node, inheritedFlags = {}) {
+            if (!node) return;
+
+            if (Array.isArray(node)) {
+                node.forEach(item => walk(item, inheritedFlags));
+                return;
+            }
+
+            if (typeof node !== "object") return;
+
+            if (looksLikeDCTVMatch(node)) {
+                if (inheritedFlags.active) node._is_active_now = true;
+                if (inheritedFlags.completed) node._is_completed_now = true;
+                found.push(node);
+            }
+
+            Object.keys(node).forEach(key => {
+                const lower = key.toLowerCase();
+                const nextFlags = {
+                    active: inheritedFlags.active || lower === "active" || lower === "live" || lower === "current",
+                    completed: inheritedFlags.completed || lower === "completed" || lower === "finished" || lower === "results"
+                };
+                walk(node[key], nextFlags);
+            });
+        }
+
+        walk(obj, flags);
+        return found;
+    }
+
+
     try {
         let bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(u => u !== "");
         
         for (let i = 0; i < bracketUrls.length; i++) {
             let bUrl = bracketUrls[i];
+            let bracketLiveUrl = buildDCTVLiveUrl(bUrl);
             let bracketType = "";
             
             if (bracketUrls.length === 3) {
@@ -225,6 +307,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                             if (!m || typeof m !== 'object') return;
                             if ('p1' in m || 'd1' in m) {
                                 m._bron_url = bUrl;
+                                m._live_url = bracketLiveUrl;
                                 m._bracket_type = bracketType;
                                 m._tree_round = rName;
                                 
@@ -243,6 +326,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                         if (!obj || typeof obj !== 'object') return;
                         if ('p1' in obj || 'd1' in obj) { 
                             obj._bron_url = bUrl;
+                            obj._live_url = bracketLiveUrl;
                             obj._bracket_type = bracketType;
                             obj._tree_round = currentRound;
                             dcMatchesList.push(obj); 
@@ -268,10 +352,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         let mUrlsToFetch = new Set(); 
 
         bracketUrls.forEach(bUrl => {
-            let eventMatch = bUrl.match(/\/api\/event\/([^\/]+)/i) || bUrl.match(/\/event\/([^\/]+)/i);
-            if (eventMatch) {
-                mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
-            }
+            addMatchListUrlsForBracket(bUrl, mUrlsToFetch);
         });
         
         if (tournament.matchlistUrl) {
@@ -281,19 +362,10 @@ async function fetchMatchesForTournament(requestedTournament) {
         for (let mUrl of Array.from(mUrlsToFetch)) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
-                if (mlRes.data && mlRes.data.payload) {
-                    if (mlRes.data.payload.completed) {
-                        let compArr = mlRes.data.payload.completed;
-                        compArr.forEach(c => c._is_completed_now = true); 
-                        matchlistData = matchlistData.concat(compArr);
-                    }
-                    if (mlRes.data.payload.active) {
-                        let activeArr = mlRes.data.payload.active;
-                        activeArr.forEach(a => a._is_active_now = true); 
-                        matchlistData = matchlistData.concat(activeArr);
-                    }
-                } else if (Array.isArray(mlRes.data)) {
-                    matchlistData = matchlistData.concat(mlRes.data);
+                const source = mlRes.data && mlRes.data.payload ? mlRes.data.payload : mlRes.data;
+                const extracted = extractDCTVMatches(source);
+                if (extracted.length > 0) {
+                    matchlistData = matchlistData.concat(extracted);
                 }
             } catch(e) { console.error("Fout bij ophalen Auto-Matchlist URL:", mUrl); }
         }
@@ -511,6 +583,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 _is_active: isActive, 
                 _detected_recap_id: detectedRecapId,
                 recapUrl: detectedRecapId ? `https://recap.dartconnect.com/matches/${detectedRecapId}` : "",
+                liveUrl: m._live_url || "",
                 board: liveBoard || m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
