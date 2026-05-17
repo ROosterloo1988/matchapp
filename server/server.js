@@ -200,13 +200,26 @@ async function fetchMatchesForTournament(requestedTournament) {
         // Oude algemene endpoint blijft erin, want die werkt bij sommige DartConnect-events.
         targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/matches`);
 
+        const suffixes = [];
+        if (parts.suffix) {
+            suffixes.push(parts.suffix);
+            // Sommige DCTV-pagina's gebruiken /live/<event>/<type>/<league>, maar de API soms alleen <league>.
+            const suffixWithoutType = parts.suffix.replace(/^[A-Za-z]\//, "");
+            if (suffixWithoutType && suffixWithoutType !== parts.suffix) suffixes.push(suffixWithoutType);
+        }
+
         // Bij links zoals /bracket/M/hungarysuperleague26e12 is de competitie-suffix essentieel.
         // Zonder deze suffix zie je soms wel het schema, maar niet de actieve live matches.
-        if (parts.suffix) {
-            targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/matches/${parts.suffix}`);
-            targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/live/${parts.suffix}`);
-            targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/active/${parts.suffix}`);
-        }
+        suffixes.forEach(suffix => {
+            ["matches", "live", "active", "current", "boards", "board", "scoreboard", "scores"].forEach(endpoint => {
+                targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/${endpoint}/${suffix}`);
+            });
+
+            // Extra varianten die DartConnect bij live board/screen endpoints soms gebruikt.
+            ["live", "active", "current", "boards", "scoreboard", "scores"].forEach(endpoint => {
+                targetSet.add(`https://tv.dartconnect.com/api/${endpoint}/${parts.eventId}/${suffix}`);
+            });
+        });
     }
 
     function looksLikeDCTVMatch(obj) {
@@ -349,6 +362,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         // --- AUTO-DETECT MATCHLIST URL & LIVE OPHALEN ---
         let matchlistData = [];
+        let liveRawSources = [];
         let mUrlsToFetch = new Set(); 
 
         bracketUrls.forEach(bUrl => {
@@ -361,9 +375,25 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         for (let mUrl of Array.from(mUrlsToFetch)) {
             try {
-                let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
+                const urlLooksLive = /\/(live|active|current|boards?|scoreboard|scores)(\/|$)/i.test(mUrl);
+                let mlRes = await axios.get(mUrl, {
+                    timeout: 8000,
+                    headers: {
+                        "User-Agent": "Mozilla/5.0 (compatible; MatchApp/1.0)",
+                        "Accept": "application/json,text/plain,*/*",
+                        "Referer": "https://tv.dartconnect.com/"
+                    }
+                }).catch(() => axios.post(mUrl, {}, {
+                    timeout: 8000,
+                    headers: {
+                        "User-Agent": "Mozilla/5.0 (compatible; MatchApp/1.0)",
+                        "Accept": "application/json,text/plain,*/*",
+                        "Referer": "https://tv.dartconnect.com/"
+                    }
+                }));
                 const source = mlRes.data && mlRes.data.payload ? mlRes.data.payload : mlRes.data;
-                const extracted = extractDCTVMatches(source);
+                liveRawSources.push({ source, forceActive: urlLooksLive, url: mUrl });
+                const extracted = extractDCTVMatches(source, { active: urlLooksLive });
                 if (extracted.length > 0) {
                     matchlistData = matchlistData.concat(extracted);
                 }
@@ -412,6 +442,161 @@ async function fetchMatchesForTournament(requestedTournament) {
                 .filter(w => w.length > 0)
                 .sort()
                 .join("");
+        }
+
+        function normalizeBoardValue(value) {
+            if (value === null || value === undefined || value === "") return "";
+            if (Array.isArray(value)) return normalizeBoardValue(value[0]);
+            const match = String(value).match(/\d+/);
+            return match ? match[0] : String(value).trim();
+        }
+
+        function readBoardFromObject(obj) {
+            if (!obj || typeof obj !== "object") return "";
+            const boardKeys = ["bn", "bns", "b", "board", "boardNo", "board_no", "boardNumber", "board_number", "bd"];
+            for (const key of boardKeys) {
+                if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return normalizeBoardValue(obj[key]);
+            }
+            return "";
+        }
+
+        function parseSmallScore(value) {
+            if (value === null || value === undefined || value === "") return null;
+            if (typeof value === "number") {
+                if (Number.isInteger(value) && value >= 0 && value <= 50) return String(value);
+                return null;
+            }
+            const str = String(value).trim();
+            if (/^[0-9]{1,2}$/.test(str)) return str;
+            return null;
+        }
+
+        function readFirstValue(obj, keys) {
+            if (!obj || typeof obj !== "object") return undefined;
+            for (const key of keys) {
+                if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
+            }
+            return undefined;
+        }
+
+        function readScorePairFromObject(obj) {
+            if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+            const scorePairs = [
+                ["hs", "as"], ["h_s", "a_s"], ["homeScore", "awayScore"], ["home_score", "away_score"],
+                ["scoreHome", "scoreAway"], ["hscore", "ascore"],
+                ["p1s", "p2s"], ["p1Score", "p2Score"], ["p1_score", "p2_score"],
+                ["score1", "score2"], ["s1", "s2"],
+                ["homeSets", "awaySets"], ["hsets", "asets"], ["setsHome", "setsAway"],
+                ["homeLegs", "awayLegs"], ["hlegs", "alegs"], ["legsHome", "legsAway"], ["hl", "al"]
+            ];
+
+            for (const [leftKey, rightKey] of scorePairs) {
+                const left = parseSmallScore(obj[leftKey]);
+                const right = parseSmallScore(obj[rightKey]);
+                if (left !== null && right !== null) return { left, right, keys: [leftKey, rightKey] };
+            }
+
+            if (typeof obj.ms === "string") {
+                const parts = obj.ms.match(/(\d+)\s*[-–]\s*(\d+)/);
+                if (parts) return { left: parts[1], right: parts[2], keys: ["ms"] };
+            }
+
+            return null;
+        }
+
+        function readSideNamesFromObject(obj) {
+            if (!obj || typeof obj !== "object") return { leftName: "", rightName: "" };
+            const leftKeys = ["hc", "hcf", "home", "homeName", "home_name", "hname", "h_name", "player1", "p1", "p1n", "p1Name", "p1_name", "leftName", "left_name"];
+            const rightKeys = ["ac", "acf", "away", "awayName", "away_name", "aname", "a_name", "player2", "p2", "p2n", "p2Name", "p2_name", "rightName", "right_name"];
+            let leftName = readFirstValue(obj, leftKeys);
+            let rightName = readFirstValue(obj, rightKeys);
+
+            function normalizeNameValue(value) {
+                if (Array.isArray(value)) return value.map(v => normalizeNameValue(v)).filter(Boolean).join(" ");
+                if (value && typeof value === "object") return readFirstValue(value, ["name", "fullName", "full_name", "displayName", "display_name", "n", "title"]) || "";
+                return value ? String(value) : "";
+            }
+
+            return { leftName: normalizeNameValue(leftName), rightName: normalizeNameValue(rightName) };
+        }
+
+        function objectContainsBothPlayers(obj, targetP1, targetP2) {
+            let text = "";
+            try { text = JSON.stringify(obj); } catch(e) { text = String(obj || ""); }
+            const clean = cleanNameForMatching(text);
+            return clean.includes(targetP1) && clean.includes(targetP2);
+        }
+
+        function hasActiveHint(obj) {
+            if (!obj || typeof obj !== "object") return false;
+            if (obj._is_active_now) return true;
+            const status = String(obj.status || obj.state || obj.matchStatus || obj.match_status || obj.liveStatus || obj.live_status || "").toLowerCase();
+            return /live|active|current|progress|playing|bezig|started|open/.test(status);
+        }
+
+        function candidateScoreFromLiveObject(obj, p1Name, p2Name, board, forceActive) {
+            if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+
+            const targetP1 = cleanNameForMatching(p1Name);
+            const targetP2 = cleanNameForMatching(p2Name);
+            if (!targetP1 || !targetP2 || targetP1 === "onbekend" || targetP2 === "onbekend") return null;
+
+            const pair = readScorePairFromObject(obj);
+            if (!pair) return null;
+
+            const objBoard = readBoardFromObject(obj);
+            const wantedBoard = normalizeBoardValue(board);
+            const boardMatches = wantedBoard && objBoard && wantedBoard === objBoard;
+
+            const { leftName, rightName } = readSideNamesFromObject(obj);
+            const leftClean = cleanNameForMatching(leftName);
+            const rightClean = cleanNameForMatching(rightName);
+            const namedMatch =
+                (leftClean && rightClean && leftClean.includes(targetP1) && rightClean.includes(targetP2)) ||
+                (leftClean && rightClean && leftClean.includes(targetP2) && rightClean.includes(targetP1));
+
+            const textMatch = objectContainsBothPlayers(obj, targetP1, targetP2);
+
+            // Alleen vertrouwen op generieke objecten als ze uit een live/active/board endpoint komen,
+            // of zelf een live-status bevatten, of exact hetzelfde bord + dezelfde spelers tonen.
+            if (!forceActive && !hasActiveHint(obj) && !(boardMatches && (namedMatch || textMatch))) return null;
+            if (!namedMatch && !textMatch) return null;
+
+            const swapped = leftClean && leftClean.includes(targetP2);
+            return {
+                score1: swapped ? pair.right : pair.left,
+                score2: swapped ? pair.left : pair.right,
+                board: objBoard || wantedBoard || "",
+                isActive: true
+            };
+        }
+
+        function findLiveScoreFallback(p1Name, p2Name, board) {
+            const maxObjectsPerSource = 5000;
+            for (const wrapper of liveRawSources) {
+                let inspected = 0;
+                const forceActive = !!(wrapper && wrapper.forceActive);
+                const stack = [wrapper ? wrapper.source : null];
+
+                while (stack.length > 0 && inspected < maxObjectsPerSource) {
+                    const node = stack.pop();
+                    if (!node) continue;
+                    if (Array.isArray(node)) {
+                        for (const item of node) stack.push(item);
+                        continue;
+                    }
+                    if (typeof node !== "object") continue;
+                    inspected++;
+
+                    const candidate = candidateScoreFromLiveObject(node, p1Name, p2Name, board, forceActive);
+                    if (candidate) return candidate;
+
+                    for (const val of Object.values(node)) {
+                        if (val && (typeof val === "object")) stack.push(val);
+                    }
+                }
+            }
+            return null;
         }
 
         matchlistData.forEach(match => {
@@ -556,6 +741,20 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
                 if (Array.isArray(actMatch.bn) && actMatch.bn.length > 0) liveBoard = actMatch.bn[0];
                 else if (actMatch.bn !== undefined && actMatch.bn !== null) liveBoard = actMatch.bn;
+            }
+
+            // Extra fallback voor DCTV live-board endpoints.
+            // Bij sommige competities is er wel een board live pagina, maar geen klassieke matchlist-record met bmi/mi.
+            // Dan zoeken we in de live/active/board JSON naar dezelfde twee spelers en hetzelfde bord.
+            const scoreMissing = (fS1 === "" || fS1 === null || fS1 === undefined || fS2 === "" || fS2 === null || fS2 === undefined);
+            if (scoreMissing) {
+                const fallbackScore = findLiveScoreFallback(p1Name, p2Name, liveBoard || m.bn || m.b || m.board || m.bd || "");
+                if (fallbackScore) {
+                    fS1 = fallbackScore.score1;
+                    fS2 = fallbackScore.score2;
+                    isActive = true;
+                    if (fallbackScore.board) liveBoard = fallbackScore.board;
+                }
             }
 
             // OPLOSSING VOOR HET VERDWIJN-MYSTERIE:
