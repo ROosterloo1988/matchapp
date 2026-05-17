@@ -245,7 +245,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                     }
                     zoekWedstrijden(bronMap);
                 }
-
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
@@ -271,7 +270,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                     if (mlRes.data.payload.completed) matchlistData = matchlistData.concat(mlRes.data.payload.completed);
                     if (mlRes.data.payload.active) {
                         let activeArr = mlRes.data.payload.active;
-                        activeArr.forEach(a => a._is_active_now = true); // Markeer ze keihard als LIVE!
+                        activeArr.forEach(a => a._is_active_now = true); 
                         matchlistData = matchlistData.concat(activeArr);
                     }
                 } else if (Array.isArray(mlRes.data)) {
@@ -289,7 +288,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
             }
             
-            // CRUCIALE FIX: DartConnect gebruikt interne hashes ('mi') én leesbare ID's ('ms' of 'match_id') door elkaar!
             let mogelijkeIds = [];
             if (match.mi) mogelijkeIds.push(match.mi.toString());
             if (match.ms) {
@@ -320,14 +318,12 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         function getSpelerNaam(idOrArray) {
             if (!idOrArray) return "Onbekend";
-            
             if (typeof idOrArray === 'string') {
                 if (idOrArray.startsWith('W-')) return "Winnaar ID " + idOrArray.replace('W-','');
                 if (idOrArray.startsWith('L-')) return "Verliezer ID " + idOrArray.replace('L-','');
                 if (spelersDict[idOrArray]) return spelersDict[idOrArray];
                 return isNaN(idOrArray) ? idOrArray : `Speler ${idOrArray}`;
             }
-
             if (Array.isArray(idOrArray)) {
                 const validIds = idOrArray.filter(id => id && id !== -1);
                 if (validIds.length === 0) return "Onbekend";
@@ -376,13 +372,46 @@ async function fetchMatchesForTournament(requestedTournament) {
             let dbId = m.id ? m.id.toString() : "";
             let msId = m.ms ? m.ms.toString() : "";
             
-            // Haal de live score op via een van de mogelijke ID's
             let actS = activeScores[matchId] || activeScores[dbId] || activeScores[msId];
             let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : (actS && actS.hs !== undefined ? actS.hs : "");
             let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : (actS && actS.as !== undefined ? actS.as : "");
             
-            // Kijk in de Live-lijst of de match bezig is
             let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(msId);
+
+            // --- DE BULLETPROOF NAAM-MATCHING MOTOR ---
+            function cleanNameForMatching(str) {
+                if (!str) return "";
+                let s = str.toLowerCase().trim();
+                if (s.includes(',')) {
+                    let parts = s.split(',').map(p => p.trim());
+                    if (parts.length === 2) s = parts[1] + " " + parts[0];
+                }
+                return s.replace(/[\s\-_,.]/g, '');
+            }
+
+            let p1Name = getSpelerNaam(m.d1 || m.p1);
+            let p2Name = getSpelerNaam(m.d2 || m.p2);
+            let targetP1 = cleanNameForMatching(p1Name);
+            let targetP2 = cleanNameForMatching(p2Name);
+
+            let foundLiveMatchByName = matchlistData.find(ml => {
+                if (!ml.hc || !ml.ac) return false;
+                let mlP1 = cleanNameForMatching(ml.hc);
+                let mlP2 = cleanNameForMatching(ml.ac);
+                return (mlP1 === targetP1 && mlP2 === targetP2) || (mlP1 === targetP2 && mlP2 === targetP1);
+            });
+
+            let detectedRecapId = "";
+            if (foundLiveMatchByName) {
+                if (fS1 === "" && foundLiveMatchByName.hs !== undefined) fS1 = foundLiveMatchByName.hs;
+                if (fS2 === "" && foundLiveMatchByName.as !== undefined) fS2 = foundLiveMatchByName.as;
+                if (foundLiveMatchByName._is_active_now) {
+                    isActive = true;
+                }
+                if (foundLiveMatchByName.mi) {
+                    detectedRecapId = foundLiveMatchByName.mi.toString();
+                }
+            }
 
             return {
                 id: matchId, 
@@ -394,12 +423,13 @@ async function fetchMatchesForTournament(requestedTournament) {
                 raw_p2: m.p2 || m.d2, 
                 _bron_url: m._bron_url,
                 ronde: rondeNaam,
-                player1: getSpelerNaam(m.d1 || m.p1),
-                player2: getSpelerNaam(m.d2 || m.p2),
+                player1: p1Name,
+                player2: p2Name,
                 marker: markerNaam,
                 score1: fS1,
                 score2: fS2,
                 _is_active: isActive, 
+                _detected_recap_id: detectedRecapId,
                 board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
@@ -550,6 +580,8 @@ async function fetchMatchesForTournament(requestedTournament) {
                     }
                 }
             }
+
+            match.recapId = match._detected_recap_id || "";
 
             if ((match.status === "gespeeld" || match.status === "bezig") && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
