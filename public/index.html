@@ -61,6 +61,17 @@
         .match-card.gespeeld .card-header { background: #222; color: #888; }
         .match-card.gespeeld .score-box { color: #fff; border-color: #444; }
 
+        /* LIVE STYLING (Nieuw) */
+        .match-card.bezig { border-left-color: #e74c3c; box-shadow: 0 0 15px rgba(231, 76, 60, 0.4); }
+        .match-card.bezig .card-header { background: linear-gradient(90deg, #e74c3c 0%, #c0392b 100%); }
+        .live-btn { background: #e74c3c !important; border-color: #c0392b !important; animation: pulseRed 1.5s infinite; }
+        
+        @keyframes pulseRed {
+            0% { opacity: 1; box-shadow: 0 0 0 rgba(231, 76, 60, 0); }
+            50% { opacity: 0.8; box-shadow: 0 0 10px rgba(231, 76, 60, 0.8); }
+            100% { opacity: 1; box-shadow: 0 0 0 rgba(231, 76, 60, 0); }
+        }
+
         .section-title { grid-column: 1 / -1; color: #888; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; text-transform: uppercase; font-size: 0.9rem; }
         .no-matches { text-align: center; color: #888; margin-top: 50px; grid-column: 1 / -1; }
 
@@ -111,6 +122,7 @@
 
     <div id="filter-container">
         <button class="filter-btn active" onclick="setFilter('alles')" id="filter-alles">Alles</button>
+        <button class="filter-btn" onclick="setFilter('bezig')" id="filter-bezig">🔴 Live</button>
         <button class="filter-btn" onclick="setFilter('gepland')" id="filter-gepland">⚡ Gepland</button>
         <button class="filter-btn" onclick="setFilter('mogelijk')" id="filter-mogelijk">🔮 Mogelijk</button>
         <button class="filter-btn" onclick="setFilter('gespeeld')" id="filter-gespeeld">✅ Gespeeld</button>
@@ -185,13 +197,11 @@
         document.getElementById('ios-install-banner').style.display = 'flex';
     }
 
-    // --- TOERNOOIEN INLADEN (Met Cache Buster) ---
     async function loadTournaments() {
         const container = document.getElementById('menu-container');
-        container.innerHTML = "Laden..."; // Harde reset van de weergave 
+        container.innerHTML = "Laden...";
 
         try {
-            // Door Date.now() erbij te zetten, kan je telefoon dit verzoek NOOIT vast laten lopen in zijn geheugen!
             const response = await fetch('/api/tournaments?_t=' + Date.now());
             if (!response.ok) throw new Error("Server error");
             let publicNames = await response.json();
@@ -201,7 +211,6 @@
             let allValidNames = await validResponse.json();
 
             let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
-            
             let origineleLengte = myHidden.length;
             myHidden = myHidden.filter(h => allValidNames.includes(h));
             if (myHidden.length !== origineleLengte) {
@@ -352,7 +361,6 @@
     async function loadMatches() {
         if (!activeTournament) return;
         try {
-            // Wederom de Cache-Buster, direct verbonden met de server!
             const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
             if (!response.ok) throw new Error("Server error");
             const allMatches = await response.json();
@@ -367,7 +375,7 @@
 
             let htmlString = "";
             let huidigeStatus = "";
-            const titels = { "gepland": "⚡ Geplande Wedstrijden", "mogelijk": "🔮 Mogelijke Volgende Ronde", "gespeeld": "✅ Gespeelde Wedstrijden" };
+            const titels = { "bezig": "🔴 Nu op de borden (Live)", "gepland": "⚡ Geplande Wedstrijden", "mogelijk": "🔮 Mogelijke Volgende Ronde", "gespeeld": "✅ Gespeelde Wedstrijden" };
             
             matches.forEach(match => {
                 if (match.status !== huidigeStatus) {
@@ -380,7 +388,11 @@
                 if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
 
                 let resultClass = match.resultaat ? match.resultaat : "";
-                let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="recap-btn">📊 RECAP</a>` : "";
+                
+                // --- DE LIVE RECAP KNOP ---
+                let btnText = match.status === "bezig" ? "🔴 LIVE RECAP" : "📊 RECAP";
+                let btnClass = match.status === "bezig" ? "recap-btn live-btn" : "recap-btn";
+                let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>` : "";
 
                 htmlString += `
                 <div class="match-card ${match.status} ${resultClass}">
