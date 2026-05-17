@@ -31,9 +31,17 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 const DB_FILE = path.join(__dirname, 'database.json');
 
-// --- DATABASE & PUSH SETUP ---
+// --- DATABASE & PUSH SETUP (NU MET SUPERSNELLE MEMORY-CACHE!) ---
+let memDB = null;
+
 function readDB() {
-    if (!fs.existsSync(DB_FILE)) return { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
+    if (memDB) return memDB; // 🚀 Instant antwoord uit het werkgeheugen!
+
+    if (!fs.existsSync(DB_FILE)) {
+        memDB = { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
+        return memDB;
+    }
+    
     let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     if (!db.tournaments) db.tournaments = [];
     if (!db.subscriptions) db.subscriptions = [];
@@ -45,11 +53,14 @@ function readDB() {
         db.vapidKeys = webpush.generateVAPIDKeys();
         fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
     }
-    return db;
+    
+    memDB = db; // Sla op in geheugen
+    return memDB;
 }
 
 function writeDB(data) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+    memDB = data; // 🚀 Direct updaten in werkgeheugen
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)); // Op de achtergrond naar de trage schijf wegschrijven
 }
 
 const initialDb = readDB();
@@ -249,7 +260,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
-        // --- AUTO-DETECT MATCHLIST URL & LIVE OPHALEN ---
         let matchlistData = [];
         let mUrlsToFetch = new Set(); 
 
@@ -270,12 +280,12 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (mlRes.data && mlRes.data.payload) {
                     if (mlRes.data.payload.completed) {
                         let compArr = mlRes.data.payload.completed;
-                        compArr.forEach(c => c._is_completed_now = true); // Markeer als klaar!
+                        compArr.forEach(c => c._is_completed_now = true); 
                         matchlistData = matchlistData.concat(compArr);
                     }
                     if (mlRes.data.payload.active) {
                         let activeArr = mlRes.data.payload.active;
-                        activeArr.forEach(a => a._is_active_now = true); // Markeer als LIVE!
+                        activeArr.forEach(a => a._is_active_now = true); 
                         matchlistData = matchlistData.concat(activeArr);
                     }
                 } else if (Array.isArray(mlRes.data)) {
@@ -285,16 +295,30 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         let alleRecaps = [];
-        let liveMatchDict = {}; 
+        let activeScores = {}; 
+        let activeStatuses = new Set(); 
 
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
                 alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
             }
-            // Exclusief opslaan onder het échte, onkraakbare Hash ID
-            if (match.mi) {
-                liveMatchDict[match.mi.toString()] = match;
+            
+            let mogelijkeIds = [];
+            if (match.mi) mogelijkeIds.push(match.mi.toString());
+            if (match.ms) {
+                mogelijkeIds.push(match.ms.toString());
+                mogelijkeIds.push(match.ms.toString().replace(/_/g, '-'));
             }
+            if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
+
+            mogelijkeIds.forEach(pId => {
+                if (match.hs !== undefined || match.as !== undefined) {
+                    activeScores[pId] = { hs: match.hs, as: match.as };
+                }
+                if (match._is_active_now) {
+                    activeStatuses.add(pId);
+                }
+            });
         });
 
         let rondeTellingen = {};
@@ -360,13 +384,18 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (Array.isArray(markerData) || typeof markerData === 'number') markerNaam = getSpelerNaam(markerData);
             else if (typeof markerData === 'string') markerNaam = markerData;
 
-            // --- DE NIEUWE MATCHING MOTOR ---
-            let dbId = m.id ? m.id.toString() : ""; 
+            let dbId = m.id ? m.id.toString() : "";
+            let msId = m.ms ? m.ms.toString() : "";
             
+            let actS = activeScores[matchId] || activeScores[dbId] || activeScores[msId];
+            let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : (actS && actS.hs !== undefined ? actS.hs : "");
+            let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : (actS && actS.as !== undefined ? actS.as : "");
+            
+            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(msId);
+
             function cleanNameForMatching(str) {
                 if (!str) return "";
                 let s = str.toLowerCase().trim();
-                // DartConnect omdraai-truc (Lagou, Charis -> charislagou)
                 if (s.includes(',')) {
                     let parts = s.split(',').map(p => p.trim());
                     if (parts.length === 2) s = parts[1] + " " + parts[0];
@@ -379,40 +408,23 @@ async function fetchMatchesForTournament(requestedTournament) {
             let targetP1 = cleanNameForMatching(p1Name);
             let targetP2 = cleanNameForMatching(p2Name);
 
-            // 1. Zoek eerst veilig en strak op het Hash ID
-            let actMatch = liveMatchDict[dbId];
-            
-            // 2. Als dat faalt: gebruik de 100% zekere Naam-Zoeker
-            if (!actMatch) {
-                actMatch = matchlistData.find(ml => {
-                    if (!ml.hc || !ml.ac) return false;
-                    let mlP1 = cleanNameForMatching(ml.hc);
-                    let mlP2 = cleanNameForMatching(ml.ac);
-                    return (mlP1 === targetP1 && mlP2 === targetP2) || (mlP1 === targetP2 && mlP2 === targetP1);
-                });
-            }
+            let foundLiveMatchByName = matchlistData.find(ml => {
+                if (!ml.hc || !ml.ac) return false;
+                let mlP1 = cleanNameForMatching(ml.hc);
+                let mlP2 = cleanNameForMatching(ml.ac);
+                return (mlP1 === targetP1 && mlP2 === targetP2) || (mlP1 === targetP2 && mlP2 === targetP1);
+            });
 
-            let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
-            let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
-            let isActive = false;
             let detectedRecapId = "";
-            let isKlaarVolgensLiveLijst = false;
-
-            if (actMatch) {
-                // Heeft DartConnect de 'Home' en 'Away' omgedraaid? We fixen het direct!
-                let isSwapped = false;
-                let mlAc = cleanNameForMatching(actMatch.ac || "");
-                if (targetP1 === mlAc) isSwapped = true;
-
-                // Live scores OVERSCHRIJVEN de bracket scores (zodat je nooit meer 'seeds' of spoken als score ziet)
-                if (actMatch.hs !== undefined && actMatch.as !== undefined) {
-                    fS1 = isSwapped ? actMatch.as : actMatch.hs;
-                    fS2 = isSwapped ? actMatch.hs : actMatch.as;
+            if (foundLiveMatchByName) {
+                if (fS1 === "" && foundLiveMatchByName.hs !== undefined) fS1 = foundLiveMatchByName.hs;
+                if (fS2 === "" && foundLiveMatchByName.as !== undefined) fS2 = foundLiveMatchByName.as;
+                if (foundLiveMatchByName._is_active_now) {
+                    isActive = true;
                 }
-                
-                if (actMatch._is_active_now) isActive = true;
-                if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
-                if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
+                if (foundLiveMatchByName.mi) {
+                    detectedRecapId = foundLiveMatchByName.mi.toString();
+                }
             }
 
             return {
@@ -435,7 +447,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
-                isFinished: m.fn === true || isKlaarVolgensLiveLijst, 
+                isFinished: m.fn === true,
                 _bracket_type: m._bracket_type
             };
         });
@@ -463,7 +475,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         for (let match of eigenWedstrijden) {
-            let hasScores = (match.score1 !== "" || match.score2 !== "");
+            let hasScores = (match.score1 !== "" && match.score2 !== "");
             let isReallyActive = match._is_active || (!match.isFinished && hasScores); 
             
             match.status = match.isFinished ? "gespeeld" : (isReallyActive ? "bezig" : "gepland");
@@ -691,12 +703,10 @@ let matchCache = {};
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
     
-    // Zit de data in het geheugen? INSTANT terugsturen! (0.01s)
     if (matchCache[tName]) {
         return res.json(matchCache[tName]);
     }
     
-    // Nog niet in het geheugen? 1x ophalen.
     const list = await fetchMatchesForTournament(tName);
     matchCache[tName] = list;
     res.json(list);
@@ -778,7 +788,6 @@ async function runHeartbeat() {
     
     console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien en werkt de snelle cache bij...`);
     for (let t of db.tournaments) {
-        // Laat hem rustig op de achtergrond rekenen en sla het resultaat op
         const nieuwLijstje = await fetchMatchesForTournament(t.name);
         matchCache[t.name] = nieuwLijstje;
     }
