@@ -31,7 +31,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 const DB_FILE = path.join(__dirname, 'database.json');
 
-// --- DATABASE & PUSH SETUP (NU MET SUPERSNELLE MEMORY-CACHE!) ---
+// --- DATABASE & PUSH SETUP (MET SUPERSNELLE MEMORY-CACHE!) ---
 let memDB = null;
 
 function readDB() {
@@ -171,6 +171,19 @@ async function fetchMatchesForTournament(requestedTournament) {
     let dcMatchesList = [];
     let spelersDict = {};
 
+    // --- KOGELVRIJE NAAM-NORMALISATOR (Tegen volgorde, accenten en komma's) ---
+    function cleanNameForMatching(str) {
+        if (!str) return "";
+        return str.toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "") // Sloopt accenten (á -> a, š -> s)
+            .replace(/[^a-z0-9\s]/g, "")     // Sloopt komma's en leestekens
+            .split(/\s+/)                    // Knipt op in losse woorden
+            .filter(w => w.length > 0)
+            .sort()                          // Sorteert alfabetisch (volgorde maakt niks meer uit!)
+            .join("");                       // Plakt aan elkaar
+    }
+
     try {
         let bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(u => u !== "");
         
@@ -297,38 +310,25 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         let alleRecaps = [];
         let liveMatchDict = {}; 
+        let liveMatchByNameDict = {};
         let activeScores = {}; 
         let activeStatuses = new Set(); 
-
-        // --- HET SNELLER MAKEN: PRE-PROCESSING VAN NAMEN ---
-        let liveMatchByNameDict = {};
-
-        function cleanNameForMatching(str) {
-            if (!str) return "";
-            let s = str.toLowerCase().trim();
-            if (s.includes(',')) {
-                let parts = s.split(',').map(p => p.trim());
-                if (parts.length === 2) s = parts[1] + " " + parts[0];
-            }
-            return s.replace(/[\s\-_,.]/g, '');
-        }
 
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
                 alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
             }
             
-            // Bouw de snelle Lookup Table voor Hash ID's
             if (match.mi) {
                 liveMatchDict[match.mi.toString()] = match;
             }
 
-            // Bouw de snelle Lookup Table voor namen (Oplossing van het traagheidsprobleem!)
+            // Vul het slimme woordenboek in met gecleande namen
             if (match.hc && match.ac) {
                 let cleanP1 = cleanNameForMatching(match.hc);
                 let cleanP2 = cleanNameForMatching(match.ac);
                 liveMatchByNameDict[cleanP1 + "_" + cleanP2] = match;
-                liveMatchByNameDict[cleanP2 + "_" + cleanP1] = match; // Ook omgedraaid opslaan
+                liveMatchByNameDict[cleanP2 + "_" + cleanP1] = match; 
             }
 
             let mogelijkeIds = [];
@@ -415,25 +415,22 @@ async function fetchMatchesForTournament(requestedTournament) {
             let dbId = m.id ? m.id.toString() : "";
             let msId = m.ms ? m.ms.toString() : "";
             
-            let actS = activeScores[matchId] || activeScores[dbId] || activeScores[msId];
-            let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : (actS && actS.hs !== undefined ? actS.hs : "");
-            let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : (actS && actS.as !== undefined ? actS.as : "");
-            
-            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(msId);
-
             let p1Name = getSpelerNaam(m.d1 || m.p1);
             let p2Name = getSpelerNaam(m.d2 || m.p2);
             let targetP1 = cleanNameForMatching(p1Name);
             let targetP2 = cleanNameForMatching(p2Name);
 
-            // 1. Zoek via Lookup Table op Hash ID (Supersnel: 0.0001 sec)
+            // 1. Match bliksemsnel via de Hash ID
             let actMatch = liveMatchDict[dbId];
             
-            // 2. Als dat faalt: gebruik het snelle Woordenboek (Supersnel: 0.0001 sec)
+            // 2. Indien niet gevonden: match via het kogelvrije Woordenboek
             if (!actMatch) {
                 actMatch = liveMatchByNameDict[targetP1 + "_" + targetP2];
             }
 
+            let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
+            let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
+            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(msId);
             let detectedRecapId = "";
             let isKlaarVolgensLiveLijst = false;
 
@@ -670,9 +667,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                         let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
                             let volgendeRonde = parseInt(parts[1]) + 1;
-                            let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
+                            let JodyMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
                             let rmParts = rm.id.match(/^(\d+)-(\d+)$/);
-                            if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
+                            if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === JodyMatchNr) {
                                 return true;
                             }
                         }
@@ -722,20 +719,22 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
-// --- NIEUW: CACHE SYSTEEM VOOR BLIKSEMSNELLE LAADTIJDEN ---
+// --- DE SLIMME CACHE (MAX 10 SECONDEN OUD!) ---
 let matchCache = {};
+let cacheTimestamps = {};
 
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
     
-    // Direct antwoord uit cache!
-    if (matchCache[tName]) {
+    // Alleen direct terugsturen als de cache JONGER is dan 10 seconden
+    if (matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
         return res.json(matchCache[tName]);
     }
     
-    // Alleen ophalen als het écht nergens te vinden is
+    // Ophalen als hij ouder is dan 10 seconden
     const list = await fetchMatchesForTournament(tName);
     matchCache[tName] = list;
+    cacheTimestamps[tName] = Date.now();
     res.json(list);
 });
 
@@ -817,6 +816,7 @@ async function runHeartbeat() {
     for (let t of db.tournaments) {
         const nieuwLijstje = await fetchMatchesForTournament(t.name);
         matchCache[t.name] = nieuwLijstje;
+        cacheTimestamps[t.name] = Date.now();
     }
     
     if (isFirstRun) {
