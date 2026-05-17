@@ -194,8 +194,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
                 let isStructural = Array.isArray(bronMap) && bronMap.length > 0 && Array.isArray(bronMap[0]);
 
-                // --- DE POULE / ROUND ROBIN UITZONDERING ---
-                // Als de engname "Round Robin" bevat, moeten we de PDC-magie forceren naar FALSE!
                 let eventName = (dataContainer.bracketData && dataContainer.bracketData.engname) || dataContainer.engname || "";
                 if (isStructural && String(eventName).toLowerCase().includes("round robin")) {
                     isStructural = false;
@@ -252,7 +250,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
-        // --- AUTO-DETECT MATCHLIST URL ---
         let matchlistData = [];
         let mUrlsToFetch = new Set(); 
 
@@ -576,7 +573,16 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (mogelijkeMatch) {
                     let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
                     let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
-                    if (!toegevoegdeIds.has(uniekeVolgendeID) && !isAlGeweest) {
+                    
+                    // --- GHOST MATCH PREVENTIE ---
+                    // Controleer of de speler al een 'echte' wedstrijd in deze ronde heeft
+                    let heeftAlEchteMatchInDezeRonde = definitieveLijst.some(m => 
+                        m.status !== "mogelijk" && 
+                        m.ronde === mogelijkeMatch.ronde && 
+                        (m.player1.toLowerCase().includes(isSpeler.toLowerCase()) || m.player2.toLowerCase().includes(isSpeler.toLowerCase()))
+                    );
+
+                    if (!toegevoegdeIds.has(uniekeVolgendeID) && !isAlGeweest && !heeftAlEchteMatchInDezeRonde) {
                         definitieveLijst.push({ ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: isSpeler, rol: "speler" });
                         toegevoegdeIds.add(uniekeVolgendeID);
                     }
