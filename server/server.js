@@ -193,7 +193,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 bouwWoordenboek(dataContainer);
 
                 let isStructural = Array.isArray(bronMap) && bronMap.length > 0 && Array.isArray(bronMap[0]);
-
                 let eventName = (dataContainer.bracketData && dataContainer.bracketData.engname) || dataContainer.engname || "";
                 if (isStructural && String(eventName).toLowerCase().includes("round robin")) {
                     isStructural = false;
@@ -250,7 +249,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
-        // --- AUTO-DETECT MATCHLIST URL (INCLUSIEF LIVE/ACTIVE MATCHES!) ---
+        // --- AUTO-DETECT MATCHLIST URL & LIVE OPHALEN ---
         let matchlistData = [];
         let mUrlsToFetch = new Set(); 
 
@@ -270,7 +269,11 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
                 if (mlRes.data && mlRes.data.payload) {
                     if (mlRes.data.payload.completed) matchlistData = matchlistData.concat(mlRes.data.payload.completed);
-                    if (mlRes.data.payload.active) matchlistData = matchlistData.concat(mlRes.data.payload.active); // Haalt de live partijen op!
+                    if (mlRes.data.payload.active) {
+                        let activeArr = mlRes.data.payload.active;
+                        activeArr.forEach(a => a._is_active_now = true); // Markeer ze keihard als LIVE!
+                        matchlistData = matchlistData.concat(activeArr);
+                    }
                 } else if (Array.isArray(mlRes.data)) {
                     matchlistData = matchlistData.concat(mlRes.data);
                 }
@@ -278,10 +281,31 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         let alleRecaps = [];
+        let activeScores = {}; 
+        let activeStatuses = new Set(); 
+
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
                 alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
             }
+            
+            // CRUCIALE FIX: DartConnect gebruikt interne hashes ('mi') én leesbare ID's ('ms' of 'match_id') door elkaar!
+            let mogelijkeIds = [];
+            if (match.mi) mogelijkeIds.push(match.mi.toString());
+            if (match.ms) {
+                mogelijkeIds.push(match.ms.toString());
+                mogelijkeIds.push(match.ms.toString().replace(/_/g, '-'));
+            }
+            if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
+
+            mogelijkeIds.forEach(pId => {
+                if (match.hs !== undefined || match.as !== undefined) {
+                    activeScores[pId] = { hs: match.hs, as: match.as };
+                }
+                if (match._is_active_now) {
+                    activeStatuses.add(pId);
+                }
+            });
         });
 
         let rondeTellingen = {};
@@ -349,9 +373,20 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (Array.isArray(markerData) || typeof markerData === 'number') markerNaam = getSpelerNaam(markerData);
             else if (typeof markerData === 'string') markerNaam = markerData;
 
+            let dbId = m.id ? m.id.toString() : "";
+            let msId = m.ms ? m.ms.toString() : "";
+            
+            // Haal de live score op via een van de mogelijke ID's
+            let actS = activeScores[matchId] || activeScores[dbId] || activeScores[msId];
+            let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : (actS && actS.hs !== undefined ? actS.hs : "");
+            let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : (actS && actS.as !== undefined ? actS.as : "");
+            
+            // Kijk in de Live-lijst of de match bezig is
+            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(msId);
+
             return {
                 id: matchId, 
-                db_id: m.id ? m.id.toString() : "", 
+                db_id: dbId, 
                 n: m.w || m.wn || m.n || m.next || m.winner_to, 
                 p1m: m.p1_from || m.p1m || m.m1, 
                 p2m: m.p2_from || m.p2m || m.m2, 
@@ -362,8 +397,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                 player1: getSpelerNaam(m.d1 || m.p1),
                 player2: getSpelerNaam(m.d2 || m.p2),
                 marker: markerNaam,
-                score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
-                score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
+                score1: fS1,
+                score2: fS2,
+                _is_active: isActive, 
                 board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
@@ -395,9 +431,10 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         for (let match of eigenWedstrijden) {
-            // BEPAAL STATUS: Heeft iemand al pijlen gegooid (een score gezet)? Dan is de partij BEZIG!
             let hasScores = (match.score1 !== "" || match.score2 !== "");
-            match.status = match.isFinished ? "gespeeld" : (hasScores ? "bezig" : "gepland");
+            let isReallyActive = match._is_active || hasScores; 
+            
+            match.status = match.isFinished ? "gespeeld" : (isReallyActive ? "bezig" : "gepland");
             match.isMogelijk = false;
             
             let isSpeler = dartersLower.find(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d));
@@ -408,7 +445,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             let isBetrokken = isSpeler || isMarker;
 
-            // Push notificatie logica
             if (match.status === "gepland" && isBetrokken) {
                 let isPoule = match.ronde.startsWith("Poule ") || match.ronde.startsWith("Group ");
                 let hasTime = match.time && match.time.includes(':');
@@ -515,7 +551,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             }
 
-            // Zoek recaps voor gespeelde EN live (bezig) matches
             if ((match.status === "gespeeld" || match.status === "bezig") && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
                 let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
@@ -546,11 +581,8 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         if (nieuwGeplandCount > 0) writeDB(db);
 
-        // --- PDC PRO MOGELIJKE WEDSTRIJD ONDERZOEKER ---
         eigenWedstrijden.forEach(match => {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
-            
-            // Toon ook de 'Mogelijke Volgende Ronde' als de speler nu aan het gooien is!
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "bezig") || (match.status === "gespeeld" && match.resultaat === "win"));
 
             if (magDoor && match.id) {
@@ -581,7 +613,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                     let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
                     let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
                     
-                    // --- GHOST MATCH PREVENTIE ---
                     let heeftAlEchteMatchInDezeRonde = definitieveLijst.some(m => 
                         m.status !== "mogelijk" && 
                         m.ronde === mogelijkeMatch.ronde && 
@@ -597,7 +628,6 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         definitieveLijst.sort((a, b) => {
-            // Nu sorteren met "bezig" helemaal bovenaan!
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
