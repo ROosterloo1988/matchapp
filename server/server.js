@@ -187,12 +187,6 @@ async function fetchMatchesForTournament(requestedTournament) {
         };
     }
 
-    function buildDCTVLiveUrl(url) {
-        const parts = getDCTVPartsFromUrl(url);
-        if (!parts || !parts.eventId) return "";
-        return `https://tv.dartconnect.com/live/${parts.eventId}${parts.suffix ? "/" + parts.suffix : ""}`;
-    }
-
     function addMatchListUrlsForBracket(url, targetSet) {
         const parts = getDCTVPartsFromUrl(url);
         if (!parts || !parts.eventId) return;
@@ -215,7 +209,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/${endpoint}/${suffix}`);
             });
 
-            // Extra varianten die DartConnect bij live board/screen endpoints soms gebruikt.
+            // Extra varianten om live-score/status te vinden. We maken hier géén klikbare live-board link van.
             ["live", "active", "current", "boards", "scoreboard", "scores"].forEach(endpoint => {
                 targetSet.add(`https://tv.dartconnect.com/api/${endpoint}/${parts.eventId}/${suffix}`);
             });
@@ -270,7 +264,6 @@ async function fetchMatchesForTournament(requestedTournament) {
         
         for (let i = 0; i < bracketUrls.length; i++) {
             let bUrl = bracketUrls[i];
-            let bracketLiveUrl = buildDCTVLiveUrl(bUrl);
             let bracketType = "";
             
             if (bracketUrls.length === 3) {
@@ -320,7 +313,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                             if (!m || typeof m !== 'object') return;
                             if ('p1' in m || 'd1' in m) {
                                 m._bron_url = bUrl;
-                                m._live_url = bracketLiveUrl;
                                 m._bracket_type = bracketType;
                                 m._tree_round = rName;
                                 
@@ -339,7 +331,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                         if (!obj || typeof obj !== 'object') return;
                         if ('p1' in obj || 'd1' in obj) { 
                             obj._bron_url = bUrl;
-                            obj._live_url = bracketLiveUrl;
                             obj._bracket_type = bracketType;
                             obj._tree_round = currentRound;
                             dcMatchesList.push(obj); 
@@ -782,7 +773,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 _is_active: isActive, 
                 _detected_recap_id: detectedRecapId,
                 recapUrl: detectedRecapId ? `https://recap.dartconnect.com/matches/${detectedRecapId}` : "",
-                liveUrl: m._live_url || "",
                 board: liveBoard || m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
