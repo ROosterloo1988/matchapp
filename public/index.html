@@ -393,27 +393,12 @@ async function loadTournaments() {
 
                 let resultClass = match.resultaat ? match.resultaat : "";
                 
-                // --- LIVE / RECAP KNOP ---
-                let liveHref = match.liveUrl || "";
+                // --- RECAP KNOP ---
+                // Geen DCTV live-board fallback meer: alleen recap tonen als DartConnect een recap-id (mi) heeft.
                 let recapHref = match.recapUrl || (match.recapId ? `https://recap.dartconnect.com/matches/${match.recapId}` : "");
-                let knopHref = "";
-                let btnText = "";
-                let btnClass = "recap-btn";
-
-                if (match.status === "bezig") {
-                    knopHref = liveHref || recapHref;
-                    btnText = "🔴 LIVE";
-                    btnClass = "recap-btn live-btn";
-                } else if (recapHref) {
-                    knopHref = recapHref;
-                    btnText = "📊 RECAP";
-                } else if (liveHref && match.status !== "gespeeld" && match.board && match.board !== "?") {
-                    knopHref = liveHref;
-                    btnText = "📺 BORD LIVE";
-                    btnClass = "recap-btn live-btn";
-                }
-
-                let recapKnop = knopHref ? `<a href="${knopHref}" target="_blank" class="${btnClass}">${btnText}</a>` : "";
+                let btnText = match.status === "bezig" ? "🔴 LIVE RECAP" : "📊 RECAP";
+                let btnClass = match.status === "bezig" ? "recap-btn live-btn" : "recap-btn";
+                let recapKnop = recapHref ? `<a href="${recapHref}" target="_blank" class="${btnClass}">${btnText}</a>` : "";
 
                 htmlString += `
                 <div class="match-card ${match.status} ${resultClass}">
