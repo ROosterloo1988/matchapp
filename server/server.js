@@ -221,16 +221,16 @@ async function fetchMatchesForTournament(requestedTournament) {
                         else if (matchCount === 2) rName = "Halve Finale";
                         else if (matchCount === 1) rName = "Finale";
 
-                        roundArray.forEach(m => {
+                        roundArray.forEach((m, mIndex) => {
                             if (!m || typeof m !== 'object') return;
                             if ('p1' in m || 'd1' in m) {
                                 m._bron_url = bUrl;
                                 m._bracket_type = bracketType;
                                 m._tree_round = rName;
                                 
-                                if (m.bn) {
-                                    m._custom_id = (rIndex + 1) + "-" + m.bn;
-                                }
+                                // DE FIX: Geen bordnummers meer, maar de exacte absolute plaats in het schema (mIndex + 1)
+                                m._custom_id = (rIndex + 1) + "-" + (mIndex + 1);
+                                
                                 dcMatchesList.push(m);
                             }
                         });
@@ -314,7 +314,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
-                // Sla ze op voor de Slimme Fuzzy Matcher straks!
                 alleRecaps.push({ id: match.mi.toString(), p1: match.hc, p2: match.ac });
             }
             
@@ -612,7 +611,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             }
 
-            // --- DE SLIMME RECAP ZOEKKER (ZONDER DUBBELINGEN!) ---
             match.recapId = match._detected_recap_id || "";
 
             if (!match.recapId && (match.status === "gespeeld" || match.status === "bezig") && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
@@ -625,14 +623,13 @@ async function fetchMatchesForTournament(requestedTournament) {
                         let rWords = rName.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
                         if (bWords.length === 0 || rWords.length === 0) return 0;
                         let overlap = rWords.filter(rw => bWords.includes(rw)).length;
-                        return overlap / rWords.length; // Percentage overlap
+                        return overlap / rWords.length; 
                     };
 
                     let scoreA = getScore(match.player1, r.p1) + getScore(match.player2, r.p2);
                     let scoreB = getScore(match.player1, r.p2) + getScore(match.player2, r.p1);
                     let maxScore = Math.max(scoreA, scoreB);
 
-                    // Moet minimaal 80% kloppen (dus niet alleen het woordje "Nick")
                     if (maxScore > bestScore && maxScore >= 0.8) {
                         bestScore = maxScore;
                         bestRecapId = r.id;
@@ -671,6 +668,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                         if (rm.raw_p1 === "W-" + match.db_id || rm.raw_p1 == match.db_id) return true;
                         if (rm.raw_p2 === "W-" + match.db_id || rm.raw_p2 == match.db_id) return true;
                     }
+                    
                     if (match.id.includes('-')) {
                         let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
@@ -727,7 +725,6 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
-// --- DE SLIMME CACHE (MAX 10 SECONDEN OUD!) ---
 let matchCache = {};
 let cacheTimestamps = {};
 
