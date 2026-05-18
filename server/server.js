@@ -202,15 +202,29 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (suffixWithoutType && suffixWithoutType !== parts.suffix) suffixes.push(suffixWithoutType);
         }
 
-        // Bij links zoals /bracket/M/hungarysuperleague26e12 is de competitie-suffix essentieel.
-        // Zonder deze suffix zie je soms wel het schema, maar niet de actieve live matches.
+        // Bij links zoals /bracket/M/hungarysuperleague26e12 of /bracket/M/1/10 is de suffix essentieel.
+        // Zonder deze suffix zie je soms wel het schema, maar niet de matchlist/recap/live-score data.
+        const expandedSuffixes = new Set();
         suffixes.forEach(suffix => {
-            ["matches", "live", "active", "current", "boards", "board", "scoreboard", "scores"].forEach(endpoint => {
+            if (!suffix) return;
+            expandedSuffixes.add(suffix);
+            expandedSuffixes.add(suffix.replace(/^\/+|\/+$/g, ""));
+            expandedSuffixes.add(suffix.replace(/\//g, ""));
+            const withoutType = suffix.replace(/^[A-Za-z]\//, "");
+            if (withoutType) {
+                expandedSuffixes.add(withoutType);
+                expandedSuffixes.add(withoutType.replace(/\//g, ""));
+            }
+        });
+
+        expandedSuffixes.forEach(suffix => {
+            ["matches", "matchlist", "results", "live", "active", "current", "boards", "board", "scoreboard", "scores"].forEach(endpoint => {
                 targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/${endpoint}/${suffix}`);
+                targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/${suffix}/${endpoint}`);
             });
 
             // Extra varianten om live-score/status te vinden. We maken hier géén klikbare live-board link van.
-            ["live", "active", "current", "boards", "scoreboard", "scores"].forEach(endpoint => {
+            ["matches", "matchlist", "results", "live", "active", "current", "boards", "scoreboard", "scores"].forEach(endpoint => {
                 targetSet.add(`https://tv.dartconnect.com/api/${endpoint}/${parts.eventId}/${suffix}`);
             });
         });
@@ -396,6 +410,8 @@ async function fetchMatchesForTournament(requestedTournament) {
         let liveMatchByNameDict = {};
         let activeScores = {}; 
         let activeStatuses = new Set(); 
+        let winnerByMatchId = {}; 
+        let recapByMatchId = {}; 
 
         function normalizeMatchKey(key) {
             if (key === null || key === undefined || key === "") return "";
@@ -590,9 +606,83 @@ async function fetchMatchesForTournament(requestedTournament) {
             return null;
         }
 
+        function normalizeBracketIdForMap(key) {
+            if (key === null || key === undefined || key === "") return "";
+            return String(key).trim().replace(/_/g, "-");
+        }
+
+        function addWinnerKey(key, winnerName) {
+            const id = normalizeBracketIdForMap(key);
+            if (!id || !winnerName || winnerName === "Onbekend") return;
+            winnerByMatchId[id] = winnerName;
+            winnerByMatchId[id.replace(/-/g, "_")] = winnerName;
+        }
+
+        function addRecapKey(key, recapId) {
+            const id = normalizeBracketIdForMap(key);
+            if (!id || !recapId) return;
+            recapByMatchId[id] = String(recapId);
+            recapByMatchId[id.replace(/-/g, "_")] = String(recapId);
+        }
+
+        function formatDCTVName(name) {
+            if (!name) return "Onbekend";
+            return String(name)
+                .split(/<br\s*\/?\s*>/i)
+                .map(part => {
+                    const clean = part.trim();
+                    if (!clean) return "";
+                    const commaParts = clean.split(",");
+                    if (commaParts.length >= 2) {
+                        const last = commaParts.shift().trim();
+                        const first = commaParts.join(",").trim();
+                        return `${first} ${last}`.replace(/\s+/g, " ").trim();
+                    }
+                    return clean;
+                })
+                .filter(Boolean)
+                .join(" & ") || "Onbekend";
+        }
+
+        function getMatchListWinnerName(match) {
+            if (!match || typeof match !== "object") return "";
+            let leftScore = parseSmallScore(match.hs);
+            let rightScore = parseSmallScore(match.as);
+            if ((leftScore === null || rightScore === null) && typeof match.ms === "string") {
+                const parts = match.ms.match(/(\d+)\s*[-–]\s*(\d+)/);
+                if (parts) {
+                    leftScore = parts[1];
+                    rightScore = parts[2];
+                }
+            }
+            if (leftScore === null || rightScore === null) return "";
+            const l = parseInt(leftScore, 10);
+            const r = parseInt(rightScore, 10);
+            if (l === r) return "";
+            return l > r ? formatDCTVName(match.hcf || match.hc) : formatDCTVName(match.acf || match.ac);
+        }
+
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
-                alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
+                alleRecaps.push({
+                    id: match.mi,
+                    p1: String(match.hc).toLowerCase(),
+                    p2: String(match.ac).toLowerCase(),
+                    p1Clean: cleanNameForMatching(match.hc),
+                    p2Clean: cleanNameForMatching(match.ac)
+                });
+                addRecapKey(match.bmi, match.mi);
+                if (match.matchid_pre !== undefined && match.matchid_post !== undefined && match.matchid_pre !== null && match.matchid_post !== null) {
+                    addRecapKey(`${match.matchid_pre}_${match.matchid_post}`, match.mi);
+                }
+            }
+
+            const winnerName = getMatchListWinnerName(match);
+            if (winnerName) {
+                addWinnerKey(match.bmi, winnerName);
+                if (match.matchid_pre !== undefined && match.matchid_post !== undefined && match.matchid_pre !== null && match.matchid_post !== null) {
+                    addWinnerKey(`${match.matchid_pre}_${match.matchid_post}`, winnerName);
+                }
             }
             
             // Koppel de matchlist aan alle bruikbare DartConnect-id's.
@@ -707,7 +797,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
             let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
             let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(dbIdNormalized);
-            let detectedRecapId = "";
+            let detectedRecapId = recapByMatchId[matchId] || recapByMatchId[dbId] || recapByMatchId[dbIdNormalized] || "";
             let isKlaarVolgensLiveLijst = false;
             let liveBoard = null;
 
@@ -782,6 +872,55 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         rawMatches = rawMatches.concat(dcConverted);
+
+        function isUnknownPlayerName(name) {
+            if (!name) return true;
+            const value = String(name).trim().toLowerCase();
+            return value === "onbekend" || value.startsWith("winnaar id") || value.startsWith("winner id") || value.startsWith("speler -1");
+        }
+
+        function addRawWinnersToMap() {
+            rawMatches.forEach(m => {
+                const id = normalizeBracketIdForMap(m.id || m.db_id);
+                if (!id || !m || !m.isFinished) return;
+                if (isUnknownPlayerName(m.player1) || isUnknownPlayerName(m.player2)) return;
+                const s1 = parseSmallScore(m.score1);
+                const s2 = parseSmallScore(m.score2);
+                if (s1 === null || s2 === null) return;
+                const left = parseInt(s1, 10);
+                const right = parseInt(s2, 10);
+                if (left === right) return;
+                addWinnerKey(id, left > right ? m.player1 : m.player2);
+            });
+        }
+
+        function resolveNextRoundNamesFromWinners() {
+            // Lost het DartConnect-probleem op waarbij een live/volgende ronde al score/bord heeft,
+            // maar de spelers in de bracket nog als leeg/placeholder staan. Voor 3-3 komen de winnaars
+            // bijvoorbeeld uit 2-5 en 2-6.
+            addRawWinnersToMap();
+            rawMatches.forEach(m => {
+                const id = normalizeBracketIdForMap(m.id || m.db_id);
+                const parts = id.match(/^(\d+)-(\d+)$/);
+                if (!parts) return;
+                const roundNr = parseInt(parts[1], 10);
+                const matchNr = parseInt(parts[2], 10);
+                if (!roundNr || roundNr <= 1 || !matchNr) return;
+
+                const prevRound = roundNr - 1;
+                const leftSource = `${prevRound}-${(matchNr * 2) - 1}`;
+                const rightSource = `${prevRound}-${matchNr * 2}`;
+
+                if (isUnknownPlayerName(m.player1) && winnerByMatchId[leftSource]) {
+                    m.player1 = winnerByMatchId[leftSource];
+                }
+                if (isUnknownPlayerName(m.player2) && winnerByMatchId[rightSource]) {
+                    m.player2 = winnerByMatchId[rightSource];
+                }
+            });
+        }
+
+        resolveNextRoundNamesFromWinners();
 
         let pouleIndelingen = {}; 
         rawMatches.forEach(m => {
@@ -933,21 +1072,23 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             }
 
-            match.recapId = match._detected_recap_id || "";
+            match.recapId = match._detected_recap_id || match.recapId || "";
 
             if ((match.status === "gespeeld" || match.status === "bezig") && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
-                let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
-                let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
-                if (p1Words.length === 0) p1Words = [match.player1.toLowerCase()];
-                if (p2Words.length === 0) p2Words = [match.player2.toLowerCase()];
+                const p1Clean = cleanNameForMatching(match.player1);
+                const p2Clean = cleanNameForMatching(match.player2);
 
                 let foundRecap = alleRecaps.find(r => {
-                    let p1ZitErin = p1Words.some(w => r.p1.includes(w) || r.p2.includes(w));
-                    let p2ZitErin = p2Words.some(w => r.p1.includes(w) || r.p2.includes(w));
-                    return p1ZitErin && p2ZitErin;
+                    return (r.p1Clean === p1Clean && r.p2Clean === p2Clean) ||
+                           (r.p1Clean === p2Clean && r.p2Clean === p1Clean) ||
+                           (r.p1Clean.includes(p1Clean) && r.p2Clean.includes(p2Clean)) ||
+                           (r.p1Clean.includes(p2Clean) && r.p2Clean.includes(p1Clean));
                 });
                 
-                if (foundRecap) match.recapId = foundRecap.id;
+                if (foundRecap) {
+                    match.recapId = foundRecap.id;
+                    match.recapUrl = `https://recap.dartconnect.com/matches/${foundRecap.id}`;
+                }
             }
 
             if (match.status === "gespeeld" && isSpeler) {
@@ -994,7 +1135,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 });
 
                 if (mogelijkeMatch) {
-                    let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
+                    let isAlGeweest = mogelijkeMatch.isFinished === true;
                     let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
                     
                     let heeftAlEchteMatchInDezeRonde = definitieveLijst.some(m => 
