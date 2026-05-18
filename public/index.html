@@ -51,10 +51,9 @@
         
         .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1; }
         .player-name { flex: 1; text-align: center; word-wrap: break-word; }
-        
         .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center; transition: all 0.3s ease; }
         
-        /* --- DE NIEUWE SCORE HIGHLIGHT ANIMATIE --- */
+        /* --- DE SCORE HIGHLIGHT ANIMATIE --- */
         .score-flash {
             animation: flashScore 3s ease-out;
         }
@@ -72,6 +71,7 @@
         .match-card.gespeeld .card-header { background: #222; color: #888; }
         .match-card.gespeeld .score-box { color: #fff; border-color: #444; }
 
+        /* LIVE STYLING */
         .match-card.bezig { border-left-color: #e74c3c; box-shadow: 0 0 15px rgba(231, 76, 60, 0.4); }
         .match-card.bezig .card-header { background: linear-gradient(90deg, #e74c3c 0%, #c0392b 100%); }
         .live-btn { background: #e74c3c !important; border-color: #c0392b !important; animation: pulseRed 1.5s infinite; }
@@ -413,7 +413,6 @@
                 let flashClass = "";
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
 
-                // Als we de score al kenden (en hij is niet 'vs'), én hij is anders geworden, maak hem dan fel groen!
                 if (lastKnownScores[match.id] !== undefined && lastKnownScores[match.id] !== newScoreKey && newScoreKey !== "-") {
                     flashClass = "score-flash";
                 }
@@ -424,6 +423,7 @@
 
                 let resultClass = match.resultaat ? match.resultaat : "";
                 
+                // --- DE RECAP KNOP LOGICA ---
                 let btnText = match.status === "bezig" ? "🔴 LIVE RECAP" : "📊 RECAP";
                 let btnClass = match.status === "bezig" ? "recap-btn live-btn" : "recap-btn";
                 let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>` : "";
