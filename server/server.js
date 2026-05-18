@@ -209,10 +209,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                     isStructural = false;
                 }
 
-                let playerInitialMatchNr = {}; // HET GEHEUGEN VOOR DE WISKUNDE
+                let playerInitialMatchNr = {}; 
 
                 if (isStructural) {
-                    // STAP 1: De eerste ronde scannen en iedereen zijn vaste start-vakje geven (bijv 45)
                     bronMap[0].forEach((m, mIndex) => {
                         if (!m || typeof m !== 'object') return;
                         let players = [];
@@ -247,7 +246,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                                 m._tree_round = rName;
                                 m._tree_round_nr = rIndex + 1;
                                 
-                                // STAP 2: Bepaal puur wiskundig waar de speler nu staat, ongeacht bordnummer
                                 let logicalMatchNr = -1;
                                 let players = [];
                                 if (m.d1) players = players.concat(m.d1);
@@ -262,14 +260,13 @@ async function fetchMatchesForTournament(requestedTournament) {
                                     }
                                 }
                                 
-                                // Valback voor lege toekomstige wedstrijden (die staan altijd perfect op volgorde)
-                                if (logicalMatchNr === -1) {
+                                if (logicalMatchNr === -1 || isNaN(logicalMatchNr)) {
                                     logicalMatchNr = mIndex; 
                                 }
                                 
                                 m._tree_match_nr = logicalMatchNr;
-                                // STAP 3: Maak het perfecte, foutloze ID aan (zoals 1-45 en 2-23)
-                                m._custom_id = (rIndex + 1) + "-" + (logicalMatchNr + 1);
+                                let safeMatchNr = isNaN(logicalMatchNr) ? mIndex : logicalMatchNr;
+                                m._custom_id = (rIndex + 1) + "-" + (safeMatchNr + 1);
 
                                 dcMatchesList.push(m);
                             }
@@ -300,7 +297,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
-        // --- AUTO-DETECT MATCHLIST URL & LIVE OPHALEN ---
         let matchlistData = [];
         let mUrlsToFetch = new Set(); 
 
@@ -374,7 +370,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
 
             mogelijkeIds.forEach(pId => {
-                if (match.hs !== undefined || match.as !== undefined) {
+                if (match.hs !== undefined && match.hs !== null && match.as !== undefined && match.as !== null) {
                     activeScores[pId] = { hs: match.hs, as: match.as };
                 }
                 if (match._is_active_now) {
@@ -458,6 +454,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 actMatch = liveMatchByNameDict[targetP1 + "_" + targetP2];
             }
 
+            // Begin altijd met de eigen schema-score (zodat W en X of andere data blijft staan)
             let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
             let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
             let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId);
@@ -469,7 +466,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let mlAc = cleanNameForMatching(actMatch.ac || "");
                 if (targetP1 === mlAc) isSwapped = true;
 
-                if (actMatch.hs !== undefined && actMatch.as !== undefined) {
+                // FIX: Overschrijf alleen met live score als die score daadwerkelijk bestaat!
+                // Hiermee wordt voorkomen dat W en X worden overschreven door een 'null' uit de live-lijst.
+                if (actMatch.hs !== undefined && actMatch.hs !== null && actMatch.as !== undefined && actMatch.as !== null) {
                     fS1 = isSwapped ? actMatch.as : actMatch.hs;
                     fS2 = isSwapped ? actMatch.hs : actMatch.as;
                 }
@@ -483,6 +482,10 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (isActive) {
                 isFinished = false; 
             }
+
+            // Veiligheidsnet: Zorg dat de woorden 'null' NOOIT op het scherm geprint kunnen worden
+            if (fS1 === null || fS1 === "null") fS1 = "";
+            if (fS2 === null || fS2 === "null") fS2 = "";
 
             return {
                 id: matchId, 
@@ -712,8 +715,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                         if (rm.raw_p2 === "W-" + match.db_id || rm.raw_p2 == match.db_id) return true;
                     }
                     
-                    // --- DE KOGELVRIJE VOLGENDE RONDE ZOEKKER ---
-                    // Hij gebruikt nu Math.floor op een 0-index om 100% foutloos door de boom te navigeren
                     if (match._tree_round_nr !== undefined && match._tree_match_nr !== undefined && rm._tree_round_nr !== undefined && rm._tree_match_nr !== undefined) {
                         let volgendeRonde = match._tree_round_nr + 1;
                         let volgendeMatchNr = Math.floor(match._tree_match_nr / 2); 
@@ -722,7 +723,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                         }
                     }
 
-                    // Fallback voor andere formats die "1-1" gebruiken
                     if (match.id.includes('-') && match._tree_round_nr === undefined) {
                         let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
