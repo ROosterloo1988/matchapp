@@ -770,13 +770,17 @@ async function fetchMatchesForTournament(requestedTournament) {
             
             let tijdA = (a.time && !["Onbekend", "Niet bekend", "Later"].includes(a.time)) ? a.time : "24:00";
             let tijdB = (b.time && !["Onbekend", "Niet bekend", "Later"].includes(b.time)) ? b.time : "24:00";
-            let rondeA = a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0;
-            let rondeB = b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0;
+            
+            // We pakken nu het betrouwbare ronde-nummer dat we in de vorige stappen hebben ingebouwd
+            let rondeA = a._tree_round_nr || (a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0);
+            let rondeB = b._tree_round_nr || (b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0);
 
             if (a.status === "gespeeld") {
-                return tijdB.localeCompare(tijdA) || (rondeB - rondeA) || ((parseInt(b.board) || 999) - (parseInt(a.board) || 999));
+                // Gespeeld: Hoogste ronde bovenaan (laatste gespeelde partij bovenaan)
+                return (rondeB - rondeA) || tijdB.localeCompare(tijdA) || ((parseInt(b.board) || 999) - (parseInt(a.board) || 999));
             } else {
-                return tijdA.localeCompare(tijdB) || (rondeA - rondeB) || ((parseInt(a.board) || 999) - (parseInt(b.board) || 999));
+                // Gepland/Mogelijk/Bezig: Laagste ronde bovenaan (eerstvolgende partij bovenaan)
+                return (rondeA - rondeB) || tijdA.localeCompare(tijdB) || ((parseInt(a.board) || 999) - (parseInt(b.board) || 999));
             }
         });
 
