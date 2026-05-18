@@ -423,10 +423,19 @@
 
                 let resultClass = match.resultaat ? match.resultaat : "";
                 
-                // --- DE RECAP KNOP LOGICA ---
-                let btnText = match.status === "bezig" ? "🔴 LIVE RECAP" : "📊 RECAP";
+                // --- DE SLIMME KNOP LOGICA (LIVE vs RECAP) ---
+                let btnText = match.status === "bezig" ? "🔴 KIJK LIVE" : "📊 RECAP";
                 let btnClass = match.status === "bezig" ? "recap-btn live-btn" : "recap-btn";
-                let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>` : "";
+                
+                let recapKnop = "";
+                // Zit er een 5-letterige Watch code op en is hij bezig? Dan openen we Live TV!
+                if (match.status === "bezig" && match.watchId) {
+                    recapKnop = `<a href="https://tv.dartconnect.com/watch/${match.watchId}" target="_blank" class="${btnClass}">${btnText}</a>`;
+                } 
+                // Anders doen we gewoon het archief (Recap)
+                else if (match.recapId) {
+                    recapKnop = `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>`;
+                }
 
                 htmlString += `
                 <div class="match-card ${match.status} ${resultClass}">
