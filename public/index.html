@@ -61,7 +61,7 @@
         .match-card.gespeeld .card-header { background: #222; color: #888; }
         .match-card.gespeeld .score-box { color: #fff; border-color: #444; }
 
-        /* LIVE STYLING (Nieuw) */
+        /* LIVE STYLING */
         .match-card.bezig { border-left-color: #e74c3c; box-shadow: 0 0 15px rgba(231, 76, 60, 0.4); }
         .match-card.bezig .card-header { background: linear-gradient(90deg, #e74c3c 0%, #c0392b 100%); }
         .live-btn { background: #e74c3c !important; border-color: #c0392b !important; animation: pulseRed 1.5s infinite; }
@@ -202,12 +202,15 @@
         container.innerHTML = "Laden...";
 
         try {
-            const response = await fetch('/api/tournaments?_t=' + Date.now());
-            if (!response.ok) throw new Error("Server error");
-            let publicNames = await response.json();
+            // FIX: Laad ze tegelijk in voor bliksemsnelle menu weergave
+            const [response, validResponse] = await Promise.all([
+                fetch('/api/tournaments?_t=' + Date.now()),
+                fetch('/api/tournaments/valid?_t=' + Date.now())
+            ]);
+
+            if (!response.ok || !validResponse.ok) throw new Error("Server error");
             
-            const validResponse = await fetch('/api/tournaments/valid?_t=' + Date.now());
-            if (!validResponse.ok) throw new Error("Server error");
+            let publicNames = await response.json();
             let allValidNames = await validResponse.json();
 
             let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
@@ -331,7 +334,7 @@
         document.getElementById('main-title').innerText = name.toUpperCase();
         
         loadMatches();
-        refreshInterval = setInterval(loadMatches, 30000);
+        refreshInterval = setInterval(loadMatches, 10000); // FIX: Ververst nu elke 10 sec want het laden is superlicht!
     }
 
     function showMenu() {
@@ -389,7 +392,6 @@
 
                 let resultClass = match.resultaat ? match.resultaat : "";
                 
-                // --- DE LIVE RECAP KNOP ---
                 let btnText = match.status === "bezig" ? "🔴 LIVE RECAP" : "📊 RECAP";
                 let btnClass = match.status === "bezig" ? "recap-btn live-btn" : "recap-btn";
                 let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>` : "";
