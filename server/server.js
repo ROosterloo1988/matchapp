@@ -294,6 +294,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij ophalen Auto-Matchlist URL:", mUrl); }
         }
 
+        let alleRecaps = [];
         let liveMatchDict = {}; 
         let liveMatchByNameDict = {};
         let activeScores = {}; 
@@ -312,6 +313,11 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         matchlistData.forEach(match => {
+            if (match.mi && match.hc && match.ac) {
+                // Sla ze op voor de Slimme Fuzzy Matcher straks!
+                alleRecaps.push({ id: match.mi.toString(), p1: match.hc, p2: match.ac });
+            }
+            
             if (match.mi) {
                 liveMatchDict[match.mi.toString()] = match;
             }
@@ -407,10 +413,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             let targetP1 = cleanNameForMatching(p1Name);
             let targetP2 = cleanNameForMatching(p2Name);
 
-            // 1. Zoek veilig op de lange Hash
             let actMatch = liveMatchDict[dbId];
-            
-            // 2. Indien niet gevonden: match via het kogelvrije Woordenboek
             if (!actMatch && targetP1 !== "onbekend" && targetP2 !== "onbekend" && targetP1 !== "" && targetP2 !== "") {
                 actMatch = liveMatchByNameDict[targetP1 + "_" + targetP2];
             }
@@ -609,9 +612,35 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             }
 
-            // HIER IS HET FOUTE "GOK" SYSTEEM VERWIJDERD!
-            // Hij pakt nu alleen nog de 100% zekere ID:
+            // --- DE SLIMME RECAP ZOEKKER (ZONDER DUBBELINGEN!) ---
             match.recapId = match._detected_recap_id || "";
+
+            if (!match.recapId && (match.status === "gespeeld" || match.status === "bezig") && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
+                let bestRecapId = "";
+                let bestScore = 0;
+
+                alleRecaps.forEach(r => {
+                    const getScore = (bName, rName) => {
+                        let bWords = bName.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+                        let rWords = rName.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+                        if (bWords.length === 0 || rWords.length === 0) return 0;
+                        let overlap = rWords.filter(rw => bWords.includes(rw)).length;
+                        return overlap / rWords.length; // Percentage overlap
+                    };
+
+                    let scoreA = getScore(match.player1, r.p1) + getScore(match.player2, r.p2);
+                    let scoreB = getScore(match.player1, r.p2) + getScore(match.player2, r.p1);
+                    let maxScore = Math.max(scoreA, scoreB);
+
+                    // Moet minimaal 80% kloppen (dus niet alleen het woordje "Nick")
+                    if (maxScore > bestScore && maxScore >= 0.8) {
+                        bestScore = maxScore;
+                        bestRecapId = r.id;
+                    }
+                });
+
+                if (bestRecapId) match.recapId = bestRecapId;
+            }
 
             if (match.status === "gespeeld" && isSpeler) {
                 const isP1 = match.player1.toLowerCase().includes(isSpeler);
