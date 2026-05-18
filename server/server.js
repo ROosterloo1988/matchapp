@@ -260,7 +260,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
-        // --- AUTO-DETECT MATCHLIST URL & LIVE OPHALEN ---
         let matchlistData = [];
         let mUrlsToFetch = new Set(); 
 
@@ -295,13 +294,11 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij ophalen Auto-Matchlist URL:", mUrl); }
         }
 
-        let alleRecaps = [];
         let liveMatchDict = {}; 
         let liveMatchByNameDict = {};
         let activeScores = {}; 
         let activeStatuses = new Set(); 
 
-        // --- DE KOGELVRIJE NAAM NORMALISATOR ---
         function cleanNameForMatching(str) {
             if (!str) return "";
             return String(str).toLowerCase()
@@ -315,10 +312,6 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         matchlistData.forEach(match => {
-            if (match.mi && match.hc && match.ac) {
-                alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
-            }
-            
             if (match.mi) {
                 liveMatchDict[match.mi.toString()] = match;
             }
@@ -330,7 +323,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 liveMatchByNameDict[cleanP2 + "_" + cleanP1] = match; 
             }
 
-            // Let op: We pakken NIET MEER de 'ms' (zoals '3-1'), want die gaf kruis-fouten met andere borden!
             let mogelijkeIds = [];
             if (match.mi) mogelijkeIds.push(match.mi.toString());
             if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
@@ -444,9 +436,10 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
             }
 
-            // OPLOSSING VOOR DE "0-0 VERLOREN" BUG!
             let isFinished = (m.fn === true || isKlaarVolgensLiveLijst);
-            if (isActive) isFinished = false; 
+            if (isActive) {
+                isFinished = false; 
+            }
 
             return {
                 id: matchId, 
@@ -496,7 +489,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         for (let match of eigenWedstrijden) {
-            let hasScores = (match.score1 !== "" || match.score2 !== "");
+            let hasScores = (match.score1 !== "" && match.score2 !== "");
             let isReallyActive = match._is_active || (!match.isFinished && hasScores); 
             
             match.status = match.isFinished ? "gespeeld" : (isReallyActive ? "bezig" : "gepland");
@@ -616,22 +609,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             }
 
+            // HIER IS HET FOUTE "GOK" SYSTEEM VERWIJDERD!
+            // Hij pakt nu alleen nog de 100% zekere ID:
             match.recapId = match._detected_recap_id || "";
-
-            if ((match.status === "gespeeld" || match.status === "bezig") && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
-                let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
-                let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
-                if (p1Words.length === 0) p1Words = [match.player1.toLowerCase()];
-                if (p2Words.length === 0) p2Words = [match.player2.toLowerCase()];
-
-                let foundRecap = alleRecaps.find(r => {
-                    let p1ZitErin = p1Words.some(w => r.p1.includes(w) || r.p2.includes(w));
-                    let p2ZitErin = p2Words.some(w => r.p1.includes(w) || r.p2.includes(w));
-                    return p1ZitErin && p2ZitErin;
-                });
-                
-                if (foundRecap) match.recapId = foundRecap.id;
-            }
 
             if (match.status === "gespeeld" && isSpeler) {
                 const isP1 = match.player1.toLowerCase().includes(isSpeler);
