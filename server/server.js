@@ -458,6 +458,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
             let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId);
             let detectedRecapId = "";
+            let detectedWatchId = ""; // NIEUW: Houdt de 5-letterige TV-code vast
             let isKlaarVolgensLiveLijst = false;
 
             if (actMatch) {
@@ -473,6 +474,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (actMatch._is_active_now) isActive = true;
                 if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
                 if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
+                
+                // NIEUW: Vang het Tablet-ID. DartConnect gebruikt hier vaak sk, tk of key voor!
+                detectedWatchId = actMatch.sk || actMatch.tk || actMatch.tv || actMatch.spectatorKey || actMatch.key || "";
             }
 
             let isFinished = (m.fn === true || isKlaarVolgensLiveLijst);
@@ -500,11 +504,12 @@ async function fetchMatchesForTournament(requestedTournament) {
                 score2: fS2,
                 _is_active: isActive, 
                 _detected_recap_id: detectedRecapId,
+                watchId: detectedWatchId, // <--- VOEG DEZE REGEL TOE!
                 board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
                 isFinished: isFinished,
-                isBye: m.by === true, // DE FIX: Geef aan de filters door of het een Vrijloot/Bye is
+                isBye: m.by === true,
                 _bracket_type: m._bracket_type,
                 _tree_round_nr: m._tree_round_nr,
                 _tree_match_nr: m._tree_match_nr
