@@ -51,7 +51,18 @@
         
         .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1; }
         .player-name { flex: 1; text-align: center; word-wrap: break-word; }
-        .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center; }
+        
+        .score-box { background: #111; padding: 10px 15px; margin: 0 15px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 60px; text-align: center; transition: all 0.3s ease; }
+        
+        /* --- DE NIEUWE SCORE HIGHLIGHT ANIMATIE --- */
+        .score-flash {
+            animation: flashScore 3s ease-out;
+        }
+        @keyframes flashScore {
+            0% { background-color: #2ecc71; color: white; transform: scale(1.15); box-shadow: 0 0 15px #2ecc71; border-color: #2ecc71; }
+            10% { background-color: #2ecc71; color: white; transform: scale(1.15); box-shadow: 0 0 15px #2ecc71; border-color: #2ecc71; }
+            100% { background-color: #111; color: #FF6600; transform: scale(1); box-shadow: 0 0 0 transparent; border-color: #333; }
+        }
         
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
         .match-card.mogelijk .card-header { background: #444; color: #bbb; }
@@ -61,7 +72,6 @@
         .match-card.gespeeld .card-header { background: #222; color: #888; }
         .match-card.gespeeld .score-box { color: #fff; border-color: #444; }
 
-        /* LIVE STYLING */
         .match-card.bezig { border-left-color: #e74c3c; box-shadow: 0 0 15px rgba(231, 76, 60, 0.4); }
         .match-card.bezig .card-header { background: linear-gradient(90deg, #e74c3c 0%, #c0392b 100%); }
         .live-btn { background: #e74c3c !important; border-color: #c0392b !important; animation: pulseRed 1.5s infinite; }
@@ -184,6 +194,9 @@
     let activeTournament = null;
     let refreshInterval = null;
     let currentFilter = 'alles';
+    
+    // --- NIEUW: GEHEUGEN VOOR SCORE HIGHLIGHTS ---
+    let lastKnownScores = {};
 
     const urlParams = new URLSearchParams(window.location.search);
     const urlTournament = urlParams.get('t');
@@ -197,12 +210,19 @@
         document.getElementById('ios-install-banner').style.display = 'flex';
     }
 
+    // --- NIEUW: WAKE-UP TRIGGER ALS JE TELEFOON ONTGRENDELT ---
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && activeTournament) {
+            console.log("App is weer geopend! Forceer een directe verversing...");
+            loadMatches();
+        }
+    });
+
     async function loadTournaments() {
         const container = document.getElementById('menu-container');
         container.innerHTML = "Laden...";
 
         try {
-            // FIX: Laad ze tegelijk in voor bliksemsnelle menu weergave
             const [response, validResponse] = await Promise.all([
                 fetch('/api/tournaments?_t=' + Date.now()),
                 fetch('/api/tournaments/valid?_t=' + Date.now())
@@ -318,6 +338,8 @@
 
     function selectTournament(name, pushUrl = true) {
         activeTournament = name;
+        lastKnownScores = {}; // Reset de score-geheugenkaartjes als we switchen
+        
         if (pushUrl) {
             const url = new URL(window.location);
             url.searchParams.set('t', name);
@@ -334,7 +356,7 @@
         document.getElementById('main-title').innerText = name.toUpperCase();
         
         loadMatches();
-        refreshInterval = setInterval(loadMatches, 10000); // FIX: Ververst nu elke 10 sec want het laden is superlicht!
+        refreshInterval = setInterval(loadMatches, 10000);
     }
 
     function showMenu() {
@@ -386,7 +408,17 @@
                     htmlString += `<div class="section-title">${titels[huidigeStatus]}</div>`;
                 }
 
+                // --- HIGHLIGHT DE GEWIJZIGDE SCORES ---
+                let newScoreKey = `${match.score1}-${match.score2}`;
+                let flashClass = "";
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
+
+                // Als we de score al kenden (en hij is niet 'vs'), én hij is anders geworden, maak hem dan fel groen!
+                if (lastKnownScores[match.id] !== undefined && lastKnownScores[match.id] !== newScoreKey && newScoreKey !== "-") {
+                    flashClass = "score-flash";
+                }
+                lastKnownScores[match.id] = newScoreKey;
+
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
                 if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
 
@@ -411,7 +443,7 @@
                     </div>
                     <div class="players-area">
                         <div class="player-name">${match.player1}</div>
-                        <div class="score-box">${scoreText}</div>
+                        <div class="score-box ${flashClass}">${scoreText}</div>
                         <div class="player-name">${match.player2}</div>
                     </div>
                 </div>`;
