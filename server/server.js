@@ -209,7 +209,25 @@ async function fetchMatchesForTournament(requestedTournament) {
                     isStructural = false;
                 }
 
+                let playerInitialMatchNr = {}; // HET GEHEUGEN VOOR DE WISKUNDE
+
                 if (isStructural) {
+                    // STAP 1: De eerste ronde scannen en iedereen zijn vaste start-vakje geven (bijv 45)
+                    bronMap[0].forEach((m, mIndex) => {
+                        if (!m || typeof m !== 'object') return;
+                        let players = [];
+                        if (m.d1) players = players.concat(m.d1);
+                        if (m.d2) players = players.concat(m.d2);
+                        if (m.p1) players = players.concat(m.p1);
+                        if (m.p2) players = players.concat(m.p2);
+                        
+                        players.forEach(p => {
+                            if (p !== null && p !== undefined && p !== -1) {
+                                playerInitialMatchNr[p.toString()] = mIndex;
+                            }
+                        });
+                    });
+
                     bronMap.forEach((roundArray, rIndex) => {
                         let rName = "Ronde " + (rIndex + 1);
                         let matchCount = roundArray.length;
@@ -227,10 +245,32 @@ async function fetchMatchesForTournament(requestedTournament) {
                                 m._bron_url = bUrl;
                                 m._bracket_type = bracketType;
                                 m._tree_round = rName;
+                                m._tree_round_nr = rIndex + 1;
                                 
-                                // DE FIX: Geen bordnummers meer, maar de exacte absolute plaats in het schema (mIndex + 1)
-                                m._custom_id = (rIndex + 1) + "-" + (mIndex + 1);
+                                // STAP 2: Bepaal puur wiskundig waar de speler nu staat, ongeacht bordnummer
+                                let logicalMatchNr = -1;
+                                let players = [];
+                                if (m.d1) players = players.concat(m.d1);
+                                if (m.d2) players = players.concat(m.d2);
+                                if (m.p1) players = players.concat(m.p1);
+                                if (m.p2) players = players.concat(m.p2);
                                 
+                                for (let p of players) {
+                                    if (p !== null && p !== undefined && p !== -1 && playerInitialMatchNr[p.toString()] !== undefined) {
+                                        logicalMatchNr = Math.floor(playerInitialMatchNr[p.toString()] / Math.pow(2, rIndex));
+                                        break;
+                                    }
+                                }
+                                
+                                // Valback voor lege toekomstige wedstrijden (die staan altijd perfect op volgorde)
+                                if (logicalMatchNr === -1) {
+                                    logicalMatchNr = mIndex; 
+                                }
+                                
+                                m._tree_match_nr = logicalMatchNr;
+                                // STAP 3: Maak het perfecte, foutloze ID aan (zoals 1-45 en 2-23)
+                                m._custom_id = (rIndex + 1) + "-" + (logicalMatchNr + 1);
+
                                 dcMatchesList.push(m);
                             }
                         });
@@ -260,6 +300,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
+        // --- AUTO-DETECT MATCHLIST URL & LIVE OPHALEN ---
         let matchlistData = [];
         let mUrlsToFetch = new Set(); 
 
@@ -464,7 +505,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
                 isFinished: isFinished,
-                _bracket_type: m._bracket_type
+                _bracket_type: m._bracket_type,
+                _tree_round_nr: m._tree_round_nr,
+                _tree_match_nr: m._tree_match_nr
             };
         });
 
@@ -669,7 +712,18 @@ async function fetchMatchesForTournament(requestedTournament) {
                         if (rm.raw_p2 === "W-" + match.db_id || rm.raw_p2 == match.db_id) return true;
                     }
                     
-                    if (match.id.includes('-')) {
+                    // --- DE KOGELVRIJE VOLGENDE RONDE ZOEKKER ---
+                    // Hij gebruikt nu Math.floor op een 0-index om 100% foutloos door de boom te navigeren
+                    if (match._tree_round_nr !== undefined && match._tree_match_nr !== undefined && rm._tree_round_nr !== undefined && rm._tree_match_nr !== undefined) {
+                        let volgendeRonde = match._tree_round_nr + 1;
+                        let volgendeMatchNr = Math.floor(match._tree_match_nr / 2); 
+                        if (rm._tree_round_nr === volgendeRonde && rm._tree_match_nr === volgendeMatchNr) {
+                            return true;
+                        }
+                    }
+
+                    // Fallback voor andere formats die "1-1" gebruiken
+                    if (match.id.includes('-') && match._tree_round_nr === undefined) {
                         let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
                             let volgendeRonde = parseInt(parts[1]) + 1;
