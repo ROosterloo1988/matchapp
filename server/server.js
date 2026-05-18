@@ -454,7 +454,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 actMatch = liveMatchByNameDict[targetP1 + "_" + targetP2];
             }
 
-            // Begin altijd met de eigen schema-score (zodat W en X of andere data blijft staan)
             let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
             let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
             let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId);
@@ -466,8 +465,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 let mlAc = cleanNameForMatching(actMatch.ac || "");
                 if (targetP1 === mlAc) isSwapped = true;
 
-                // FIX: Overschrijf alleen met live score als die score daadwerkelijk bestaat!
-                // Hiermee wordt voorkomen dat W en X worden overschreven door een 'null' uit de live-lijst.
                 if (actMatch.hs !== undefined && actMatch.hs !== null && actMatch.as !== undefined && actMatch.as !== null) {
                     fS1 = isSwapped ? actMatch.as : actMatch.hs;
                     fS2 = isSwapped ? actMatch.hs : actMatch.as;
@@ -483,7 +480,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 isFinished = false; 
             }
 
-            // Veiligheidsnet: Zorg dat de woorden 'null' NOOIT op het scherm geprint kunnen worden
             if (fS1 === null || fS1 === "null") fS1 = "";
             if (fS2 === null || fS2 === "null") fS2 = "";
 
@@ -508,6 +504,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
                 isFinished: isFinished,
+                isBye: m.by === true, // DE FIX: Geef aan de filters door of het een Vrijloot/Bye is
                 _bracket_type: m._bracket_type,
                 _tree_round_nr: m._tree_round_nr,
                 _tree_match_nr: m._tree_match_nr
@@ -533,6 +530,8 @@ async function fetchMatchesForTournament(requestedTournament) {
         let nieuwGeplandCount = 0;
 
         let eigenWedstrijden = rawMatches.filter(match => {
+            // DE FIX: Verberg alle Byes/Vrijloten van het scherm
+            if (match.isBye) return false;
             return dartersLower.some(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d) || (match.marker && match.marker.toLowerCase().includes(d)));
         });
 
@@ -659,7 +658,12 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             match.recapId = match._detected_recap_id || "";
 
-            if (!match.recapId && (match.status === "gespeeld" || match.status === "bezig") && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
+            // DE FIX: Als het een Walkover is, mag hij nooit op zoek gaan naar een recap!
+            let isWalkover = (match.score1 === 'W' || match.score1 === 'X' || match.score1 === 'F' || match.score2 === 'W' || match.score2 === 'X' || match.score2 === 'F');
+
+            if (isWalkover) {
+                match.recapId = ""; 
+            } else if (!match.recapId && (match.status === "gespeeld" || match.status === "bezig") && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                 let bestRecapId = "";
                 let bestScore = 0;
 
