@@ -197,20 +197,17 @@
         document.getElementById('ios-install-banner').style.display = 'flex';
     }
 
-async function loadTournaments() {
+    async function loadTournaments() {
         const container = document.getElementById('menu-container');
         container.innerHTML = "Laden...";
 
         try {
-            // BEIDE bestanden tegelijkertijd ophalen (dat scheelt weer tijd!)
-            const [response, validResponse] = await Promise.all([
-                fetch('/api/tournaments?_t=' + Date.now()),
-                fetch('/api/tournaments/valid?_t=' + Date.now())
-            ]);
-
-            if (!response.ok || !validResponse.ok) throw new Error("Server error");
-            
+            const response = await fetch('/api/tournaments?_t=' + Date.now());
+            if (!response.ok) throw new Error("Server error");
             let publicNames = await response.json();
+            
+            const validResponse = await fetch('/api/tournaments/valid?_t=' + Date.now());
+            if (!validResponse.ok) throw new Error("Server error");
             let allValidNames = await validResponse.json();
 
             let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
@@ -386,19 +383,16 @@ async function loadTournaments() {
                     htmlString += `<div class="section-title">${titels[huidigeStatus]}</div>`;
                 }
 
-                let hasScore = match.score1 !== undefined && match.score2 !== undefined && match.score1 !== null && match.score2 !== null && match.score1 !== "" && match.score2 !== "";
-                let scoreText = hasScore ? `${match.score1} - ${match.score2}` : "vs";
+                let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
                 if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
 
                 let resultClass = match.resultaat ? match.resultaat : "";
                 
-                // --- RECAP KNOP ---
-                // Geen DCTV live-board fallback meer: alleen recap tonen als DartConnect een recap-id (mi) heeft.
-                let recapHref = match.recapUrl || (match.recapId ? `https://recap.dartconnect.com/matches/${match.recapId}` : "");
+                // --- DE LIVE RECAP KNOP ---
                 let btnText = match.status === "bezig" ? "🔴 LIVE RECAP" : "📊 RECAP";
                 let btnClass = match.status === "bezig" ? "recap-btn live-btn" : "recap-btn";
-                let recapKnop = recapHref ? `<a href="${recapHref}" target="_blank" class="${btnClass}">${btnText}</a>` : "";
+                let recapKnop = match.recapId ? `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>` : "";
 
                 htmlString += `
                 <div class="match-card ${match.status} ${resultClass}">
