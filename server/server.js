@@ -768,19 +768,33 @@ async function fetchMatchesForTournament(requestedTournament) {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
-            let tijdA = (a.time && !["Onbekend", "Niet bekend", "Later"].includes(a.time)) ? a.time : "24:00";
-            let tijdB = (b.time && !["Onbekend", "Niet bekend", "Later"].includes(b.time)) ? b.time : "24:00";
+            // Haal de uren en minuten netjes op (bijv "14:30" -> 14.50)
+            const getNumericTime = (timeStr) => {
+                if (!timeStr || ["Onbekend", "Niet bekend", "Later"].includes(timeStr)) return 24;
+                let parts = timeStr.split(':');
+                if (parts.length === 2) {
+                    return parseInt(parts[0], 10) + (parseInt(parts[1], 10) / 60);
+                }
+                return 24;
+            };
+
+            let tA = getNumericTime(a.time);
+            let tB = getNumericTime(b.time);
             
-            // We pakken nu het betrouwbare ronde-nummer dat we in de vorige stappen hebben ingebouwd
-            let rondeA = a._tree_round_nr || (a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0);
-            let rondeB = b._tree_round_nr || (b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0);
+            let rA = a._tree_round_nr || (a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0);
+            let rB = b._tree_round_nr || (b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0);
+
+            // BEREKEN DE UNIEKE TIJDLIJN-INDEX (Ronde gewicht + Tijd gewicht)
+            // Elke ronde is 100 punten waard. 18:00 uur voegt 18 punten toe.
+            let timelineIdxA = (rA * 100) + tA;
+            let timelineIdxB = (rB * 100) + tB;
 
             if (a.status === "gespeeld") {
-                // Gespeeld: Hoogste ronde bovenaan (laatste gespeelde partij bovenaan)
-                return (rondeB - rondeA) || tijdB.localeCompare(tijdA) || ((parseInt(b.board) || 999) - (parseInt(a.board) || 999));
+                // Gespeeld: Laatst gespeelde partij (hoogste tijdlijn-index) ALTIJD bovenaan!
+                return (timelineIdxB - timelineIdxA) || ((parseInt(b.board) || 999) - (parseInt(a.board) || 999));
             } else {
-                // Gepland/Mogelijk/Bezig: Laagste ronde bovenaan (eerstvolgende partij bovenaan)
-                return (rondeA - rondeB) || tijdA.localeCompare(tijdB) || ((parseInt(a.board) || 999) - (parseInt(b.board) || 999));
+                // Gepland/Mogelijk/Bezig: Eerstvolgende partij (laagste tijdlijn-index) ALTIJD bovenaan!
+                return (timelineIdxA - timelineIdxB) || ((parseInt(a.board) || 999) - (parseInt(b.board) || 999));
             }
         });
 
