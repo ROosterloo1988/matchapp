@@ -768,7 +768,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
-            // Haal de uren en minuten netjes op (bijv "14:30" -> 14.50)
             const getNumericTime = (timeStr) => {
                 if (!timeStr || ["Onbekend", "Niet bekend", "Later"].includes(timeStr)) return 24;
                 let parts = timeStr.split(':');
@@ -784,16 +783,20 @@ async function fetchMatchesForTournament(requestedTournament) {
             let rA = a._tree_round_nr || (a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0);
             let rB = b._tree_round_nr || (b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0);
 
-            // BEREKEN DE UNIEKE TIJDLIJN-INDEX (Ronde gewicht + Tijd gewicht)
-            // Elke ronde is 100 punten waard. 18:00 uur voegt 18 punten toe.
-            let timelineIdxA = (rA * 100) + tA;
-            let timelineIdxB = (rB * 100) + tB;
+            // --- DE SLIMME DAG-DETECTOR ---
+            // Als het een vroege partij is (< 12:00) in een late ronde (Ronde 5+), is het Dag 2 (of na middernacht)!
+            if (tA < 12 && rA >= 5) tA += 24;
+            if (tB < 12 && rB >= 5) tB += 24;
+
+            // --- JOUW GENIALE TIJDLIJN-WISKUNDE ---
+            let timelineIdxA = (tA * 100) + (rA * 10);
+            let timelineIdxB = (tB * 100) + (rB * 10);
 
             if (a.status === "gespeeld") {
-                // Gespeeld: Laatst gespeelde partij (hoogste tijdlijn-index) ALTIJD bovenaan!
+                // Gespeeld: Laatst gespeelde partij bovenaan (hoogste waarde eerst)
                 return (timelineIdxB - timelineIdxA) || ((parseInt(b.board) || 999) - (parseInt(a.board) || 999));
             } else {
-                // Gepland/Mogelijk/Bezig: Eerstvolgende partij (laagste tijdlijn-index) ALTIJD bovenaan!
+                // Gepland/Mogelijk/Bezig: Eerstvolgende partij bovenaan (laagste waarde eerst)
                 return (timelineIdxA - timelineIdxB) || ((parseInt(a.board) || 999) - (parseInt(b.board) || 999));
             }
         });
