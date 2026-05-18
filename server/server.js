@@ -31,17 +31,9 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 const DB_FILE = path.join(__dirname, 'database.json');
 
-// --- DATABASE & PUSH SETUP (MET SUPERSNELLE MEMORY-CACHE!) ---
-let memDB = null;
-
+// --- DATABASE & PUSH SETUP ---
 function readDB() {
-    if (memDB) return memDB; 
-
-    if (!fs.existsSync(DB_FILE)) {
-        memDB = { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
-        return memDB;
-    }
-    
+    if (!fs.existsSync(DB_FILE)) return { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
     let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     if (!db.tournaments) db.tournaments = [];
     if (!db.subscriptions) db.subscriptions = [];
@@ -53,14 +45,11 @@ function readDB() {
         db.vapidKeys = webpush.generateVAPIDKeys();
         fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
     }
-    
-    memDB = db; 
-    return memDB;
+    return db;
 }
 
 function writeDB(data) {
-    memDB = data; 
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)); 
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
 const initialDb = readDB();
@@ -171,108 +160,6 @@ async function fetchMatchesForTournament(requestedTournament) {
     let dcMatchesList = [];
     let spelersDict = {};
 
-    function getDCTVPartsFromUrl(url) {
-        const value = String(url || "");
-        const match =
-            value.match(/\/api\/event\/([^\/?#]+)\/(?:bracket|brackets|group|groups)(?:\/([^?#]+))?/i) ||
-            value.match(/\/event\/([^\/?#]+)\/(?:bracket|brackets|group|groups)(?:\/([^?#]+))?/i) ||
-            value.match(/\/live\/([^\/?#]+)(?:\/([^?#]+))?/i) ||
-            value.match(/\/api\/event\/([^\/?#]+)(?:\/([^?#]+))?/i) ||
-            value.match(/\/event\/([^\/?#]+)(?:\/([^?#]+))?/i);
-
-        if (!match) return null;
-        return {
-            eventId: match[1],
-            suffix: (match[2] || "").replace(/^\/+|\/+$/g, "")
-        };
-    }
-
-    function addMatchListUrlsForBracket(url, targetSet) {
-        const parts = getDCTVPartsFromUrl(url);
-        if (!parts || !parts.eventId) return;
-
-        // Oude algemene endpoint blijft erin, want die werkt bij sommige DartConnect-events.
-        targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/matches`);
-
-        const suffixes = [];
-        if (parts.suffix) {
-            suffixes.push(parts.suffix);
-            // Sommige DCTV-pagina's gebruiken /live/<event>/<type>/<league>, maar de API soms alleen <league>.
-            const suffixWithoutType = parts.suffix.replace(/^[A-Za-z]\//, "");
-            if (suffixWithoutType && suffixWithoutType !== parts.suffix) suffixes.push(suffixWithoutType);
-        }
-
-        // Bij links zoals /bracket/M/hungarysuperleague26e12 of /bracket/M/1/10 is de suffix essentieel.
-        // Zonder deze suffix zie je soms wel het schema, maar niet de matchlist/recap/live-score data.
-        const expandedSuffixes = new Set();
-        suffixes.forEach(suffix => {
-            if (!suffix) return;
-            expandedSuffixes.add(suffix);
-            expandedSuffixes.add(suffix.replace(/^\/+|\/+$/g, ""));
-            expandedSuffixes.add(suffix.replace(/\//g, ""));
-            const withoutType = suffix.replace(/^[A-Za-z]\//, "");
-            if (withoutType) {
-                expandedSuffixes.add(withoutType);
-                expandedSuffixes.add(withoutType.replace(/\//g, ""));
-            }
-        });
-
-        expandedSuffixes.forEach(suffix => {
-            ["matches", "matchlist", "results", "live", "active", "current", "boards", "board", "scoreboard", "scores"].forEach(endpoint => {
-                targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/${endpoint}/${suffix}`);
-                targetSet.add(`https://tv.dartconnect.com/api/event/${parts.eventId}/${suffix}/${endpoint}`);
-            });
-
-            // Extra varianten om live-score/status te vinden. We maken hier géén klikbare live-board link van.
-            ["matches", "matchlist", "results", "live", "active", "current", "boards", "scoreboard", "scores"].forEach(endpoint => {
-                targetSet.add(`https://tv.dartconnect.com/api/${endpoint}/${parts.eventId}/${suffix}`);
-            });
-        });
-    }
-
-    function looksLikeDCTVMatch(obj) {
-        if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
-        return !!(
-            obj.mi || obj.bmi || obj.match_id ||
-            obj.matchid_pre !== undefined || obj.matchid_post !== undefined ||
-            (obj.hc && obj.ac) ||
-            (obj.hs !== undefined && obj.as !== undefined)
-        );
-    }
-
-    function extractDCTVMatches(obj, flags = {}) {
-        const found = [];
-        function walk(node, inheritedFlags = {}) {
-            if (!node) return;
-
-            if (Array.isArray(node)) {
-                node.forEach(item => walk(item, inheritedFlags));
-                return;
-            }
-
-            if (typeof node !== "object") return;
-
-            if (looksLikeDCTVMatch(node)) {
-                if (inheritedFlags.active) node._is_active_now = true;
-                if (inheritedFlags.completed) node._is_completed_now = true;
-                found.push(node);
-            }
-
-            Object.keys(node).forEach(key => {
-                const lower = key.toLowerCase();
-                const nextFlags = {
-                    active: inheritedFlags.active || lower === "active" || lower === "live" || lower === "current",
-                    completed: inheritedFlags.completed || lower === "completed" || lower === "finished" || lower === "results"
-                };
-                walk(node[key], nextFlags);
-            });
-        }
-
-        walk(obj, flags);
-        return found;
-    }
-
-
     try {
         let bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(u => u !== "");
         
@@ -306,6 +193,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 bouwWoordenboek(dataContainer);
 
                 let isStructural = Array.isArray(bronMap) && bronMap.length > 0 && Array.isArray(bronMap[0]);
+
                 let eventName = (dataContainer.bracketData && dataContainer.bracketData.engname) || dataContainer.engname || "";
                 if (isStructural && String(eventName).toLowerCase().includes("round robin")) {
                     isStructural = false;
@@ -330,10 +218,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                                 m._bracket_type = bracketType;
                                 m._tree_round = rName;
                                 
-                                // Belangrijk: gebruik bij proBracket altijd de echte bracket-id (bijv. "7_1").
-                                // m.bn is het bordnummer, niet het matchnummer. Een custom id op basis van bn
-                                // breekt de koppeling naar volgende rondes en naar matchlistData.bmi.
-                                if (!m.id && m.bn) {
+                                if (m.bn) {
                                     m._custom_id = (rIndex + 1) + "-" + m.bn;
                                 }
                                 dcMatchesList.push(m);
@@ -365,13 +250,14 @@ async function fetchMatchesForTournament(requestedTournament) {
             } catch(e) { console.error("Fout bij Bracket URL:", bUrl); }
         }
 
-        // --- AUTO-DETECT MATCHLIST URL & LIVE OPHALEN ---
         let matchlistData = [];
-        let liveRawSources = [];
         let mUrlsToFetch = new Set(); 
 
         bracketUrls.forEach(bUrl => {
-            addMatchListUrlsForBracket(bUrl, mUrlsToFetch);
+            let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
+            if (eventMatch) {
+                mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
+            }
         });
         
         if (tournament.matchlistUrl) {
@@ -380,336 +266,19 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         for (let mUrl of Array.from(mUrlsToFetch)) {
             try {
-                const urlLooksLive = /\/(live|active|current|boards?|scoreboard|scores)(\/|$)/i.test(mUrl);
-                let mlRes = await axios.get(mUrl, {
-                    timeout: 8000,
-                    headers: {
-                        "User-Agent": "Mozilla/5.0 (compatible; MatchApp/1.0)",
-                        "Accept": "application/json,text/plain,*/*",
-                        "Referer": "https://tv.dartconnect.com/"
-                    }
-                }).catch(() => axios.post(mUrl, {}, {
-                    timeout: 8000,
-                    headers: {
-                        "User-Agent": "Mozilla/5.0 (compatible; MatchApp/1.0)",
-                        "Accept": "application/json,text/plain,*/*",
-                        "Referer": "https://tv.dartconnect.com/"
-                    }
-                }));
-                const source = mlRes.data && mlRes.data.payload ? mlRes.data.payload : mlRes.data;
-                liveRawSources.push({ source, forceActive: urlLooksLive, url: mUrl });
-                const extracted = extractDCTVMatches(source, { active: urlLooksLive });
-                if (extracted.length > 0) {
-                    matchlistData = matchlistData.concat(extracted);
+                let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
+                if (mlRes.data && mlRes.data.payload && mlRes.data.payload.completed) {
+                    matchlistData = matchlistData.concat(mlRes.data.payload.completed);
+                } else if (Array.isArray(mlRes.data)) {
+                    matchlistData = matchlistData.concat(mlRes.data);
                 }
             } catch(e) { console.error("Fout bij ophalen Auto-Matchlist URL:", mUrl); }
         }
 
         let alleRecaps = [];
-        let liveMatchDict = {}; 
-        let liveMatchByNameDict = {};
-        let activeScores = {}; 
-        let activeStatuses = new Set(); 
-        let winnerByMatchId = {}; 
-        let recapByMatchId = {}; 
-
-        function normalizeMatchKey(key) {
-            if (key === null || key === undefined || key === "") return "";
-            return String(key).trim();
-        }
-
-        function addMatchListKey(match, key) {
-            const rawKey = normalizeMatchKey(key);
-            if (!rawKey) return;
-            liveMatchDict[rawKey] = match;
-            liveMatchDict[rawKey.replace(/_/g, '-')] = match;
-        }
-
-        function addStatusKey(key, match) {
-            const rawKey = normalizeMatchKey(key);
-            if (!rawKey) return;
-            if (match.hs !== undefined || match.as !== undefined || match.ms) {
-                activeScores[rawKey] = { hs: match.hs, as: match.as, ms: match.ms };
-                activeScores[rawKey.replace(/_/g, '-')] = activeScores[rawKey];
-            }
-            if (match._is_active_now) {
-                activeStatuses.add(rawKey);
-                activeStatuses.add(rawKey.replace(/_/g, '-'));
-            }
-        }
-
-        // --- DE SLIMME NAAM FILTER ---
-        function cleanNameForMatching(str) {
-            if (!str) return "";
-            return String(str).toLowerCase()
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .replace(/[^a-z0-9\s]/g, "")
-                .split(/\s+/)
-                .filter(w => w.length > 0)
-                .sort()
-                .join("");
-        }
-
-        function normalizeBoardValue(value) {
-            if (value === null || value === undefined || value === "") return "";
-            if (Array.isArray(value)) return normalizeBoardValue(value[0]);
-            const match = String(value).match(/\d+/);
-            return match ? match[0] : String(value).trim();
-        }
-
-        function readBoardFromObject(obj) {
-            if (!obj || typeof obj !== "object") return "";
-            const boardKeys = ["bn", "bns", "b", "board", "boardNo", "board_no", "boardNumber", "board_number", "bd"];
-            for (const key of boardKeys) {
-                if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return normalizeBoardValue(obj[key]);
-            }
-            return "";
-        }
-
-        function parseSmallScore(value) {
-            if (value === null || value === undefined || value === "") return null;
-            if (typeof value === "number") {
-                if (Number.isInteger(value) && value >= 0 && value <= 50) return String(value);
-                return null;
-            }
-            const str = String(value).trim();
-            if (/^[0-9]{1,2}$/.test(str)) return str;
-            return null;
-        }
-
-        function readFirstValue(obj, keys) {
-            if (!obj || typeof obj !== "object") return undefined;
-            for (const key of keys) {
-                if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
-            }
-            return undefined;
-        }
-
-        function readScorePairFromObject(obj) {
-            if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
-            const scorePairs = [
-                ["hs", "as"], ["h_s", "a_s"], ["homeScore", "awayScore"], ["home_score", "away_score"],
-                ["scoreHome", "scoreAway"], ["hscore", "ascore"],
-                ["p1s", "p2s"], ["p1Score", "p2Score"], ["p1_score", "p2_score"],
-                ["score1", "score2"], ["s1", "s2"],
-                ["homeSets", "awaySets"], ["hsets", "asets"], ["setsHome", "setsAway"],
-                ["homeLegs", "awayLegs"], ["hlegs", "alegs"], ["legsHome", "legsAway"], ["hl", "al"]
-            ];
-
-            for (const [leftKey, rightKey] of scorePairs) {
-                const left = parseSmallScore(obj[leftKey]);
-                const right = parseSmallScore(obj[rightKey]);
-                if (left !== null && right !== null) return { left, right, keys: [leftKey, rightKey] };
-            }
-
-            if (typeof obj.ms === "string") {
-                const parts = obj.ms.match(/(\d+)\s*[-–]\s*(\d+)/);
-                if (parts) return { left: parts[1], right: parts[2], keys: ["ms"] };
-            }
-
-            return null;
-        }
-
-        function readSideNamesFromObject(obj) {
-            if (!obj || typeof obj !== "object") return { leftName: "", rightName: "" };
-            const leftKeys = ["hc", "hcf", "home", "homeName", "home_name", "hname", "h_name", "player1", "p1", "p1n", "p1Name", "p1_name", "leftName", "left_name"];
-            const rightKeys = ["ac", "acf", "away", "awayName", "away_name", "aname", "a_name", "player2", "p2", "p2n", "p2Name", "p2_name", "rightName", "right_name"];
-            let leftName = readFirstValue(obj, leftKeys);
-            let rightName = readFirstValue(obj, rightKeys);
-
-            function normalizeNameValue(value) {
-                if (Array.isArray(value)) return value.map(v => normalizeNameValue(v)).filter(Boolean).join(" ");
-                if (value && typeof value === "object") return readFirstValue(value, ["name", "fullName", "full_name", "displayName", "display_name", "n", "title"]) || "";
-                return value ? String(value) : "";
-            }
-
-            return { leftName: normalizeNameValue(leftName), rightName: normalizeNameValue(rightName) };
-        }
-
-        function objectContainsBothPlayers(obj, targetP1, targetP2) {
-            let text = "";
-            try { text = JSON.stringify(obj); } catch(e) { text = String(obj || ""); }
-            const clean = cleanNameForMatching(text);
-            return clean.includes(targetP1) && clean.includes(targetP2);
-        }
-
-        function hasActiveHint(obj) {
-            if (!obj || typeof obj !== "object") return false;
-            if (obj._is_active_now) return true;
-            const status = String(obj.status || obj.state || obj.matchStatus || obj.match_status || obj.liveStatus || obj.live_status || "").toLowerCase();
-            return /live|active|current|progress|playing|bezig|started|open/.test(status);
-        }
-
-        function candidateScoreFromLiveObject(obj, p1Name, p2Name, board, forceActive) {
-            if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
-
-            const targetP1 = cleanNameForMatching(p1Name);
-            const targetP2 = cleanNameForMatching(p2Name);
-            if (!targetP1 || !targetP2 || targetP1 === "onbekend" || targetP2 === "onbekend") return null;
-
-            const pair = readScorePairFromObject(obj);
-            if (!pair) return null;
-
-            const objBoard = readBoardFromObject(obj);
-            const wantedBoard = normalizeBoardValue(board);
-            const boardMatches = wantedBoard && objBoard && wantedBoard === objBoard;
-
-            const { leftName, rightName } = readSideNamesFromObject(obj);
-            const leftClean = cleanNameForMatching(leftName);
-            const rightClean = cleanNameForMatching(rightName);
-            const namedMatch =
-                (leftClean && rightClean && leftClean.includes(targetP1) && rightClean.includes(targetP2)) ||
-                (leftClean && rightClean && leftClean.includes(targetP2) && rightClean.includes(targetP1));
-
-            const textMatch = objectContainsBothPlayers(obj, targetP1, targetP2);
-
-            // Alleen vertrouwen op generieke objecten als ze uit een live/active/board endpoint komen,
-            // of zelf een live-status bevatten, of exact hetzelfde bord + dezelfde spelers tonen.
-            if (!forceActive && !hasActiveHint(obj) && !(boardMatches && (namedMatch || textMatch))) return null;
-            if (!namedMatch && !textMatch) return null;
-
-            const swapped = leftClean && leftClean.includes(targetP2);
-            return {
-                score1: swapped ? pair.right : pair.left,
-                score2: swapped ? pair.left : pair.right,
-                board: objBoard || wantedBoard || "",
-                isActive: true
-            };
-        }
-
-        function findLiveScoreFallback(p1Name, p2Name, board) {
-            const maxObjectsPerSource = 5000;
-            for (const wrapper of liveRawSources) {
-                let inspected = 0;
-                const forceActive = !!(wrapper && wrapper.forceActive);
-                const stack = [wrapper ? wrapper.source : null];
-
-                while (stack.length > 0 && inspected < maxObjectsPerSource) {
-                    const node = stack.pop();
-                    if (!node) continue;
-                    if (Array.isArray(node)) {
-                        for (const item of node) stack.push(item);
-                        continue;
-                    }
-                    if (typeof node !== "object") continue;
-                    inspected++;
-
-                    const candidate = candidateScoreFromLiveObject(node, p1Name, p2Name, board, forceActive);
-                    if (candidate) return candidate;
-
-                    for (const val of Object.values(node)) {
-                        if (val && (typeof val === "object")) stack.push(val);
-                    }
-                }
-            }
-            return null;
-        }
-
-        function normalizeBracketIdForMap(key) {
-            if (key === null || key === undefined || key === "") return "";
-            return String(key).trim().replace(/_/g, "-");
-        }
-
-        function addWinnerKey(key, winnerName) {
-            const id = normalizeBracketIdForMap(key);
-            if (!id || !winnerName || winnerName === "Onbekend") return;
-            winnerByMatchId[id] = winnerName;
-            winnerByMatchId[id.replace(/-/g, "_")] = winnerName;
-        }
-
-        function addRecapKey(key, recapId) {
-            const id = normalizeBracketIdForMap(key);
-            if (!id || !recapId) return;
-            recapByMatchId[id] = String(recapId);
-            recapByMatchId[id.replace(/-/g, "_")] = String(recapId);
-        }
-
-        function formatDCTVName(name) {
-            if (!name) return "Onbekend";
-            return String(name)
-                .split(/<br\s*\/?\s*>/i)
-                .map(part => {
-                    const clean = part.trim();
-                    if (!clean) return "";
-                    const commaParts = clean.split(",");
-                    if (commaParts.length >= 2) {
-                        const last = commaParts.shift().trim();
-                        const first = commaParts.join(",").trim();
-                        return `${first} ${last}`.replace(/\s+/g, " ").trim();
-                    }
-                    return clean;
-                })
-                .filter(Boolean)
-                .join(" & ") || "Onbekend";
-        }
-
-        function getMatchListWinnerName(match) {
-            if (!match || typeof match !== "object") return "";
-            let leftScore = parseSmallScore(match.hs);
-            let rightScore = parseSmallScore(match.as);
-            if ((leftScore === null || rightScore === null) && typeof match.ms === "string") {
-                const parts = match.ms.match(/(\d+)\s*[-–]\s*(\d+)/);
-                if (parts) {
-                    leftScore = parts[1];
-                    rightScore = parts[2];
-                }
-            }
-            if (leftScore === null || rightScore === null) return "";
-            const l = parseInt(leftScore, 10);
-            const r = parseInt(rightScore, 10);
-            if (l === r) return "";
-            return l > r ? formatDCTVName(match.hcf || match.hc) : formatDCTVName(match.acf || match.ac);
-        }
-
         matchlistData.forEach(match => {
             if (match.mi && match.hc && match.ac) {
-                alleRecaps.push({
-                    id: match.mi,
-                    p1: String(match.hc).toLowerCase(),
-                    p2: String(match.ac).toLowerCase(),
-                    p1Clean: cleanNameForMatching(match.hc),
-                    p2Clean: cleanNameForMatching(match.ac)
-                });
-                addRecapKey(match.bmi, match.mi);
-                if (match.matchid_pre !== undefined && match.matchid_post !== undefined && match.matchid_pre !== null && match.matchid_post !== null) {
-                    addRecapKey(`${match.matchid_pre}_${match.matchid_post}`, match.mi);
-                }
-            }
-
-            const winnerName = getMatchListWinnerName(match);
-            if (winnerName) {
-                addWinnerKey(match.bmi, winnerName);
-                if (match.matchid_pre !== undefined && match.matchid_post !== undefined && match.matchid_pre !== null && match.matchid_post !== null) {
-                    addWinnerKey(`${match.matchid_pre}_${match.matchid_post}`, winnerName);
-                }
-            }
-            
-            // Koppel de matchlist aan alle bruikbare DartConnect-id's.
-            // - mi  = recap/live hash
-            // - bmi = bracket match id, bijv. "7_1" (dit is de belangrijkste koppeling)
-            // - matchid_pre/post vormen soms samen dezelfde bracket id
-            addMatchListKey(match, match.mi);
-            addMatchListKey(match, match.bmi);
-            addMatchListKey(match, match.match_id);
-            if (match.matchid_pre !== undefined && match.matchid_post !== undefined && match.matchid_pre !== null && match.matchid_post !== null) {
-                addMatchListKey(match, `${match.matchid_pre}_${match.matchid_post}`);
-            }
-
-            if (match.hc && match.ac) {
-                let cleanP1 = cleanNameForMatching(match.hc);
-                let cleanP2 = cleanNameForMatching(match.ac);
-                liveMatchByNameDict[cleanP1 + "_" + cleanP2] = match;
-                liveMatchByNameDict[cleanP2 + "_" + cleanP1] = match; 
-            }
-
-            // Exclusief veilige ID's (Match.MS/3-1 geeft valse overlap, dus is hier verwijderd!)
-            // Neem bmi mee, anders wordt een live/active match niet aan het bracket gekoppeld.
-            addStatusKey(match.mi, match);
-            addStatusKey(match.bmi, match);
-            addStatusKey(match.match_id, match);
-            if (match.matchid_pre !== undefined && match.matchid_post !== undefined && match.matchid_pre !== null && match.matchid_post !== null) {
-                addStatusKey(`${match.matchid_pre}_${match.matchid_post}`, match);
+                alleRecaps.push({ id: match.mi, p1: match.hc.toLowerCase(), p2: match.ac.toLowerCase() });
             }
         });
 
@@ -725,12 +294,14 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         function getSpelerNaam(idOrArray) {
             if (!idOrArray) return "Onbekend";
+            
             if (typeof idOrArray === 'string') {
                 if (idOrArray.startsWith('W-')) return "Winnaar ID " + idOrArray.replace('W-','');
                 if (idOrArray.startsWith('L-')) return "Verliezer ID " + idOrArray.replace('L-','');
                 if (spelersDict[idOrArray]) return spelersDict[idOrArray];
                 return isNaN(idOrArray) ? idOrArray : `Speler ${idOrArray}`;
             }
+
             if (Array.isArray(idOrArray)) {
                 const validIds = idOrArray.filter(id => id && id !== -1);
                 if (validIds.length === 0) return "Onbekend";
@@ -741,9 +312,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         const dcConverted = dcMatchesList.map(m => {
-            // Gebruik de echte DartConnect bracket-id als primaire id.
-            // Bij proBracket is dat bijvoorbeeld "7_1"; in de UI tonen we "7-1".
-            let matchId = m.match_id || m.id || m._custom_id || "";
+            let matchId = m._custom_id || m.match_id || m.id || "";
             if (typeof matchId === 'number') matchId = matchId.toString();
             if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
 
@@ -778,76 +347,9 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (Array.isArray(markerData) || typeof markerData === 'number') markerNaam = getSpelerNaam(markerData);
             else if (typeof markerData === 'string') markerNaam = markerData;
 
-            let dbId = m.id ? m.id.toString() : "";
-            let dbIdNormalized = dbId ? dbId.replace(/_/g, '-') : "";
-            
-            let p1Name = getSpelerNaam(m.d1 || m.p1);
-            let p2Name = getSpelerNaam(m.d2 || m.p2);
-            let targetP1 = cleanNameForMatching(p1Name);
-            let targetP2 = cleanNameForMatching(p2Name);
-
-            // 1. Zoek veilig op bracket-id/bmi. Dit is betrouwbaarder dan alleen namen.
-            let actMatch = liveMatchDict[dbId] || liveMatchDict[dbIdNormalized] || liveMatchDict[matchId];
-            
-            // 2. Indien niet gevonden én spelers zijn bekend: match via het kogelvrije Woordenboek
-            if (!actMatch && targetP1 !== "onbekend" && targetP2 !== "onbekend" && targetP1 !== "" && targetP2 !== "") {
-                actMatch = liveMatchByNameDict[targetP1 + "_" + targetP2];
-            }
-
-            let fS1 = m.s1 !== null && m.s1 !== undefined ? m.s1 : "";
-            let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
-            let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId) || activeStatuses.has(dbIdNormalized);
-            let detectedRecapId = recapByMatchId[matchId] || recapByMatchId[dbId] || recapByMatchId[dbIdNormalized] || "";
-            let isKlaarVolgensLiveLijst = false;
-            let liveBoard = null;
-
-            if (actMatch) {
-                let isSwapped = false;
-                let mlAc = cleanNameForMatching(actMatch.ac || "");
-                if (targetP1 === mlAc) isSwapped = true;
-
-                if (actMatch.hs !== undefined && actMatch.as !== undefined) {
-                    fS1 = isSwapped ? actMatch.as : actMatch.hs;
-                    fS2 = isSwapped ? actMatch.hs : actMatch.as;
-                } else if (actMatch.ms) {
-                    const scoreParts = String(actMatch.ms).match(/(\d+)\s*[-–]\s*(\d+)/);
-                    if (scoreParts) {
-                        fS1 = isSwapped ? scoreParts[2] : scoreParts[1];
-                        fS2 = isSwapped ? scoreParts[1] : scoreParts[2];
-                    }
-                }
-
-                if (actMatch._is_active_now) isActive = true;
-                if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
-                if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
-                if (Array.isArray(actMatch.bn) && actMatch.bn.length > 0) liveBoard = actMatch.bn[0];
-                else if (actMatch.bn !== undefined && actMatch.bn !== null) liveBoard = actMatch.bn;
-            }
-
-            // Extra fallback voor DCTV live-board endpoints.
-            // Bij sommige competities is er wel een board live pagina, maar geen klassieke matchlist-record met bmi/mi.
-            // Dan zoeken we in de live/active/board JSON naar dezelfde twee spelers en hetzelfde bord.
-            const scoreMissing = (fS1 === "" || fS1 === null || fS1 === undefined || fS2 === "" || fS2 === null || fS2 === undefined);
-            if (scoreMissing) {
-                const fallbackScore = findLiveScoreFallback(p1Name, p2Name, liveBoard || m.bn || m.b || m.board || m.bd || "");
-                if (fallbackScore) {
-                    fS1 = fallbackScore.score1;
-                    fS2 = fallbackScore.score2;
-                    isActive = true;
-                    if (fallbackScore.board) liveBoard = fallbackScore.board;
-                }
-            }
-
-            // OPLOSSING VOOR HET VERDWIJN-MYSTERIE:
-            // DartConnect zet soms alvast 'fn = true' terwijl ze nog bezig zijn. Wij overschrijven dat met de keiharde waarheid!
-            let isFinished = (m.fn === true || isKlaarVolgensLiveLijst);
-            if (isActive) {
-                isFinished = false; 
-            }
-
             return {
                 id: matchId, 
-                db_id: dbId, 
+                db_id: m.id ? m.id.toString() : "", 
                 n: m.w || m.wn || m.n || m.next || m.winner_to, 
                 p1m: m.p1_from || m.p1m || m.m1, 
                 p2m: m.p2_from || m.p2m || m.m2, 
@@ -855,72 +357,20 @@ async function fetchMatchesForTournament(requestedTournament) {
                 raw_p2: m.p2 || m.d2, 
                 _bron_url: m._bron_url,
                 ronde: rondeNaam,
-                player1: p1Name,
-                player2: p2Name,
+                player1: getSpelerNaam(m.d1 || m.p1),
+                player2: getSpelerNaam(m.d2 || m.p2),
                 marker: markerNaam,
-                score1: fS1,
-                score2: fS2,
-                _is_active: isActive, 
-                _detected_recap_id: detectedRecapId,
-                recapUrl: detectedRecapId ? `https://recap.dartconnect.com/matches/${detectedRecapId}` : "",
-                board: liveBoard || m.bn || m.b || m.board || m.bd || "?",
+                score1: m.s1 !== null && m.s1 !== undefined ? m.s1 : "",
+                score2: m.s2 !== null && m.s2 !== undefined ? m.s2 : "",
+                board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
-                isFinished: isFinished,
+                isFinished: m.fn === true,
                 _bracket_type: m._bracket_type
             };
         });
 
         rawMatches = rawMatches.concat(dcConverted);
-
-        function isUnknownPlayerName(name) {
-            if (!name) return true;
-            const value = String(name).trim().toLowerCase();
-            return value === "onbekend" || value.startsWith("winnaar id") || value.startsWith("winner id") || value.startsWith("speler -1");
-        }
-
-        function addRawWinnersToMap() {
-            rawMatches.forEach(m => {
-                const id = normalizeBracketIdForMap(m.id || m.db_id);
-                if (!id || !m || !m.isFinished) return;
-                if (isUnknownPlayerName(m.player1) || isUnknownPlayerName(m.player2)) return;
-                const s1 = parseSmallScore(m.score1);
-                const s2 = parseSmallScore(m.score2);
-                if (s1 === null || s2 === null) return;
-                const left = parseInt(s1, 10);
-                const right = parseInt(s2, 10);
-                if (left === right) return;
-                addWinnerKey(id, left > right ? m.player1 : m.player2);
-            });
-        }
-
-        function resolveNextRoundNamesFromWinners() {
-            // Lost het DartConnect-probleem op waarbij een live/volgende ronde al score/bord heeft,
-            // maar de spelers in de bracket nog als leeg/placeholder staan. Voor 3-3 komen de winnaars
-            // bijvoorbeeld uit 2-5 en 2-6.
-            addRawWinnersToMap();
-            rawMatches.forEach(m => {
-                const id = normalizeBracketIdForMap(m.id || m.db_id);
-                const parts = id.match(/^(\d+)-(\d+)$/);
-                if (!parts) return;
-                const roundNr = parseInt(parts[1], 10);
-                const matchNr = parseInt(parts[2], 10);
-                if (!roundNr || roundNr <= 1 || !matchNr) return;
-
-                const prevRound = roundNr - 1;
-                const leftSource = `${prevRound}-${(matchNr * 2) - 1}`;
-                const rightSource = `${prevRound}-${matchNr * 2}`;
-
-                if (isUnknownPlayerName(m.player1) && winnerByMatchId[leftSource]) {
-                    m.player1 = winnerByMatchId[leftSource];
-                }
-                if (isUnknownPlayerName(m.player2) && winnerByMatchId[rightSource]) {
-                    m.player2 = winnerByMatchId[rightSource];
-                }
-            });
-        }
-
-        resolveNextRoundNamesFromWinners();
 
         let pouleIndelingen = {}; 
         rawMatches.forEach(m => {
@@ -943,19 +393,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         for (let match of eigenWedstrijden) {
-            let hasScores = (match.score1 !== "" && match.score2 !== "");
-            
-            // De ultieme bepaling of iets Gepland, Bezig of Gespeeld is
-            if (match._is_active) {
-                match.status = "bezig";
-            } else if (match.isFinished) {
-                match.status = "gespeeld";
-            } else if (hasScores) {
-                match.status = "bezig";
-            } else {
-                match.status = "gepland";
-            }
-
+            match.status = (match.isFinished || (match.score1 !== "" && match.score2 !== "")) ? "gespeeld" : "gepland";
             match.isMogelijk = false;
             
             let isSpeler = dartersLower.find(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d));
@@ -982,7 +420,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                         let body = `${ik} is ingedeeld in ${match.ronde} met: ${anderen.join(', ')}`;
                         
                         if (!isFirstRun && db.subscriptions.length > 0) {
-                            const payload = JSON.stringify({ title: titel, body: body, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
+                            const payload = JSON.stringify({ title: titel, body: body });
                             let activeSubs = [];
                             await Promise.all(db.subscriptions.map(async (sub) => {
                                 let wilHoren = false;
@@ -1035,9 +473,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                             if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
                             const payload = JSON.stringify({
                                 title: titel,
-                                body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`,
-                                icon: '/icon-192x192.png',
-                                badge: '/icon-192x192.png'
+                                body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`
                             });
                             
                             let activeSubs = [];
@@ -1072,23 +508,19 @@ async function fetchMatchesForTournament(requestedTournament) {
                 }
             }
 
-            match.recapId = match._detected_recap_id || match.recapId || "";
-
-            if ((match.status === "gespeeld" || match.status === "bezig") && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
-                const p1Clean = cleanNameForMatching(match.player1);
-                const p2Clean = cleanNameForMatching(match.player2);
+            if (match.status === "gespeeld" && isSpeler && alleRecaps.length > 0 && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
+                let p1Words = match.player1.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
+                let p2Words = match.player2.toLowerCase().split(/[ ,]+/).filter(w => w.length > 3);
+                if (p1Words.length === 0) p1Words = [match.player1.toLowerCase()];
+                if (p2Words.length === 0) p2Words = [match.player2.toLowerCase()];
 
                 let foundRecap = alleRecaps.find(r => {
-                    return (r.p1Clean === p1Clean && r.p2Clean === p2Clean) ||
-                           (r.p1Clean === p2Clean && r.p2Clean === p1Clean) ||
-                           (r.p1Clean.includes(p1Clean) && r.p2Clean.includes(p2Clean)) ||
-                           (r.p1Clean.includes(p2Clean) && r.p2Clean.includes(p1Clean));
+                    let p1ZitErin = p1Words.some(w => r.p1.includes(w) || r.p2.includes(w));
+                    let p2ZitErin = p2Words.some(w => r.p1.includes(w) || r.p2.includes(w));
+                    return p1ZitErin && p2ZitErin;
                 });
                 
-                if (foundRecap) {
-                    match.recapId = foundRecap.id;
-                    match.recapUrl = `https://recap.dartconnect.com/matches/${foundRecap.id}`;
-                }
+                if (foundRecap) match.recapId = foundRecap.id;
             }
 
             if (match.status === "gespeeld" && isSpeler) {
@@ -1106,20 +538,24 @@ async function fetchMatchesForTournament(requestedTournament) {
 
         if (nieuwGeplandCount > 0) writeDB(db);
 
+        // --- PDC PRO MOGELIJKE WEDSTRIJD ONDERZOEKER ---
         eigenWedstrijden.forEach(match => {
             let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
-            let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "bezig") || (match.status === "gespeeld" && match.resultaat === "win"));
+            let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "gespeeld" && match.resultaat === "win"));
 
             if (magDoor && match.id) {
                 let mogelijkeMatch = rawMatches.find(rm => {
                     if (rm._bron_url !== match._bron_url) return false;
+                    
                     if (match.n && rm.db_id == match.n) return true;
                     if (match.db_id && rm.p1m && rm.p1m == match.db_id) return true;
                     if (match.db_id && rm.p2m && rm.p2m == match.db_id) return true;
+
                     if (match.db_id) {
                         if (rm.raw_p1 === "W-" + match.db_id || rm.raw_p1 == match.db_id) return true;
                         if (rm.raw_p2 === "W-" + match.db_id || rm.raw_p2 == match.db_id) return true;
                     }
+                    
                     if (match.id.includes('-')) {
                         let parts = match.id.match(/^(\d+)-(\d+)$/);
                         if (parts && rm.id) {
@@ -1135,9 +571,11 @@ async function fetchMatchesForTournament(requestedTournament) {
                 });
 
                 if (mogelijkeMatch) {
-                    let isAlGeweest = mogelijkeMatch.isFinished === true;
+                    let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
                     let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
                     
+                    // --- GHOST MATCH PREVENTIE ---
+                    // Controleer of de speler al een 'echte' wedstrijd in deze ronde heeft
                     let heeftAlEchteMatchInDezeRonde = definitieveLijst.some(m => 
                         m.status !== "mogelijk" && 
                         m.ronde === mogelijkeMatch.ronde && 
@@ -1153,7 +591,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         });
 
         definitieveLijst.sort((a, b) => {
-            const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
+            const volgorde = { "gepland": 1, "mogelijk": 2, "gespeeld": 3 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
             let tijdA = (a.time && !["Onbekend", "Niet bekend", "Later"].includes(a.time)) ? a.time : "24:00";
@@ -1176,20 +614,8 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
-// --- DE SLIMME CACHE (MAX 10 SECONDEN OUD!) ---
-let matchCache = {};
-let cacheTimestamps = {};
-
 app.get('/api/matches', async (req, res) => {
-    const tName = req.query.tournament;
-    
-    if (matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
-        return res.json(matchCache[tName]);
-    }
-    
-    const list = await fetchMatchesForTournament(tName);
-    matchCache[tName] = list;
-    cacheTimestamps[tName] = Date.now();
+    const list = await fetchMatchesForTournament(req.query.tournament);
     res.json(list);
 });
 
@@ -1207,9 +633,7 @@ app.post('/api/admin/send-push', async (req, res) => {
 
     const payload = JSON.stringify({
         title: title || "🎯 DartApp Bericht",
-        body: body || "",
-        icon: '/icon-192x192.png',
-        badge: '/icon-192x192.png'
+        body: body || ""
     });
 
     let successCount = 0;
@@ -1245,9 +669,7 @@ app.get('/api/test-push', async (req, res) => {
 
     const payload = JSON.stringify({
         title: "🎯 Over 10 minuten de volgende wedstrijd",
-        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20",
-        icon: '/icon-192x192.png',
-        badge: '/icon-192x192.png'
+        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20"
     });
 
     let successCount = 0;
@@ -1267,16 +689,14 @@ async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
     
-    console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien en werkt de snelle cache bij...`);
+    console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien voor nieuwe wedstrijden...`);
     for (let t of db.tournaments) {
-        const nieuwLijstje = await fetchMatchesForTournament(t.name);
-        matchCache[t.name] = nieuwLijstje;
-        cacheTimestamps[t.name] = Date.now();
+        await fetchMatchesForTournament(t.name);
     }
     
     if (isFirstRun) {
         isFirstRun = false;
-        console.log("[HARTSLAG] Eerste run voltooid. Geheugen is vol, app is nu supersnel.");
+        console.log("[HARTSLAG] Eerste run voltooid. Vanaf nu worden er meldingen verstuurd.");
     }
 }
 
