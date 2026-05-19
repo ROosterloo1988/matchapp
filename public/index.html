@@ -166,7 +166,6 @@
                     <option value="2">👉 Poules + Hoofdschema (2 Links)</option>
                     <option value="3">👉 Poules + Winnaars + Verliezers (3 Links)</option>
                 </select>
-                <button class="btn-no" type="button" style="margin-bottom: 12px;" onclick="autoDetectTournamentParts()">🤖 Detecteer opzet automatisch</button>
 
                 <div id="user-dynamic-fields"></div>
 
@@ -348,28 +347,6 @@
         container.innerHTML = html;
     }
 
-    async function autoDetectTournamentParts() {
-        const firstUrl = document.querySelector('.user-t-url-input')?.value?.trim();
-        if (!firstUrl) return alert("Vul eerst minimaal 1 link in (met /event/...).");
-
-        try {
-            const res = await fetch('/api/detect-tournament-parts', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ url: firstUrl })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Detectie mislukt");
-
-            document.getElementById('user-t-format').value = String(data.suggestedFormat || 1);
-            updateUserTournamentFields();
-            alert(`Gedetecteerd: ${data.parts.join(', ') || 'onbekend'}.\nVoorstel ingevuld: optie ${data.suggestedFormat || 1}.`);
-        } catch (e) {
-            alert(`Kon opzet niet automatisch bepalen: ${e.message}`);
-        }
-    }
-
-    
     function selectTournament(name, pushUrl = true) {
         activeTournament = name;
         lastKnownScores = {}; // Reset de score-geheugenkaartjes als we switchen
