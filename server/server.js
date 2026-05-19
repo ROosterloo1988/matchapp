@@ -139,61 +139,51 @@ app.post('/api/user-add-tournament', async (req, res) => {
     res.json({ success: true });
 });
 
+// --- DE VERNIEUWDE SPELER PREVIEW (MET FALLBACK VOOR ONGEPLANDE TOERNOOIEN) ---
 app.post('/api/fetch-players-preview', async (req, res) => {
     const { url } = req.body;
+    let spelers = new Set();
+
+    function zoekNamen(obj) {
+        if (obj && typeof obj === 'object') {
+            if (obj.name) spelers.add(obj.name);
+            if (obj.full_name) spelers.add(obj.full_name); // Check voor de pre-draw API
+            Object.values(obj).forEach(val => zoekNamen(val));
+        }
+    }
+
     try {
-        let spelers = new Set();
-
-        function voegNaamToe(naam) {
-            if (!naam || typeof naam !== 'string') return;
-            const n = naam.trim();
-            if (n.length >= 2) spelers.add(n);
-        }
-
-        function zoekNamen(obj) {
-            if (obj && typeof obj === 'object') {
-                if (obj.name) voegNaamToe(obj.name);
-                if (obj.hc) voegNaamToe(obj.hc);
-                if (obj.ac) voegNaamToe(obj.ac);
-                if (obj.hcf) voegNaamToe(obj.hcf);
-                if (obj.acf) voegNaamToe(obj.acf);
-                if (obj.p1 && typeof obj.p1 === 'string') voegNaamToe(obj.p1);
-                if (obj.p2 && typeof obj.p2 === 'string') voegNaamToe(obj.p2); 
-                Object.values(obj).forEach(val => zoekNamen(val));
-            }
-        }
-
-        async function probeerUrl(u) {
-            try {
-                const r = await axios.post(u, {}).catch(() => axios.get(u));
-                const dataContainer = r.data?.payload || r.data || {};
-                zoekNamen(dataContainer);
-            } catch (_) {}
-        }
-
-        // 1) Originele bracket/poule URL
-        await probeerUrl(url);
-
-        // 2) Fallbacks op event-niveau (voor toernooien die nog niet gestart zijn)
-        const eventMatch = String(url).match(/\/event\/([^\/\?]+)/i);
-        if (eventMatch) {
-            const eventId = eventMatch[1];
-            const fallbackUrls = [
-                `https://tv.dartconnect.com/api/event/${eventId}`,
-                `https://tv.dartconnect.com/api/event/${eventId}/players`,
-                `https://tv.dartconnect.com/event/${eventId}/state/players?fetch_type=initial`,
-                `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`
-            ];
-
-            for (const u of fallbackUrls) {
-                if (spelers.size >= 8) break; // genoeg namen, niet onnodig doorvragen
-                await probeerUrl(u);
-            }
-        }
-        
-        res.json(Array.from(spelers));
+        const response = await axios.post(url, {});
+        let dataContainer = response.data.payload || response.data || {};
+        zoekNamen(dataContainer);
     } catch (e) {
-        res.status(500).json({ error: "Kon spelers niet ophalen" });
+        console.error("Fout bij ophalen spelers via standaard URL:", url);
+    }
+
+    // SLIM REDMIDDEL: Als er nog geen loting is (0 spelers gevonden)
+    if (spelers.size === 0 && url) {
+        // Haal het tournament id en event id uit de standaard bracket link
+        let match = url.match(/\/api\/event\/([^\/]+)\/(?:bracket|round-robin)\/(\d+)/i);
+        if (match) {
+            let tName = match[1];
+            let eId = match[2];
+            let fallbackUrl = `https://tv.dartconnect.com/api/event/${tName}/confirmation/${eId}/players`;
+            
+            try {
+                console.log("Geen loting gevonden. Fallback inschakelen:", fallbackUrl);
+                const fallbackResponse = await axios.post(fallbackUrl, {});
+                let fallbackData = fallbackResponse.data.payload || fallbackResponse.data || {};
+                zoekNamen(fallbackData);
+            } catch (err) {
+                console.error("Fout bij ophalen spelers via fallback URL:", fallbackUrl);
+            }
+        }
+    }
+
+    if (spelers.size > 0) {
+        res.json(Array.from(spelers));
+    } else {
+        res.status(500).json({ error: "Geen spelers gevonden. Controleer de URL of de status van het toernooi." });
     }
 });
 
@@ -236,6 +226,9 @@ async function fetchMatchesForTournament(requestedTournament) {
                     if (!obj || typeof obj !== 'object') return;
                     if (obj.name && (obj.dcid || obj.id || obj.player_id)) {
                         spelersDict[obj.dcid || obj.id || obj.player_id] = obj.name;
+                    }
+                    if (obj.full_name && (obj.dcid || obj.id || obj.player_id)) {
+                        spelersDict[obj.dcid || obj.id || obj.player_id] = obj.full_name; // Fallback integratie
                     }
                     Object.values(obj).forEach(val => bouwWoordenboek(val));
                 }
@@ -341,7 +334,6 @@ async function fetchMatchesForTournament(requestedTournament) {
         bracketUrls.forEach(bUrl => {
             let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
             if (eventMatch) {
-                // 🚀 SYNC VIA DE NIEUWE STATE API
                 mUrlsToFetch.add(`https://tv.dartconnect.com/event/${eventMatch[1]}/state/matches?fetch_type=initial`);
                 mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
             }
@@ -355,62 +347,32 @@ async function fetchMatchesForTournament(requestedTournament) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
                 if (mlRes.data) {
-                    // VERTAAL-FIX: Zet de nieuwe State API data om naar de universele structuur die de app verwacht
                     if (mlRes.data.matches_live || mlRes.data.matches_completed) {
                         if (mlRes.data.matches_completed) {
                             Object.entries(mlRes.data.matches_completed).forEach(([k, c]) => {
-                                let normalized = {
-                                    mi: c.mi || k,
-                                    hc: c.hc || c.p1,
-                                    ac: c.ac || c.p2,
-                                    hs: c.hs !== undefined ? c.hs : c.s1,
-                                    as: c.as !== undefined ? c.as : c.s2,
-                                    _is_completed_now: true,
-                                    // Bewaar de extra goudmijntjes:
-                                    sk: c.sk || "",
-                                    hp5: c.hp5 || "",
-                                    ap5: c.ap5 || "",
-                                    m: c.m || "",
-                                    hic: c.hic || "",
-                                    aic: c.aic || "",
-                                    bns: c.bns || ""
-                                };
-                                matchlistData.push(normalized);
+                                c._is_completed_now = true;
+                                if (!c.mi && !c.match_id) c.mi = k; 
+                                matchlistData.push(c);
                             });
                         }
                         if (mlRes.data.matches_live) {
                             Object.entries(mlRes.data.matches_live).forEach(([k, a]) => {
-                                let normalized = {
-                                    mi: a.mi || k,
-                                    hc: a.hc || a.p1,
-                                    ac: a.ac || a.p2,
-                                    hs: a.hs !== undefined ? a.hs : a.s1,
-                                    as: a.as !== undefined ? a.as : a.s2,
-                                    _is_active_now: true,
-                                    sk: a.sk || "",
-                                    hp5: a.hp5 || "",
-                                    ap5: a.ap5 || "",
-                                    m: a.m || "",
-                                    hic: a.hic || "",
-                                    aic: a.aic || "",
-                                    bns: a.bns || ""
-                                };
-                                matchlistData.push(normalized);
+                                a._is_active_now = true;
+                                if (!a.mi && !a.match_id) a.mi = k;
+                                matchlistData.push(a);
                             });
                         }
                     } 
                     else if (mlRes.data.payload) {
                         if (mlRes.data.payload.completed) {
-                            mlRes.data.payload.completed.forEach(c => {
-                                c._is_completed_now = true;
-                                matchlistData.push(c);
-                            });
+                            let compArr = mlRes.data.payload.completed;
+                            compArr.forEach(c => c._is_completed_now = true); 
+                            matchlistData = matchlistData.concat(compArr);
                         }
                         if (mlRes.data.payload.active) {
-                            mlRes.data.payload.active.forEach(a => {
-                                a._is_active_now = true;
-                                matchlistData.push(a);
-                            });
+                            let activeArr = mlRes.data.payload.active;
+                            activeArr.forEach(a => a._is_active_now = true); 
+                            matchlistData = matchlistData.concat(activeArr);
                         }
                     } 
                     else if (Array.isArray(mlRes.data)) {
@@ -555,7 +517,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             let detectedWatchId = ""; 
             let isKlaarVolgensLiveLijst = false;
 
-            // Extra velden initialiseren
             let avg1 = "";
             let avg2 = "";
             let writer = markerNaam; 
@@ -564,8 +525,9 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             if (actMatch) {
                 let isSwapped = false;
-                let mlAc = cleanNameForMatching(actMatch.ac || actMatch.p2 || "");
-                if (targetP1 === mlAc) isSwapped = true;
+                let liveP1Name = actMatch.hc || actMatch.p1 || "";
+                let mlAc = cleanNameForMatching(liveP1Name);
+                if (targetP1 !== mlAc) isSwapped = true;
 
                 let s1Val = actMatch.hs !== undefined ? actMatch.hs : actMatch.s1;
                 let s2Val = actMatch.as !== undefined ? actMatch.as : actMatch.s2;
@@ -581,7 +543,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 
                 detectedWatchId = actMatch.sk || actMatch.tk || actMatch.tv || actMatch.spectatorKey || actMatch.key || "";
                 
-                // DATA EXTRAHEREN UIT DE GEVONDEN STATE API FORMAT:
                 avg1 = isSwapped ? (actMatch.ap5 || "") : (actMatch.hp5 || "");
                 avg2 = isSwapped ? (actMatch.hp5 || "") : (actMatch.ap5 || "");
                 if (actMatch.m) writer = actMatch.m;
@@ -628,7 +589,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                 _bracket_type: m._bracket_type,
                 _tree_round_nr: m._tree_round_nr,
                 _tree_match_nr: m._tree_match_nr,
-                // DOORGEVEN NAAR FRONTEND:
                 avg1: avg1,
                 avg2: avg2,
                 writer: writer,
@@ -815,7 +775,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             if (match.status === "gespeeld" && isSpeler) {
                 const isP1 = match.player1.toLowerCase().includes(isSpeler);
-                const parseScore = (s) => (s === 'W') ? 99 : ((s === 'X' || s === 'F') ? -1 : parseInt(s) || 0);
+                const parseScore = (s) => (s === 'W' || s === 99) ? 99 : ((s === 'X' || s === 'F' || s === -1) ? -1 : parseInt(s) || 0);
                 const s1 = parseScore(match.score1);
                 const s2 = parseScore(match.score2);
                 match.resultaat = (isP1 && s1 > s2) || (!isP1 && s2 > s1) ? "win" : "verlies";
@@ -857,7 +817,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                             let volgendeRonde = parseInt(parts[1]) + 1;
                             let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
                             let rmParts = rm.id.match(/^(\d+)-(\d+)$/);
-                            if (rmParts && parseInt(rmParts[1]) === siguiendoRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
+                            if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
                                 return true;
                             }
                         }
@@ -1006,7 +966,7 @@ app.get('/api/test-push', async (req, res) => {
 
     const payload = JSON.stringify({
         title: "🎯 Over 10 minuten de volgende wedstrijd",
-        body: "Paul Krohne tegen Heine Uuldriks\\nBord: 201 | Tijd: 14:20",
+        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20",
         icon: '/icon-192x192.png',
         badge: '/icon-192x192.png'
     });
