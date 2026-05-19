@@ -142,17 +142,55 @@ app.post('/api/user-add-tournament', async (req, res) => {
 app.post('/api/fetch-players-preview', async (req, res) => {
     const { url } = req.body;
     try {
-        const response = await axios.post(url, {});
-        let dataContainer = response.data.payload || response.data || {};
         let spelers = new Set();
+
+        function voegNaamToe(naam) {
+            if (!naam || typeof naam !== 'string') return;
+            const n = naam.trim();
+            if (n.length >= 2) spelers.add(n);
+        }
 
         function zoekNamen(obj) {
             if (obj && typeof obj === 'object') {
-                if (obj.name) spelers.add(obj.name);
+                if (obj.name) voegNaamToe(obj.name);
+                if (obj.hc) voegNaamToe(obj.hc);
+                if (obj.ac) voegNaamToe(obj.ac);
+                if (obj.hcf) voegNaamToe(obj.hcf);
+                if (obj.acf) voegNaamToe(obj.acf);
+                if (obj.p1 && typeof obj.p1 === 'string') voegNaamToe(obj.p1);
+                if (obj.p2 && typeof obj.p2 === 'string') voegNaamToe(obj.p2); 
                 Object.values(obj).forEach(val => zoekNamen(val));
             }
         }
-        zoekNamen(dataContainer);
+
+        async function probeerUrl(u) {
+            try {
+                const r = await axios.post(u, {}).catch(() => axios.get(u));
+                const dataContainer = r.data?.payload || r.data || {};
+                zoekNamen(dataContainer);
+            } catch (_) {}
+        }
+
+        // 1) Originele bracket/poule URL
+        await probeerUrl(url);
+
+        // 2) Fallbacks op event-niveau (voor toernooien die nog niet gestart zijn)
+        const eventMatch = String(url).match(/\/event\/([^\/\?]+)/i);
+        if (eventMatch) {
+            const eventId = eventMatch[1];
+            const fallbackUrls = [
+                `https://tv.dartconnect.com/api/event/${eventId}`,
+                `https://tv.dartconnect.com/api/event/${eventId}/players`,
+                `https://tv.dartconnect.com/event/${eventId}/state/players?fetch_type=initial`,
+                `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`
+            ];
+
+            for (const u of fallbackUrls) {
+                if (spelers.size >= 8) break; // genoeg namen, niet onnodig doorvragen
+                await probeerUrl(u);
+            }
+        }
+        
         res.json(Array.from(spelers));
     } catch (e) {
         res.status(500).json({ error: "Kon spelers niet ophalen" });
