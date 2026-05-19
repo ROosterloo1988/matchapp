@@ -176,7 +176,6 @@ app.post('/api/fetch-players-preview', async (req, res) => {
 
         // 2) Fallbacks op event-niveau (voor toernooien die nog niet gestart zijn)
         const eventMatch = String(url).match(/\/event\/([^\/\?]+)/i);
-        const eventNumericMatch = String(url).match(/\/(?:groups|brackets|bracket)\/(\d+)(?:[\/\?]|$)/i);
         if (eventMatch) {
             const eventId = eventMatch[1];
             const fallbackUrls = [
@@ -185,11 +184,6 @@ app.post('/api/fetch-players-preview', async (req, res) => {
                 `https://tv.dartconnect.com/event/${eventId}/state/players?fetch_type=initial`,
                 `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`
             ];
-            if (eventNumericMatch) {
-                fallbackUrls.unshift(
-                    `https://tv.dartconnect.com/api/event/${eventId}/confirmation/${eventNumericMatch[1]}/players`
-                );
-            }
 
             for (const u of fallbackUrls) {
                 if (spelers.size >= 8) break; // genoeg namen, niet onnodig doorvragen
