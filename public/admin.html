@@ -93,9 +93,8 @@
     <select id="d-player-select">
         <option value="">Kies deelnemende speler...</option>
     </select>
-    <input type="text" id="d-name" placeholder="Naam Darter (exact zoals in DartConnect)">
     <button class="add-btn" onclick="addDarterFromList()">Toevoegen geselecteerde speler</button>
-    <button class="add-btn" onclick="addDarter()">Toevoegen aan toernooi</button>
+    
 
     <button class="save-btn" onclick="saveSettings()">💾 Alles Opslaan</button>
 
@@ -325,17 +324,6 @@
 
         if (nieuweNaam && nieuweNaam.trim() !== "") {
             db.tournaments[tIndex].darters[dIndex] = nieuweNaam.trim();
-            renderDarters();
-            saveSettings(true);
-        }
-    }
-
-    function addDarter() {
-        const tIndex = document.getElementById('d-toernooi-select').value;
-        const name = document.getElementById('d-name').value;
-        if (tIndex !== "" && name) {
-            db.tournaments[tIndex].darters.push(name);
-            document.getElementById('d-name').value = '';
             renderDarters();
             saveSettings(true);
         }
