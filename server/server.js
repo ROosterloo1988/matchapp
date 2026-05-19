@@ -303,6 +303,9 @@ async function fetchMatchesForTournament(requestedTournament) {
         bracketUrls.forEach(bUrl => {
             let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
             if (eventMatch) {
+                // 🚀 DE NIEUWE SUPERSNELLE API (Die we samen vonden!)
+                mUrlsToFetch.add(`https://tv.dartconnect.com/event/${eventMatch[1]}/state/matches?fetch_type=initial`);
+                // En we gooien de oude er veilig achteraan als backup:
                 mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
             }
         });
@@ -314,19 +317,41 @@ async function fetchMatchesForTournament(requestedTournament) {
         for (let mUrl of Array.from(mUrlsToFetch)) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
-                if (mlRes.data && mlRes.data.payload) {
-                    if (mlRes.data.payload.completed) {
-                        let compArr = mlRes.data.payload.completed;
-                        compArr.forEach(c => c._is_completed_now = true); 
-                        matchlistData = matchlistData.concat(compArr);
+                if (mlRes.data) {
+                    // Check voor de NIEUWE State API
+                    if (mlRes.data.matches_live || mlRes.data.matches_completed) {
+                        if (mlRes.data.matches_completed) {
+                            Object.entries(mlRes.data.matches_completed).forEach(([k, c]) => {
+                                c._is_completed_now = true;
+                                if (!c.mi && !c.match_id) c.mi = k; 
+                                matchlistData.push(c);
+                            });
+                        }
+                        if (mlRes.data.matches_live) {
+                            Object.entries(mlRes.data.matches_live).forEach(([k, a]) => {
+                                a._is_active_now = true;
+                                if (!a.mi && !a.match_id) a.mi = k;
+                                matchlistData.push(a);
+                            });
+                        }
+                    } 
+                    // Check voor de OUDE API format
+                    else if (mlRes.data.payload) {
+                        if (mlRes.data.payload.completed) {
+                            let compArr = mlRes.data.payload.completed;
+                            compArr.forEach(c => c._is_completed_now = true); 
+                            matchlistData = matchlistData.concat(compArr);
+                        }
+                        if (mlRes.data.payload.active) {
+                            let activeArr = mlRes.data.payload.active;
+                            activeArr.forEach(a => a._is_active_now = true); 
+                            matchlistData = matchlistData.concat(activeArr);
+                        }
+                    } 
+                    // Algemene Array Fallback
+                    else if (Array.isArray(mlRes.data)) {
+                        matchlistData = matchlistData.concat(mlRes.data);
                     }
-                    if (mlRes.data.payload.active) {
-                        let activeArr = mlRes.data.payload.active;
-                        activeArr.forEach(a => a._is_active_now = true); 
-                        matchlistData = matchlistData.concat(activeArr);
-                    }
-                } else if (Array.isArray(mlRes.data)) {
-                    matchlistData = matchlistData.concat(mlRes.data);
                 }
             } catch(e) { console.error("Fout bij ophalen Auto-Matchlist URL:", mUrl); }
         }
@@ -342,7 +367,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             return String(str).toLowerCase()
                 .normalize("NFD")
                 .replace(/[\u0300-\u036f]/g, "")
-                .replace(/[^a-z0-9\s]/g, "")
+                .replace(/[^a-z0-9\s]/g, "") 
                 .split(/\s+/)
                 .filter(w => w.length > 0)
                 .sort()
@@ -458,7 +483,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             let fS2 = m.s2 !== null && m.s2 !== undefined ? m.s2 : "";
             let isActive = activeStatuses.has(matchId) || activeStatuses.has(dbId);
             let detectedRecapId = "";
-            let detectedWatchId = ""; // NIEUW: Houdt de 5-letterige TV-code vast
+            let detectedWatchId = ""; 
             let isKlaarVolgensLiveLijst = false;
 
             if (actMatch) {
@@ -475,7 +500,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
                 if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
                 
-                // NIEUW: Vang het Tablet-ID. DartConnect gebruikt hier vaak sk, tk of key voor!
+                // 📡 Vang het Tablet-ID uit de nieuwe API!
                 detectedWatchId = actMatch.sk || actMatch.tk || actMatch.tv || actMatch.spectatorKey || actMatch.key || "";
             }
 
@@ -504,12 +529,12 @@ async function fetchMatchesForTournament(requestedTournament) {
                 score2: fS2,
                 _is_active: isActive, 
                 _detected_recap_id: detectedRecapId,
-                watchId: detectedWatchId, // <--- VOEG DEZE REGEL TOE!
+                watchId: detectedWatchId, // Nu klaar voor Live TV links!
                 board: m.bn || m.b || m.board || m.bd || "?",
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
                 isFinished: isFinished,
-                isBye: m.by === true,
+                isBye: m.by === true, 
                 _bracket_type: m._bracket_type,
                 _tree_round_nr: m._tree_round_nr,
                 _tree_match_nr: m._tree_match_nr
@@ -535,7 +560,6 @@ async function fetchMatchesForTournament(requestedTournament) {
         let nieuwGeplandCount = 0;
 
         let eigenWedstrijden = rawMatches.filter(match => {
-            // DE FIX: Verberg alle Byes/Vrijloten van het scherm
             if (match.isBye) return false;
             return dartersLower.some(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d) || (match.marker && match.marker.toLowerCase().includes(d)));
         });
@@ -663,7 +687,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             match.recapId = match._detected_recap_id || "";
 
-            // DE FIX: Als het een Walkover is, mag hij nooit op zoek gaan naar een recap!
             let isWalkover = (match.score1 === 'W' || match.score1 === 'X' || match.score1 === 'F' || match.score2 === 'W' || match.score2 === 'X' || match.score2 === 'F');
 
             if (isWalkover) {
@@ -764,6 +787,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
+        // --- JOUW PERFECTE SORTERING (INTACT GEHOUDEN) ---
         definitieveLijst.sort((a, b) => {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
@@ -783,20 +807,15 @@ async function fetchMatchesForTournament(requestedTournament) {
             let rA = a._tree_round_nr || (a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0);
             let rB = b._tree_round_nr || (b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0);
 
-            // --- DE SLIMME DAG-DETECTOR ---
-            // Als het een vroege partij is (< 12:00) in een late ronde (Ronde 5+), is het Dag 2 (of na middernacht)!
             if (tA < 12 && rA >= 5) tA += 24;
             if (tB < 12 && rB >= 5) tB += 24;
 
-            // --- JOUW GENIALE TIJDLIJN-WISKUNDE ---
             let timelineIdxA = (tA * 100) + (rA * 10);
             let timelineIdxB = (tB * 100) + (rB * 10);
 
             if (a.status === "gespeeld") {
-                // Gespeeld: Laatst gespeelde partij bovenaan (hoogste waarde eerst)
                 return (timelineIdxB - timelineIdxA) || ((parseInt(b.board) || 999) - (parseInt(a.board) || 999));
             } else {
-                // Gepland/Mogelijk/Bezig: Eerstvolgende partij bovenaan (laagste waarde eerst)
                 return (timelineIdxA - timelineIdxB) || ((parseInt(a.board) || 999) - (parseInt(b.board) || 999));
             }
         });
@@ -899,7 +918,6 @@ async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
     
-    console.log(`[HARTSLAG] Checkt ${db.tournaments.length} toernooien en werkt de snelle cache bij...`);
     for (let t of db.tournaments) {
         const nieuwLijstje = await fetchMatchesForTournament(t.name);
         matchCache[t.name] = nieuwLijstje;
