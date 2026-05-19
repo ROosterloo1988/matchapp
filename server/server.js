@@ -926,7 +926,7 @@ app.post('/api/admin/send-push', async (req, res) => {
 
     for (let sub of db.subscriptions) {
         try {
-            await webpush.setNotification(sub, payload);
+            await webpush.sendNotification(sub, payload);
             successCount++;
             actieveAbonnees.push(sub); 
         } catch (err) {
