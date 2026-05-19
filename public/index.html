@@ -224,15 +224,24 @@
         container.innerHTML = "Laden...";
 
         try {
-            const [response, validResponse] = await Promise.all([
+            const [publicResult, validResult] = await Promise.allSettled([
                 fetch('/api/tournaments?_t=' + Date.now()),
                 fetch('/api/tournaments/valid?_t=' + Date.now())
             ]);
+        
+            let publicNames = [];
+            let allValidNames = [];
 
-            if (!response.ok || !validResponse.ok) throw new Error("Server error");
-            
-            let publicNames = await response.json();
-            let allValidNames = await validResponse.json();
+            if (publicResult.status === "fulfilled" && publicResult.value.ok) {
+                publicNames = await publicResult.value.json();
+            }
+            if (validResult.status === "fulfilled" && validResult.value.ok) {
+                allValidNames = await validResult.value.json();
+            }
+            if (allValidNames.length === 0) {
+                allValidNames = [...publicNames];
+            }
+            if (publicNames.length === 0 && allValidNames.length === 0) throw new Error("Server error");
 
             let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
             let origineleLengte = myHidden.length;
@@ -270,6 +279,7 @@
             }
         } catch (e) {
             container.innerHTML = "<div class='no-matches'>Kan niet verbinden met de server. Probeer het over een minuutje nog eens!</div>";
+            renderAddButton();
         }
     }
 
