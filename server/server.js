@@ -24,7 +24,7 @@ app.use('/admin.html', (req, res, next) => {
     }
 
     res.set('WWW-Authenticate', 'Basic realm="Admin Area"');
-    res.status(401).send('Inloggen verest voor beheer.');
+    res.status(401).send('Inloggen vereist voor beheer.');
 });
 
 app.use(express.static(path.join(__dirname, '../public')));
@@ -303,7 +303,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         bracketUrls.forEach(bUrl => {
             let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
             if (eventMatch) {
-                // 🚀 SYNC VIA DE NIEUWE STATE API
+                // 🚀 VANG DATA IN VIA ZOWEL DE NIEUWE STATE AS OUDE API
                 mUrlsToFetch.add(`https://tv.dartconnect.com/event/${eventMatch[1]}/state/matches?fetch_type=initial`);
                 mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
             }
@@ -317,62 +317,32 @@ async function fetchMatchesForTournament(requestedTournament) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
                 if (mlRes.data) {
-                    // VERTAAL-FIX: Zet de nieuwe State API data om naar de universele structuur die de app verwacht
                     if (mlRes.data.matches_live || mlRes.data.matches_completed) {
                         if (mlRes.data.matches_completed) {
                             Object.entries(mlRes.data.matches_completed).forEach(([k, c]) => {
-                                let normalized = {
-                                    mi: c.mi || k,
-                                    hc: c.hc || c.p1,
-                                    ac: c.ac || c.p2,
-                                    hs: c.hs !== undefined ? c.hs : c.s1,
-                                    as: c.as !== undefined ? c.as : c.s2,
-                                    _is_completed_now: true,
-                                    // Bewaar de extra goudmijntjes:
-                                    sk: c.sk || "",
-                                    hp5: c.hp5 || "",
-                                    ap5: c.ap5 || "",
-                                    m: c.m || "",
-                                    hic: c.hic || "",
-                                    aic: c.aic || "",
-                                    bns: c.bns || ""
-                                };
-                                matchlistData.push(normalized);
+                                c._is_completed_now = true;
+                                if (!c.mi && !c.match_id) c.mi = k; 
+                                matchlistData.push(c);
                             });
                         }
                         if (mlRes.data.matches_live) {
                             Object.entries(mlRes.data.matches_live).forEach(([k, a]) => {
-                                let normalized = {
-                                    mi: a.mi || k,
-                                    hc: a.hc || a.p1,
-                                    ac: a.ac || a.p2,
-                                    hs: a.hs !== undefined ? a.hs : a.s1,
-                                    as: a.as !== undefined ? a.as : a.s2,
-                                    _is_active_now: true,
-                                    sk: a.sk || "",
-                                    hp5: a.hp5 || "",
-                                    ap5: a.ap5 || "",
-                                    m: a.m || "",
-                                    hic: a.hic || "",
-                                    aic: a.aic || "",
-                                    bns: a.bns || ""
-                                };
-                                matchlistData.push(normalized);
+                                a._is_active_now = true;
+                                if (!a.mi && !a.match_id) a.mi = k;
+                                matchlistData.push(a);
                             });
                         }
                     } 
                     else if (mlRes.data.payload) {
                         if (mlRes.data.payload.completed) {
-                            mlRes.data.payload.completed.forEach(c => {
-                                c._is_completed_now = true;
-                                matchlistData.push(c);
-                            });
+                            let compArr = mlRes.data.payload.completed;
+                            compArr.forEach(c => c._is_completed_now = true); 
+                            matchlistData = matchlistData.concat(compArr);
                         }
                         if (mlRes.data.payload.active) {
-                            mlRes.data.payload.active.forEach(a => {
-                                a._is_active_now = true;
-                                matchlistData.push(a);
-                            });
+                            let activeArr = mlRes.data.payload.active;
+                            activeArr.forEach(a => a._is_active_now = true); 
+                            matchlistData = matchlistData.concat(activeArr);
                         }
                     } 
                     else if (Array.isArray(mlRes.data)) {
@@ -401,6 +371,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         matchlistData.forEach(match => {
+            // Check op de mogelijke varianten van namen uit beide API's
             let p1Name = match.hc || match.p1;
             let p2Name = match.ac || match.p2;
 
@@ -517,7 +488,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             let detectedWatchId = ""; 
             let isKlaarVolgensLiveLijst = false;
 
-            // Extra velden initialiseren
+            // Extra velden initialiseren voor upgrades
             let avg1 = "";
             let avg2 = "";
             let writer = markerNaam; 
@@ -526,13 +497,16 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             if (actMatch) {
                 let isSwapped = false;
-                let mlAc = cleanNameForMatching(actMatch.hc || actMatch.p1 || "");
-                if (targetP1 === mlAc) isSwapped = true;
+                // Pak de live naam (uit hc/p1) om te controleren of de volgorde is omgegooid
+                let liveP1Name = actMatch.hc || actMatch.p1 || "";
+                let mlAc = cleanNameForMatching(liveP1Name);
+                if (targetP1 !== mlAc) isSwapped = true; // Winnaar-omwisseling gedetecteerd!
 
                 let s1Val = actMatch.hs !== undefined ? actMatch.hs : actMatch.s1;
                 let s2Val = actMatch.as !== undefined ? actMatch.as : actMatch.s2;
 
                 if (s1Val !== undefined && s1Val !== null && s2Val !== undefined && s2Val !== null) {
+                    // SLIMME FIX: Koppel de scores terug aan de juiste speler op basis van de swap!
                     fS1 = isSwapped ? s2Val : s1Val;
                     fS2 = isSwapped ? s1Val : s2Val;
                 }
@@ -543,7 +517,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 
                 detectedWatchId = actMatch.sk || actMatch.tk || actMatch.tv || actMatch.spectatorKey || actMatch.key || "";
                 
-                // DATA EXTRAHEREN UIT DE GEVONDEN STATE API FORMAT:
+                // DATA EXTRAHEREN EN RECHTSTREEKS KOPPELEN AAN DE JUISTE SPELER:
                 avg1 = isSwapped ? (actMatch.ap5 || "") : (actMatch.hp5 || "");
                 avg2 = isSwapped ? (actMatch.hp5 || "") : (actMatch.ap5 || "");
                 if (actMatch.m) writer = actMatch.m;
@@ -590,7 +564,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                 _bracket_type: m._bracket_type,
                 _tree_round_nr: m._tree_round_nr,
                 _tree_match_nr: m._tree_match_nr,
-                // DOORGEVEN NAAR FRONTEND:
+                // EXTRA DATA DOORGEVEN NAAR FRONTEND:
                 avg1: avg1,
                 avg2: avg2,
                 writer: writer,
@@ -745,8 +719,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             match.recapId = match._detected_recap_id || "";
 
-            let isWalkover = (match.score1 === 'W' || match.score1 === 'X' || match.score1 === 'F' || match.score2 === 'W' || match.score2 === 'X' || match.score2 === 'F');
-
             if (isWalkover) {
                 match.recapId = ""; 
             } else if (!match.recapId && (match.status === "gespeeld" || match.status === "bezig") && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
@@ -777,7 +749,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             if (match.status === "gespeeld" && isSpeler) {
                 const isP1 = match.player1.toLowerCase().includes(isSpeler);
-                const parseScore = (s) => (s === 'W') ? 99 : ((s === 'X' || s === 'F') ? -1 : parseInt(s) || 0);
+                const parseScore = (s) => (s === 'W' || s === 99) ? 99 : ((s === 'X' || s === 'F' || s === -1) ? -1 : parseInt(s) || 0);
                 const s1 = parseScore(match.score1);
                 const s2 = parseScore(match.score2);
                 match.resultaat = (isP1 && s1 > s2) || (!isP1 && s2 > s1) ? "win" : "verlies";
@@ -819,7 +791,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                             let volgendeRonde = parseInt(parts[1]) + 1;
                             let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
                             let rmParts = rm.id.match(/^(\d+)-(\d+)$/);
-                            if (rmParts && parseInt(rmParts[1]) === siguiendoRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
+                            if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
                                 return true;
                             }
                         }
@@ -845,7 +817,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        // --- JOUW ORIGINELE PERFECTE TIJDLIJN SORTERING ---
+        // JOUW ORIGINELE PERFECTE TIJDLIJN SORTERING
         definitieveLijst.sort((a, b) => {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
@@ -926,7 +898,7 @@ app.post('/api/admin/send-push', async (req, res) => {
 
     for (let sub of db.subscriptions) {
         try {
-            await webpush.setNotification(sub, payload);
+            await webpush.sendNotification(sub, payload);
             successCount++;
             actieveAbonnees.push(sub); 
         } catch (err) {
@@ -954,7 +926,7 @@ app.get('/api/test-push', async (req, res) => {
 
     const payload = JSON.stringify({
         title: "🎯 Over 10 minuten de volgende wedstrijd",
-        body: "Paul Krohne tegen Heine Uuldriks\\nBord: 201 | Tijd: 14:20",
+        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20",
         icon: '/icon-192x192.png',
         badge: '/icon-192x192.png'
     });
@@ -980,11 +952,6 @@ async function runHeartbeat() {
         const nieuwLijstje = await fetchMatchesForTournament(t.name);
         matchCache[t.name] = nieuwLijstje;
         cacheTimestamps[t.name] = Date.now();
-    }
-    
-    if (isFirstRun) {
-        isFirstRun = false;
-        console.log("[HARTSLAG] Eerste run voltooid. Geheugen is vol, app is nu supersnel.");
     }
 }
 
