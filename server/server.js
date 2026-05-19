@@ -24,7 +24,7 @@ app.use('/admin.html', (req, res, next) => {
     }
 
     res.set('WWW-Authenticate', 'Basic realm="Admin Area"');
-    res.status(401).send('Inloggen vereist voor beheer.');
+    res.status(401).send('Inloggen verest voor beheer.');
 });
 
 app.use(express.static(path.join(__dirname, '../public')));
@@ -303,9 +303,8 @@ async function fetchMatchesForTournament(requestedTournament) {
         bracketUrls.forEach(bUrl => {
             let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
             if (eventMatch) {
-                // 🚀 DE NIEUWE SUPERSNELLE API (Die we samen vonden!)
+                // 🚀 SYNC VIA DE NIEUWE STATE API
                 mUrlsToFetch.add(`https://tv.dartconnect.com/event/${eventMatch[1]}/state/matches?fetch_type=initial`);
-                // En we gooien de oude er veilig achteraan als backup:
                 mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
             }
         });
@@ -318,37 +317,64 @@ async function fetchMatchesForTournament(requestedTournament) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
                 if (mlRes.data) {
-                    // Check voor de NIEUWE State API
+                    // VERTAAL-FIX: Zet de nieuwe State API data om naar de universele structuur die de app verwacht
                     if (mlRes.data.matches_live || mlRes.data.matches_completed) {
                         if (mlRes.data.matches_completed) {
                             Object.entries(mlRes.data.matches_completed).forEach(([k, c]) => {
-                                c._is_completed_now = true;
-                                if (!c.mi && !c.match_id) c.mi = k; 
-                                matchlistData.push(c);
+                                let normalized = {
+                                    mi: c.mi || k,
+                                    hc: c.hc || c.p1,
+                                    ac: c.ac || c.p2,
+                                    hs: c.hs !== undefined ? c.hs : c.s1,
+                                    as: c.as !== undefined ? c.as : c.s2,
+                                    _is_completed_now: true,
+                                    // Bewaar de extra goudmijntjes:
+                                    sk: c.sk || "",
+                                    hp5: c.hp5 || "",
+                                    ap5: c.ap5 || "",
+                                    m: c.m || "",
+                                    hic: c.hic || "",
+                                    aic: c.aic || "",
+                                    bns: c.bns || ""
+                                };
+                                matchlistData.push(normalized);
                             });
                         }
                         if (mlRes.data.matches_live) {
                             Object.entries(mlRes.data.matches_live).forEach(([k, a]) => {
+                                let normalized = {
+                                    mi: a.mi || k,
+                                    hc: a.hc || a.p1,
+                                    ac: a.ac || a.p2,
+                                    hs: a.hs !== undefined ? a.hs : a.s1,
+                                    as: a.as !== undefined ? a.as : a.s2,
+                                    _is_active_now: true,
+                                    sk: a.sk || "",
+                                    hp5: a.hp5 || "",
+                                    ap5: a.ap5 || "",
+                                    m: a.m || "",
+                                    hic: a.hic || "",
+                                    aic: a.aic || "",
+                                    bns: a.bns || ""
+                                };
+                                matchlistData.push(normalized);
+                            });
+                        }
+                    } 
+                    else if (mlRes.data.payload) {
+                        if (mlRes.data.payload.completed) {
+                            mlRes.data.payload.completed.forEach(c => {
+                                c._is_completed_now = true;
+                                matchlistData.push(c);
+                            });
+                        }
+                        if (mlRes.data.payload.active) {
+                            mlRes.data.payload.active.forEach(a => {
                                 a._is_active_now = true;
-                                if (!a.mi && !a.match_id) a.mi = k;
                                 matchlistData.push(a);
                             });
                         }
                     } 
-                    // Check voor de OUDE API format
-                    else if (mlRes.data.payload) {
-                        if (mlRes.data.payload.completed) {
-                            let compArr = mlRes.data.payload.completed;
-                            compArr.forEach(c => c._is_completed_now = true); 
-                            matchlistData = matchlistData.concat(compArr);
-                        }
-                        if (mlRes.data.payload.active) {
-                            let activeArr = mlRes.data.payload.active;
-                            activeArr.forEach(a => a._is_active_now = true); 
-                            matchlistData = matchlistData.concat(activeArr);
-                        }
-                    } 
-                    // Algemene Array Fallback
                     else if (Array.isArray(mlRes.data)) {
                         matchlistData = matchlistData.concat(mlRes.data);
                     }
@@ -367,7 +393,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             return String(str).toLowerCase()
                 .normalize("NFD")
                 .replace(/[\u0300-\u036f]/g, "")
-                .replace(/[^a-z0-9\s]/g, "") 
+                .replace(/[^a-z0-9\s]/g, "")
                 .split(/\s+/)
                 .filter(w => w.length > 0)
                 .sort()
@@ -375,17 +401,20 @@ async function fetchMatchesForTournament(requestedTournament) {
         }
 
         matchlistData.forEach(match => {
-            if (match.mi && match.hc && match.ac) {
-                alleRecaps.push({ id: match.mi.toString(), p1: match.hc, p2: match.ac });
+            let p1Name = match.hc || match.p1;
+            let p2Name = match.ac || match.p2;
+
+            if (match.mi && p1Name && p2Name) {
+                alleRecaps.push({ id: match.mi.toString(), p1: p1Name, p2: p2Name });
             }
             
             if (match.mi) {
                 liveMatchDict[match.mi.toString()] = match;
             }
 
-            if (match.hc && match.ac) {
-                let cleanP1 = cleanNameForMatching(match.hc);
-                let cleanP2 = cleanNameForMatching(match.ac);
+            if (p1Name && p2Name) {
+                let cleanP1 = cleanNameForMatching(p1Name);
+                let cleanP2 = cleanNameForMatching(p2Name);
                 liveMatchByNameDict[cleanP1 + "_" + cleanP2] = match;
                 liveMatchByNameDict[cleanP2 + "_" + cleanP1] = match; 
             }
@@ -395,8 +424,10 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
 
             mogelijkeIds.forEach(pId => {
-                if (match.hs !== undefined && match.hs !== null && match.as !== undefined && match.as !== null) {
-                    activeScores[pId] = { hs: match.hs, as: match.as };
+                let s1Val = match.hs !== undefined ? match.hs : match.s1;
+                let s2Val = match.as !== undefined ? match.as : match.s2;
+                if (s1Val !== undefined && s1Val !== null && s2Val !== undefined && s2Val !== null) {
+                    activeScores[pId] = { hs: s1Val, as: s2Val };
                 }
                 if (match._is_active_now) {
                     activeStatuses.add(pId);
@@ -486,22 +517,38 @@ async function fetchMatchesForTournament(requestedTournament) {
             let detectedWatchId = ""; 
             let isKlaarVolgensLiveLijst = false;
 
+            // Extra velden initialiseren
+            let avg1 = "";
+            let avg2 = "";
+            let writer = markerNaam; 
+            let country1 = "";
+            let country2 = "";
+
             if (actMatch) {
                 let isSwapped = false;
-                let mlAc = cleanNameForMatching(actMatch.ac || "");
+                let mlAc = cleanNameForMatching(actMatch.hc || actMatch.p1 || "");
                 if (targetP1 === mlAc) isSwapped = true;
 
-                if (actMatch.hs !== undefined && actMatch.hs !== null && actMatch.as !== undefined && actMatch.as !== null) {
-                    fS1 = isSwapped ? actMatch.as : actMatch.hs;
-                    fS2 = isSwapped ? actMatch.hs : actMatch.as;
+                let s1Val = actMatch.hs !== undefined ? actMatch.hs : actMatch.s1;
+                let s2Val = actMatch.as !== undefined ? actMatch.as : actMatch.s2;
+
+                if (s1Val !== undefined && s1Val !== null && s2Val !== undefined && s2Val !== null) {
+                    fS1 = isSwapped ? s2Val : s1Val;
+                    fS2 = isSwapped ? s1Val : s2Val;
                 }
                 
                 if (actMatch._is_active_now) isActive = true;
                 if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
                 if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
                 
-                // 📡 Vang het Tablet-ID uit de nieuwe API!
                 detectedWatchId = actMatch.sk || actMatch.tk || actMatch.tv || actMatch.spectatorKey || actMatch.key || "";
+                
+                // DATA EXTRAHEREN UIT DE GEVONDEN STATE API FORMAT:
+                avg1 = isSwapped ? (actMatch.ap5 || "") : (actMatch.hp5 || "");
+                avg2 = isSwapped ? (actMatch.hp5 || "") : (actMatch.ap5 || "");
+                if (actMatch.m) writer = actMatch.m;
+                country1 = isSwapped ? (actMatch.aic || "") : (actMatch.hic || "");
+                country2 = isSwapped ? (actMatch.hic || "") : (actMatch.aic || "");
             }
 
             let isFinished = (m.fn === true || isKlaarVolgensLiveLijst);
@@ -511,6 +558,11 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             if (fS1 === null || fS1 === "null") fS1 = "";
             if (fS2 === null || fS2 === "null") fS2 = "";
+
+            let finalBoard = m.bn || m.b || m.board || m.bd || "?";
+            if ((finalBoard === "?" || !finalBoard) && actMatch && actMatch.bns) {
+                finalBoard = actMatch.bns.toString();
+            }
 
             return {
                 id: matchId, 
@@ -529,15 +581,21 @@ async function fetchMatchesForTournament(requestedTournament) {
                 score2: fS2,
                 _is_active: isActive, 
                 _detected_recap_id: detectedRecapId,
-                watchId: detectedWatchId, // Nu klaar voor Live TV links!
-                board: m.bn || m.b || m.board || m.bd || "?",
+                watchId: detectedWatchId,
+                board: finalBoard,
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
                 isFinished: isFinished,
                 isBye: m.by === true, 
                 _bracket_type: m._bracket_type,
                 _tree_round_nr: m._tree_round_nr,
-                _tree_match_nr: m._tree_match_nr
+                _tree_match_nr: m._tree_match_nr,
+                // DOORGEVEN NAAR FRONTEND:
+                avg1: avg1,
+                avg2: avg2,
+                writer: writer,
+                country1: country1,
+                country2: country2
             };
         });
 
@@ -761,7 +819,7 @@ async function fetchMatchesForTournament(requestedTournament) {
                             let volgendeRonde = parseInt(parts[1]) + 1;
                             let volgendeMatchNr = Math.ceil(parseInt(parts[2]) / 2); 
                             let rmParts = rm.id.match(/^(\d+)-(\d+)$/);
-                            if (rmParts && parseInt(rmParts[1]) === volgendeRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
+                            if (rmParts && parseInt(rmParts[1]) === siguiendoRonde && parseInt(rmParts[2]) === volgendeMatchNr) {
                                 return true;
                             }
                         }
@@ -787,7 +845,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        // --- JOUW PERFECTE SORTERING (INTACT GEHOUDEN) ---
+        // --- JOUW ORIGINELE PERFECTE TIJDLIJN SORTERING ---
         definitieveLijst.sort((a, b) => {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
@@ -868,12 +926,12 @@ app.post('/api/admin/send-push', async (req, res) => {
 
     for (let sub of db.subscriptions) {
         try {
-            await webpush.sendNotification(sub, payload);
+            await webpush.setNotification(sub, payload);
             successCount++;
             actieveAbonnees.push(sub); 
         } catch (err) {
             if (err.statusCode === 410 || err.statusCode === 404) {
-                console.log('App verwijderd door een gebruiker.');
+                console.log('App verwerkt door een gebruiker.');
             } else {
                 actieveAbonnees.push(sub);
             }
@@ -896,7 +954,7 @@ app.get('/api/test-push', async (req, res) => {
 
     const payload = JSON.stringify({
         title: "🎯 Over 10 minuten de volgende wedstrijd",
-        body: "Paul Krohne tegen Heine Uuldriks\nBord: 201 | Tijd: 14:20",
+        body: "Paul Krohne tegen Heine Uuldriks\\nBord: 201 | Tijd: 14:20",
         icon: '/icon-192x192.png',
         badge: '/icon-192x192.png'
     });
