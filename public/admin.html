@@ -90,7 +90,11 @@
     <h2>2. Darters per Toernooi</h2>
     <select id="d-toernooi-select"></select>
     <div id="darters-list" class="item-list"></div>
+    <select id="d-player-select">
+        <option value="">Kies deelnemende speler...</option>
+    </select>
     <input type="text" id="d-name" placeholder="Naam Darter (exact zoals in DartConnect)">
+    <button class="add-btn" onclick="addDarterFromList()">Toevoegen geselecteerde speler</button>
     <button class="add-btn" onclick="addDarter()">Toevoegen aan toernooi</button>
 
     <button class="save-btn" onclick="saveSettings()">💾 Alles Opslaan</button>
@@ -250,8 +254,49 @@
     function renderTournamentDropdown() {
         const select = document.getElementById('d-toernooi-select');
         select.innerHTML = db.tournaments.map((t, i) => `<option value="${i}">${t.name}</option>`).join('');
-        select.onchange = renderDarters;
+        select.onchange = () => {
+            renderDarters();
+            loadTournamentPlayersForAdmin();
+        };
         renderDarters();
+        loadTournamentPlayersForAdmin();
+    }
+
+    async function loadTournamentPlayersForAdmin() {
+        const tIndex = document.getElementById('d-toernooi-select').value;
+        const playerSelect = document.getElementById('d-player-select');
+        playerSelect.innerHTML = `<option value="">Spelers laden...</option>`;
+        if (tIndex === "") return;
+
+        const tournament = db.tournaments[tIndex];
+        const firstUrl = (tournament?.url || "").split(',')[0]?.trim();
+        if (!firstUrl) {
+            playerSelect.innerHTML = `<option value="">Geen bracket-link gevonden</option>`;
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/fetch-players-preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: firstUrl })
+            });
+            const allNames = await res.json();
+            const singlePlayers = new Set();
+            allNames.forEach(n => {
+                if (n.includes(' & ')) n.split(' & ').forEach(p => singlePlayers.add(p.trim()));
+                else singlePlayers.add(n.trim());
+            });
+            const selected = new Set((tournament.darters || []).map(d => d.toLowerCase()));
+            const options = Array.from(singlePlayers)
+                .filter(Boolean)
+                .sort((a, b) => a.localeCompare(b))
+                .map(p => `<option value="${p}" ${selected.has(p.toLowerCase()) ? 'disabled' : ''}>${p}${selected.has(p.toLowerCase()) ? ' (al toegevoegd)' : ''}</option>`)
+                .join('');
+            playerSelect.innerHTML = `<option value="">Kies deelnemende speler...</option>${options}`;
+        } catch (e) {
+            playerSelect.innerHTML = `<option value="">Kon spelers niet laden</option>`;
+        }
     }
 
     function renderDarters() {
@@ -296,6 +341,22 @@
         }
     }
 
+    function addDarterFromList() {
+        const tIndex = document.getElementById('d-toernooi-select').value;
+        const playerSelect = document.getElementById('d-player-select');
+        const name = playerSelect.value;
+        if (tIndex === "" || !name) return;
+        const current = db.tournaments[tIndex].darters || [];
+        if (!current.some(d => d.toLowerCase() === name.toLowerCase())) {
+            current.push(name);
+            db.tournaments[tIndex].darters = current;
+            renderDarters();
+            loadTournamentPlayersForAdmin();
+            saveSettings(true);
+        }
+    }
+
+    
     function removeDarter(tIndex, dIndex) {
         db.tournaments[tIndex].darters.splice(dIndex, 1);
         renderDarters();
