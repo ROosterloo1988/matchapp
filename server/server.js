@@ -883,13 +883,30 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        // --- JOUW ORIGINELE PERFECTE TIJDLIJN SORTERING ---
+        // --- JOUW ORIGINELE PERFECTE TIJDLIJN SORTERING (MET SLIMME NOODREM) ---
         definitieveLijst.sort((a, b) => {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
+            let rA = a._tree_round_nr || (a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0);
+            let rB = b._tree_round_nr || (b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0);
+
+            // Controleer of de wedstrijden wel echt een bekende tijd hebben
+            let hasTimeA = a.time && !["Onbekend", "Niet bekend", "Later", "?"].includes(a.time);
+            let hasTimeB = b.time && !["Onbekend", "Niet bekend", "Later", "?"].includes(b.time);
+
+            // --- DE SLIMME NOODREM ---
+            // Als minimaal één van de twee géén tijd heeft, is de Ronde de baas!
+            // Zo voorkom je dat een eerdere ronde zonder tijd, onder een latere ronde mét tijd valt.
+            if (!hasTimeA || !hasTimeB) {
+                if (rA !== rB) {
+                    return a.status === "gespeeld" ? (rB - rA) : (rA - rB);
+                }
+            }
+
+            // --- JOUW TIJDLIJN-WISKUNDE (Voor als ze wél allebei een tijd hebben!) ---
             const getNumericTime = (timeStr) => {
-                if (!timeStr || ["Onbekend", "Niet bekend", "Later"].includes(timeStr)) return 24;
+                if (!timeStr || ["Onbekend", "Niet bekend", "Later", "?"].includes(timeStr)) return 24;
                 let parts = timeStr.split(':');
                 if (parts.length === 2) {
                     return parseInt(parts[0], 10) + (parseInt(parts[1], 10) / 60);
@@ -899,9 +916,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             let tA = getNumericTime(a.time);
             let tB = getNumericTime(b.time);
-            
-            let rA = a._tree_round_nr || (a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0);
-            let rB = b._tree_round_nr || (b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0);
 
             if (tA < 12 && rA >= 5) tA += 24;
             if (tB < 12 && rB >= 5) tB += 24;
