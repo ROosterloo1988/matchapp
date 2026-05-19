@@ -550,7 +550,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
                 avg1 = isSwapped ? awayAvg : homeAvg;
                 avg2 = isSwapped ? homeAvg : awayAvg;
-;
+
                 if (actMatch.m) writer = actMatch.m;
                 country1 = isSwapped ? (actMatch.aic || "") : (actMatch.hic || "");
                 country2 = isSwapped ? (actMatch.hic || "") : (actMatch.aic || "");
