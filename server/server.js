@@ -303,9 +303,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         bracketUrls.forEach(bUrl => {
             let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
             if (eventMatch) {
-                // 🚀 DE NIEUWE SUPERSNELLE API (Die we samen vonden!)
                 mUrlsToFetch.add(`https://tv.dartconnect.com/event/${eventMatch[1]}/state/matches?fetch_type=initial`);
-                // En we gooien de oude er veilig achteraan als backup:
                 mUrlsToFetch.add(`https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`);
             }
         });
@@ -318,7 +316,6 @@ async function fetchMatchesForTournament(requestedTournament) {
             try {
                 let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
                 if (mlRes.data) {
-                    // Check voor de NIEUWE State API
                     if (mlRes.data.matches_live || mlRes.data.matches_completed) {
                         if (mlRes.data.matches_completed) {
                             Object.entries(mlRes.data.matches_completed).forEach(([k, c]) => {
@@ -335,7 +332,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                             });
                         }
                     } 
-                    // Check voor de OUDE API format
                     else if (mlRes.data.payload) {
                         if (mlRes.data.payload.completed) {
                             let compArr = mlRes.data.payload.completed;
@@ -348,7 +344,6 @@ async function fetchMatchesForTournament(requestedTournament) {
                             matchlistData = matchlistData.concat(activeArr);
                         }
                     } 
-                    // Algemene Array Fallback
                     else if (Array.isArray(mlRes.data)) {
                         matchlistData = matchlistData.concat(mlRes.data);
                     }
@@ -485,6 +480,13 @@ async function fetchMatchesForTournament(requestedTournament) {
             let detectedRecapId = "";
             let detectedWatchId = ""; 
             let isKlaarVolgensLiveLijst = false;
+            
+            // NIEUWE GOUDMYNTJES INITIALISEREN:
+            let avg1 = "";
+            let avg2 = "";
+            let writer = markerNaam; 
+            let country1 = "";
+            let country2 = "";
 
             if (actMatch) {
                 let isSwapped = false;
@@ -500,8 +502,14 @@ async function fetchMatchesForTournament(requestedTournament) {
                 if (actMatch._is_completed_now) isKlaarVolgensLiveLijst = true;
                 if (actMatch.mi) detectedRecapId = actMatch.mi.toString();
                 
-                // 📡 Vang het Tablet-ID uit de nieuwe API!
                 detectedWatchId = actMatch.sk || actMatch.tk || actMatch.tv || actMatch.spectatorKey || actMatch.key || "";
+                
+                // DATA_DUMP EXTRACTIE:
+                avg1 = isSwapped ? (actMatch.ap5 || "") : (actMatch.hp5 || "");
+                avg2 = isSwapped ? (actMatch.hp5 || "") : (actMatch.ap5 || "");
+                if (actMatch.m) writer = actMatch.m;
+                country1 = isSwapped ? (actMatch.aic || "") : (actMatch.hic || "");
+                country2 = isSwapped ? (actMatch.hic || "") : (actMatch.aic || "");
             }
 
             let isFinished = (m.fn === true || isKlaarVolgensLiveLijst);
@@ -511,6 +519,12 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             if (fS1 === null || fS1 === "null") fS1 = "";
             if (fS2 === null || fS2 === "null") fS2 = "";
+
+            // Bepaal harde bordnummer (gebruik bns uit state API als bn leeg is)
+            let finalBoard = m.bn || m.b || m.board || m.bd || "?";
+            if ((finalBoard === "?" || !finalBoard) && actMatch && actMatch.bns) {
+                finalBoard = actMatch.bns.toString();
+            }
 
             return {
                 id: matchId, 
@@ -529,15 +543,21 @@ async function fetchMatchesForTournament(requestedTournament) {
                 score2: fS2,
                 _is_active: isActive, 
                 _detected_recap_id: detectedRecapId,
-                watchId: detectedWatchId, // Nu klaar voor Live TV links!
-                board: m.bn || m.b || m.board || m.bd || "?",
+                watchId: detectedWatchId,
+                board: finalBoard,
                 time: m.tm || m.t || m.time || m.st || "Niet bekend",
                 toernooi: tournament.name,
                 isFinished: isFinished,
                 isBye: m.by === true, 
                 _bracket_type: m._bracket_type,
                 _tree_round_nr: m._tree_round_nr,
-                _tree_match_nr: m._tree_match_nr
+                _tree_match_nr: m._tree_match_nr,
+                // DOORGEVEN NAAR FRONTEND:
+                avg1: avg1,
+                avg2: avg2,
+                writer: writer,
+                country1: country1,
+                country2: country2
             };
         });
 
@@ -687,8 +707,6 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             match.recapId = match._detected_recap_id || "";
 
-            let isWalkover = (match.score1 === 'W' || match.score1 === 'X' || match.score1 === 'F' || match.score2 === 'W' || match.score2 === 'X' || match.score2 === 'F');
-
             if (isWalkover) {
                 match.recapId = ""; 
             } else if (!match.recapId && (match.status === "gespeeld" || match.status === "bezig") && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
@@ -787,7 +805,7 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        // --- JOUW PERFECTE SORTERING (INTACT GEHOUDEN) ---
+        // JOUW PERFECTE SORTERING
         definitieveLijst.sort((a, b) => {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
