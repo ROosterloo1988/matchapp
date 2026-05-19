@@ -153,12 +153,22 @@ app.post('/api/fetch-players-preview', async (req, res) => {
         function zoekNamen(obj) {
             if (obj && typeof obj === 'object') {
                 if (obj.name) voegNaamToe(obj.name);
+                if (obj.full_name) voegNaamToe(obj.full_name);
+                if (obj.player_name) voegNaamToe(obj.player_name);
+                if (obj.display_name) voegNaamToe(obj.display_name);
+                if (obj.competitor_name) voegNaamToe(obj.competitor_name);
                 if (obj.hc) voegNaamToe(obj.hc);
                 if (obj.ac) voegNaamToe(obj.ac);
                 if (obj.hcf) voegNaamToe(obj.hcf);
                 if (obj.acf) voegNaamToe(obj.acf);
                 if (obj.p1 && typeof obj.p1 === 'string') voegNaamToe(obj.p1);
-                if (obj.p2 && typeof obj.p2 === 'string') voegNaamToe(obj.p2); 
+                if (obj.p2 && typeof obj.p2 === 'string') voegNaamToe(obj.p2);
+                if (obj.first_name || obj.last_name) {
+                    voegNaamToe(`${obj.first_name || ""} ${obj.last_name || ""}`.trim());
+                }
+                if (obj.firstname || obj.lastname) {
+                    voegNaamToe(`${obj.firstname || ""} ${obj.lastname || ""}`.trim());
+                } 
                 Object.values(obj).forEach(val => zoekNamen(val));
             }
         }
@@ -176,6 +186,7 @@ app.post('/api/fetch-players-preview', async (req, res) => {
 
         // 2) Fallbacks op event-niveau (voor toernooien die nog niet gestart zijn)
         const eventMatch = String(url).match(/\/event\/([^\/\?]+)/i);
+        const eventNumericMatch = String(url).match(/\/(?:groups|brackets|bracket)\/(\d+)(?:[\/\?]|$)/i);
         if (eventMatch) {
             const eventId = eventMatch[1];
             const fallbackUrls = [
@@ -184,6 +195,11 @@ app.post('/api/fetch-players-preview', async (req, res) => {
                 `https://tv.dartconnect.com/event/${eventId}/state/players?fetch_type=initial`,
                 `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`
             ];
+            if (eventNumericMatch) {
+                fallbackUrls.unshift(
+                    `https://tv.dartconnect.com/api/event/${eventId}/confirmation/${eventNumericMatch[1]}/players`
+                );
+            }
 
             for (const u of fallbackUrls) {
                 if (spelers.size >= 8) break; // genoeg namen, niet onnodig doorvragen
