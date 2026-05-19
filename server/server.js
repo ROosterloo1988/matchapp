@@ -145,52 +145,58 @@ app.post('/api/fetch-players-preview', async (req, res) => {
     try {
         let spelers = new Set();
 
-        function voegNaamToe(naam) {
-            if (!naam || typeof naam !== 'string') return;
+        function isWaarschijnlijkeSpelerNaam(naam) {
+            if (!naam || typeof naam !== 'string') return false;
 
-            let n = naam
-                .replace(/\s+/g, ' ')
-                .trim();
+            const n = naam.replace(/\s+/g, ' ').trim();
 
-            // Rommel eruit filteren
-            if (n.length < 2) return;
-            if (/^(ok|player|players|round robin|winner|consolation|ko)$/i.test(n)) return;
-            if (/^https?:\/\//i.test(n)) return;
+            if (n.length < 3 || n.length > 80) return false;
+            if (/^\d{1,2}:\d{2}$/.test(n)) return false;          // tijd
+            if (/^\d+$/.test(n)) return false;                    // alleen nummer
+            if (/^https?:\/\//i.test(n)) return false;
+            if (/[{}[\]<>]/.test(n)) return false;
 
-            spelers.add(n);
+            const blacklist = [
+                'player', 'players', 'round robin', 'winner', 'winners',
+                'consolation', 'ko', 'knockout', 'registration',
+                'confirmation', 'event', 'board', 'time', 'status',
+                'scheduled', 'completed', 'active', 'live'
+            ];
+
+            if (blacklist.includes(n.toLowerCase())) return false;
+
+            // DartConnect namen zijn vaak "Achternaam, Voornaam"
+            if (/^[^,]{2,},\s*[^,]{2,}$/.test(n)) return true;
+
+            // Of minimaal twee woorden zonder cijfers
+            if (!/\d/.test(n) && n.split(/\s+/).length >= 2) return true;
+
+            return false;
         }
 
-        function zoekNamen(obj) {
+        function voegNaamToe(naam) {
+            if (!isWaarschijnlijkeSpelerNaam(naam)) return;
+            spelers.add(naam.replace(/\s+/g, ' ').trim());
+        }
+
+        function zoekNamenVeilig(obj) {
             if (!obj) return;
 
-            // Als de API direct een array strings teruggeeft
-            if (typeof obj === 'string') {
-                // Alleen strings die echt op namen lijken
-                if (obj.includes(',') || obj.split(/\s+/).length >= 2) {
-                    voegNaamToe(obj);
-                }
-                return;
-            }
-
             if (Array.isArray(obj)) {
-                obj.forEach(item => zoekNamen(item));
+                obj.forEach(item => zoekNamenVeilig(item));
                 return;
             }
 
             if (typeof obj !== 'object') return;
 
-            // Veelvoorkomende naamvelden
-            const directNameFields = [
+            // Alleen velden die echt naamvelden zijn.
+            const nameFields = [
                 'name',
                 'player_name',
                 'member_name',
                 'full_name',
                 'display_name',
                 'formatted_name',
-                'opponent',
-                'label',
-                'text',
-                'title',
                 'dc_name',
                 'hcf',
                 'acf',
@@ -198,7 +204,7 @@ app.post('/api/fetch-players-preview', async (req, res) => {
                 'ac'
             ];
 
-            directNameFields.forEach(key => {
+            nameFields.forEach(key => {
                 if (typeof obj[key] === 'string') {
                     voegNaamToe(obj[key]);
                 }
@@ -224,36 +230,43 @@ app.post('/api/fetch-players-preview', async (req, res) => {
                 voegNaamToe(`${last}, ${first}`);
             }
 
-            // Soms zit naam in nested player/member/user object
-            ['player', 'member', 'user', 'person', 'participant'].forEach(key => {
-                if (obj[key]) zoekNamen(obj[key]);
-            });
-
-            // Oude matchvelden
+            // Oude matchvelden alleen als ze strings zijn
             if (obj.p1 && typeof obj.p1 === 'string') voegNaamToe(obj.p1);
             if (obj.p2 && typeof obj.p2 === 'string') voegNaamToe(obj.p2);
 
-            // Recursief alles doorzoeken
-            Object.values(obj).forEach(val => zoekNamen(val));
+            Object.values(obj).forEach(val => zoekNamenVeilig(val));
         }
 
         async function probeerUrl(u) {
             try {
                 console.log(`[PLAYERS] Probeer: ${u}`);
 
-                const r = await axios.post(u, {}, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0',
-                        'Accept': 'application/json, text/plain, */*',
-                        'Content-Type': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'Referer': 'https://tv.dartconnect.com/'
-                    },
-                    timeout: 20000
-                }).catch(async postErr => {
-                    console.log(`[PLAYERS] POST faalde, probeer GET: ${u} (${postErr.message})`);
+                let r;
 
-                    return axios.get(u, {
+                // Confirmation players API is POST
+                if (/\/api\/event\/[^/]+\/confirmation\/\d+\/players/i.test(u)) {
+                    r = await axios.post(u, {}, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0',
+                            'Accept': 'application/json, text/plain, */*',
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Referer': 'https://tv.dartconnect.com/'
+                        },
+                        timeout: 20000
+                    });
+                } else {
+                    // Oude gedrag: eerst POST, dan GET
+                    r = await axios.post(u, {}, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0',
+                            'Accept': 'application/json, text/plain, */*',
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Referer': 'https://tv.dartconnect.com/'
+                        },
+                        timeout: 20000
+                    }).catch(() => axios.get(u, {
                         headers: {
                             'User-Agent': 'Mozilla/5.0',
                             'Accept': 'application/json, text/plain, */*',
@@ -261,70 +274,63 @@ app.post('/api/fetch-players-preview', async (req, res) => {
                             'Referer': 'https://tv.dartconnect.com/'
                         },
                         timeout: 20000
-                    });
-                });
+                    }));
+                }
 
                 const dataContainer = r.data?.payload || r.data || {};
+                zoekNamenVeilig(dataContainer);
 
-                console.log(`[PLAYERS] Status OK: ${u}`);
-                console.log(`[PLAYERS] Top-level keys:`, typeof dataContainer === 'object' ? Object.keys(dataContainer) : typeof dataContainer);
-
-                zoekNamen(dataContainer);
+                console.log(`[PLAYERS] Gevonden tot nu toe: ${spelers.size}`);
             } catch (e) {
-                console.error(`[PLAYERS] Fout bij ${u}:`, e.message);
+                console.error(`[PLAYERS] Fout bij ${u}: ${e.message}`);
             }
         }
 
-        // 1) Originele URL proberen
-        await probeerUrl(url);
+        const urlString = String(url || '');
 
-        const urlString = String(url);
+        // 1. Originele URL altijd eerst proberen
+        await probeerUrl(urlString);
 
-        // Herken zowel pagina-URL als API-URL:
-        // /event/oranjebarsuper52e06/confirmation
-        // /api/event/oranjebarsuper52e06/confirmation/192955/players
-        const eventMatch = urlString.match(/\/event\/([^\/\?]+)/i);
+        // 2. Alleen fallbacks als er nog niets gevonden is
+        if (spelers.size === 0) {
+            const eventMatch = urlString.match(/\/event\/([^\/\?]+)/i);
 
-        // BELANGRIJKE FIX:
-        // confirmation/192955 nu ook herkennen
-        const eventNumericMatch = urlString.match(
-            /\/(?:groups|brackets|bracket|confirmation|round-robin)\/(\d+)(?:[\/\?]|$)/i
-        );
-
-        if (eventMatch) {
-            const eventId = eventMatch[1];
-
-            const fallbackUrls = [];
-
-            if (eventNumericMatch) {
-                fallbackUrls.push(
-                    `https://tv.dartconnect.com/api/event/${eventId}/confirmation/${eventNumericMatch[1]}/players`
-                );
-            }
-
-            // Voor jouw huidige event expliciet als fallback
-            if (eventId === 'oranjebarsuper52e06') {
-                fallbackUrls.push(
-                    `https://tv.dartconnect.com/api/event/${eventId}/confirmation/192955/players`
-                );
-            }
-
-            fallbackUrls.push(
-                `https://tv.dartconnect.com/api/event/${eventId}/unconfirmed-players`,
-                `https://tv.dartconnect.com/api/event/${eventId}/entries`,
-                `https://tv.dartconnect.com/event/${eventId}/state/players?fetch_type=initial`,
-                `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`
+            const eventNumericMatch = urlString.match(
+                /\/(?:groups|brackets|bracket|confirmation|round-robin)\/(\d+)(?:[\/\?]|$)/i
             );
 
-            for (const u of fallbackUrls) {
-                if (spelers.size >= 8) break;
-                await probeerUrl(u);
+            if (eventMatch) {
+                const eventId = eventMatch[1];
+                const fallbackUrls = [];
+
+                if (eventNumericMatch) {
+                    fallbackUrls.push(
+                        `https://tv.dartconnect.com/api/event/${eventId}/confirmation/${eventNumericMatch[1]}/players`
+                    );
+                }
+
+                // Specifiek voor dit event, omdat Round Robin event-id 192955 is
+                if (eventId === 'oranjebarsuper52e06') {
+                    fallbackUrls.push(
+                        `https://tv.dartconnect.com/api/event/${eventId}/confirmation/192955/players`
+                    );
+                }
+
+                // Oude fallbacks pas daarna
+                fallbackUrls.push(
+                    `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`
+                );
+
+                for (const u of fallbackUrls) {
+                    if (spelers.size > 0) break;
+                    await probeerUrl(u);
+                }
             }
         }
 
         const lijst = Array.from(spelers).sort((a, b) => a.localeCompare(b, 'nl'));
-        console.log(`[PLAYERS] Gevonden spelers: ${lijst.length}`);
 
+        console.log(`[PLAYERS] Eindresultaat: ${lijst.length} spelers`);
         res.json(lijst);
     } catch (e) {
         console.error('[PLAYERS] Algemene fout:', e);
