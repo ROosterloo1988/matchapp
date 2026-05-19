@@ -526,7 +526,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             if (actMatch) {
                 let isSwapped = false;
-                let mlAc = cleanNameForMatching(actMatch.hc || actMatch.p1 || "");
+                let mlAc = cleanNameForMatching(actMatch.ac || actMatch.p2 || "");
                 if (targetP1 === mlAc) isSwapped = true;
 
                 let s1Val = actMatch.hs !== undefined ? actMatch.hs : actMatch.s1;
