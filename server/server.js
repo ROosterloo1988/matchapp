@@ -1003,3 +1003,4 @@ async function runHeartbeat() {
 runHeartbeat();
 setInterval(runHeartbeat, 60000);
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
+
