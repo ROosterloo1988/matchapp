@@ -401,9 +401,18 @@
             if (!response.ok) throw new Error("Server error");
             const allMatches = await response.json();
             const container = document.getElementById('matches-container');
+            const veiligeMatches = Array.isArray(allMatches) ? allMatches.filter(m => m && typeof m === 'object') : [];
             
-            let matches = allMatches;
-            if (currentFilter !== 'alles') matches = allMatches.filter(m => m.status === currentFilter);
+            let matches = veiligeMatches.map(m => {
+                if (!m.status) {
+                    const hasScores = (m.score1 !== "" && m.score1 !== null && m.score1 !== undefined) &&
+                                      (m.score2 !== "" && m.score2 !== null && m.score2 !== undefined);
+                    const isLive = m._is_active === true;
+                    return { ...m, status: isLive ? "bezig" : (hasScores ? "gespeeld" : "gepland") };
+                }
+                return m;
+            });
+            if (currentFilter !== 'alles') matches = matches.filter(m => m.status === currentFilter);
             if (matches.length === 0) { 
                 container.innerHTML = `<div class='no-matches'>Geen wedstrijden gevonden voor dit filter.</div>`;
                 return; 
@@ -414,8 +423,9 @@
             const titels = { "bezig": "🔴 Nu op de borden (Live)", "gepland": "⚡ Geplande Wedstrijden", "mogelijk": "🔮 Mogelijke Volgende Ronde", "gespeeld": "✅ Gespeelde Wedstrijden" };
             
             matches.forEach(match => {
-                if (match.status !== huidigeStatus) {
-                    huidigeStatus = match.status;
+                const veiligeStatus = titels[match.status] ? match.status : "gepland";
+                if (veiligeStatus !== huidigeStatus) {
+                    huidigeStatus = veiligeStatus;
                     htmlString += `<div class="section-title">${titels[huidigeStatus]}</div>`;
                 }
 
