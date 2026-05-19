@@ -141,64 +141,193 @@ app.post('/api/user-add-tournament', async (req, res) => {
 
 app.post('/api/fetch-players-preview', async (req, res) => {
     const { url } = req.body;
+
     try {
         let spelers = new Set();
 
         function voegNaamToe(naam) {
             if (!naam || typeof naam !== 'string') return;
-            const n = naam.trim();
-            if (n.length >= 2) spelers.add(n);
+
+            let n = naam
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            // Rommel eruit filteren
+            if (n.length < 2) return;
+            if (/^(ok|player|players|round robin|winner|consolation|ko)$/i.test(n)) return;
+            if (/^https?:\/\//i.test(n)) return;
+
+            spelers.add(n);
         }
 
         function zoekNamen(obj) {
-            if (obj && typeof obj === 'object') {
-                if (obj.name) voegNaamToe(obj.name);
-                if (obj.hc) voegNaamToe(obj.hc);
-                if (obj.ac) voegNaamToe(obj.ac);
-                if (obj.hcf) voegNaamToe(obj.hcf);
-                if (obj.acf) voegNaamToe(obj.acf);
-                if (obj.p1 && typeof obj.p1 === 'string') voegNaamToe(obj.p1);
-                if (obj.p2 && typeof obj.p2 === 'string') voegNaamToe(obj.p2); 
-                Object.values(obj).forEach(val => zoekNamen(val));
+            if (!obj) return;
+
+            // Als de API direct een array strings teruggeeft
+            if (typeof obj === 'string') {
+                // Alleen strings die echt op namen lijken
+                if (obj.includes(',') || obj.split(/\s+/).length >= 2) {
+                    voegNaamToe(obj);
+                }
+                return;
             }
+
+            if (Array.isArray(obj)) {
+                obj.forEach(item => zoekNamen(item));
+                return;
+            }
+
+            if (typeof obj !== 'object') return;
+
+            // Veelvoorkomende naamvelden
+            const directNameFields = [
+                'name',
+                'player_name',
+                'member_name',
+                'full_name',
+                'display_name',
+                'formatted_name',
+                'opponent',
+                'label',
+                'text',
+                'title',
+                'dc_name',
+                'hcf',
+                'acf',
+                'hc',
+                'ac'
+            ];
+
+            directNameFields.forEach(key => {
+                if (typeof obj[key] === 'string') {
+                    voegNaamToe(obj[key]);
+                }
+            });
+
+            // Voornaam + achternaam combinaties
+            const first =
+                obj.first_name ||
+                obj.firstname ||
+                obj.firstName ||
+                obj.given_name ||
+                obj.givenName;
+
+            const last =
+                obj.last_name ||
+                obj.lastname ||
+                obj.lastName ||
+                obj.family_name ||
+                obj.familyName ||
+                obj.surname;
+
+            if (first && last) {
+                voegNaamToe(`${last}, ${first}`);
+            }
+
+            // Soms zit naam in nested player/member/user object
+            ['player', 'member', 'user', 'person', 'participant'].forEach(key => {
+                if (obj[key]) zoekNamen(obj[key]);
+            });
+
+            // Oude matchvelden
+            if (obj.p1 && typeof obj.p1 === 'string') voegNaamToe(obj.p1);
+            if (obj.p2 && typeof obj.p2 === 'string') voegNaamToe(obj.p2);
+
+            // Recursief alles doorzoeken
+            Object.values(obj).forEach(val => zoekNamen(val));
         }
 
         async function probeerUrl(u) {
             try {
-                const r = await axios.post(u, {}).catch(() => axios.get(u));
+                console.log(`[PLAYERS] Probeer: ${u}`);
+
+                const r = await axios.post(u, {}, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0',
+                        'Accept': 'application/json, text/plain, */*',
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Referer': 'https://tv.dartconnect.com/'
+                    },
+                    timeout: 20000
+                }).catch(async postErr => {
+                    console.log(`[PLAYERS] POST faalde, probeer GET: ${u} (${postErr.message})`);
+
+                    return axios.get(u, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0',
+                            'Accept': 'application/json, text/plain, */*',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Referer': 'https://tv.dartconnect.com/'
+                        },
+                        timeout: 20000
+                    });
+                });
+
                 const dataContainer = r.data?.payload || r.data || {};
+
+                console.log(`[PLAYERS] Status OK: ${u}`);
+                console.log(`[PLAYERS] Top-level keys:`, typeof dataContainer === 'object' ? Object.keys(dataContainer) : typeof dataContainer);
+
                 zoekNamen(dataContainer);
-            } catch (_) {}
+            } catch (e) {
+                console.error(`[PLAYERS] Fout bij ${u}:`, e.message);
+            }
         }
 
-        // 1) Originele bracket/poule URL
+        // 1) Originele URL proberen
         await probeerUrl(url);
 
-        // 2) Fallbacks op event-niveau (voor toernooien die nog niet gestart zijn)
-        const eventMatch = String(url).match(/\/event\/([^\/\?]+)/i);
-        const eventNumericMatch = String(url).match(/\/(?:groups|brackets|bracket)\/(\d+)(?:[\/\?]|$)/i);
+        const urlString = String(url);
+
+        // Herken zowel pagina-URL als API-URL:
+        // /event/oranjebarsuper52e06/confirmation
+        // /api/event/oranjebarsuper52e06/confirmation/192955/players
+        const eventMatch = urlString.match(/\/event\/([^\/\?]+)/i);
+
+        // BELANGRIJKE FIX:
+        // confirmation/192955 nu ook herkennen
+        const eventNumericMatch = urlString.match(
+            /\/(?:groups|brackets|bracket|confirmation|round-robin)\/(\d+)(?:[\/\?]|$)/i
+        );
+
         if (eventMatch) {
             const eventId = eventMatch[1];
-            const fallbackUrls = [
-                `https://tv.dartconnect.com/api/event/${eventId}`,
-                `https://tv.dartconnect.com/api/event/${eventId}/players`,
-                `https://tv.dartconnect.com/event/${eventId}/state/players?fetch_type=initial`,
-                `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`
-            ];
+
+            const fallbackUrls = [];
+
             if (eventNumericMatch) {
-                fallbackUrls.unshift(
+                fallbackUrls.push(
                     `https://tv.dartconnect.com/api/event/${eventId}/confirmation/${eventNumericMatch[1]}/players`
                 );
             }
 
+            // Voor jouw huidige event expliciet als fallback
+            if (eventId === 'oranjebarsuper52e06') {
+                fallbackUrls.push(
+                    `https://tv.dartconnect.com/api/event/${eventId}/confirmation/192955/players`
+                );
+            }
+
+            fallbackUrls.push(
+                `https://tv.dartconnect.com/api/event/${eventId}/unconfirmed-players`,
+                `https://tv.dartconnect.com/api/event/${eventId}/entries`,
+                `https://tv.dartconnect.com/event/${eventId}/state/players?fetch_type=initial`,
+                `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`
+            );
+
             for (const u of fallbackUrls) {
-                if (spelers.size >= 8) break; // genoeg namen, niet onnodig doorvragen
+                if (spelers.size >= 8) break;
                 await probeerUrl(u);
             }
         }
-        
-        res.json(Array.from(spelers));
+
+        const lijst = Array.from(spelers).sort((a, b) => a.localeCompare(b, 'nl'));
+        console.log(`[PLAYERS] Gevonden spelers: ${lijst.length}`);
+
+        res.json(lijst);
     } catch (e) {
+        console.error('[PLAYERS] Algemene fout:', e);
         res.status(500).json({ error: "Kon spelers niet ophalen" });
     }
 });
