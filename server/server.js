@@ -159,6 +159,47 @@ app.post('/api/fetch-players-preview', async (req, res) => {
     }
 });
 
+app.post('/api/detect-tournament-parts', async (req, res) => {
+    const { url } = req.body || {};
+    if (!url) return res.status(400).json({ error: "URL ontbreekt" });
+
+    const eventMatch = String(url).match(/\/event\/([^\/\?]+)/i);
+    if (!eventMatch) {
+        return res.status(400).json({ error: "Kon geen event-id uit de link halen" });
+    }
+
+    const eventId = eventMatch[1];
+    const stateUrl = `https://tv.dartconnect.com/event/${eventId}/state/matches?fetch_type=initial`;
+
+    try {
+        const stateRes = await axios.get(stateUrl);
+        const data = stateRes.data || {};
+        const lijst = []
+            .concat(Array.isArray(data.matches_live) ? data.matches_live : Object.values(data.matches_live || {}))
+            .concat(Array.isArray(data.matches_completed) ? data.matches_completed : Object.values(data.matches_completed || {}));
+
+        const delen = new Set();
+        lijst.forEach(m => {
+            const label = (m.el || "").toLowerCase();
+            if (label.includes("round robin")) delen.add("Groepsfase");
+            if (label.includes("knockout") && !label.includes("consolation")) delen.add("Knockout");
+            if (label.includes("consolation")) delen.add("Verliezersronde");
+        });
+
+        let suggestedFormat = 1;
+        if (delen.has("Groepsfase") && delen.has("Knockout") && delen.has("Verliezersronde")) suggestedFormat = 3;
+        else if (delen.has("Groepsfase") && delen.has("Knockout")) suggestedFormat = 2;
+
+        return res.json({
+            eventId,
+            parts: Array.from(delen),
+            suggestedFormat
+        });
+    } catch (e) {
+        return res.status(500).json({ error: "Detectie mislukt via state API" });
+    }
+});
+
 let isFirstRun = true;
 
 // --- DE CENTRALE DATA MOTOR ---
