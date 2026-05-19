@@ -526,7 +526,7 @@ async function fetchMatchesForTournament(requestedTournament) {
 
             if (actMatch) {
                 let isSwapped = false;
-                let mlAc = cleanNameForMatching(actMatch.hc || actMatch.p1 || "");
+                let mlAc = cleanNameForMatching(actMatch.ac || actMatch.p2 || "");
                 if (targetP1 === mlAc) isSwapped = true;
 
                 let s1Val = actMatch.hs !== undefined ? actMatch.hs : actMatch.s1;
@@ -926,7 +926,7 @@ app.post('/api/admin/send-push', async (req, res) => {
 
     for (let sub of db.subscriptions) {
         try {
-            await webpush.setNotification(sub, payload);
+            await webpush.sendNotification(sub, payload);
             successCount++;
             actieveAbonnees.push(sub); 
         } catch (err) {

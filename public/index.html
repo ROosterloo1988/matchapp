@@ -51,6 +51,7 @@
         
         .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1; }
         .player-name { flex: 1 1 0%; min-width: 0; text-align: center; overflow-wrap: break-word; word-break: break-word; }
+        .player-meta { font-size: 0.75rem; color: #9aa0a6; margin-top: 4px; text-align: center; }
         .score-box { flex-shrink: 0; background: #111; padding: 10px 15px; margin: 0 10px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 75px; text-align: center; transition: all 0.3s ease; }
         
         /* --- DE SCORE HIGHLIGHT ANIMATIE --- */
@@ -223,15 +224,24 @@
         container.innerHTML = "Laden...";
 
         try {
-            const [response, validResponse] = await Promise.all([
+            const [publicResult, validResult] = await Promise.allSettled([
                 fetch('/api/tournaments?_t=' + Date.now()),
                 fetch('/api/tournaments/valid?_t=' + Date.now())
             ]);
 
-            if (!response.ok || !validResponse.ok) throw new Error("Server error");
-            
-            let publicNames = await response.json();
-            let allValidNames = await validResponse.json();
+            let publicNames = [];
+            let allValidNames = [];
+
+            if (publicResult.status === "fulfilled" && publicResult.value.ok) {
+                publicNames = await publicResult.value.json();
+            }
+            if (validResult.status === "fulfilled" && validResult.value.ok) {
+                allValidNames = await validResult.value.json();
+            }
+            if (allValidNames.length === 0) {
+                allValidNames = [...publicNames];
+            }
+            if (publicNames.length === 0 && allValidNames.length === 0) throw new Error("Server error");
 
             let myHidden = JSON.parse(localStorage.getItem('my_tournaments') || '[]');
             let origineleLengte = myHidden.length;
@@ -269,6 +279,7 @@
             }
         } catch (e) {
             container.innerHTML = "<div class='no-matches'>Kan niet verbinden met de server. Probeer het over een minuutje nog eens!</div>";
+            renderAddButton();
         }
     }
 
@@ -422,6 +433,8 @@
                 if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
 
                 let resultClass = match.resultaat ? match.resultaat : "";
+                let avg1 = (match.avg1 !== undefined && match.avg1 !== null && match.avg1 !== "") ? match.avg1 : "-";
+                let avg2 = (match.avg2 !== undefined && match.avg2 !== null && match.avg2 !== "") ? match.avg2 : "-";
                 
                 // --- DE SLIMME KNOP LOGICA (LIVE vs RECAP) ---
                 let btnText = match.status === "bezig" ? "🔴 KIJK LIVE" : "📊 RECAP";
@@ -451,9 +464,15 @@
                         </span>
                     </div>
                     <div class="players-area">
-                        <div class="player-name">${match.player1}</div>
+                        <div class="player-name">
+                            <div>${match.player1}</div>
+                            <div class="player-meta">AVG: ${avg1}</div>
+                        </div>
                         <div class="score-box ${flashClass}">${scoreText}</div>
-                        <div class="player-name">${match.player2}</div>
+                        <div class="player-name">
+                            <div>${match.player2}</div>
+                            <div class="player-meta">AVG: ${avg2}</div>
+                        </div>
                     </div>
                 </div>`;
             });
