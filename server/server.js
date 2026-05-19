@@ -543,14 +543,8 @@ async function fetchMatchesForTournament(requestedTournament) {
                 
                 detectedWatchId = actMatch.sk || actMatch.tk || actMatch.tv || actMatch.spectatorKey || actMatch.key || "";
                 
-                // --- TEAM/KOPPEL AVERAGE FIX ---
-                // We zoeken nu naar hp5 (Singles), htp5 (Teams), hmpr (Cricket singles) en htmpr (Cricket teams)
-                let homeAvg = actMatch.hp5 || actMatch.htp5 || actMatch.hmpr || actMatch.htmpr || actMatch.h_avg || "";
-                let awayAvg = actMatch.ap5 || actMatch.atp5 || actMatch.ampr || actMatch.atmpr || actMatch.a_avg || "";
-
-                avg1 = isSwapped ? awayAvg : homeAvg;
-                avg2 = isSwapped ? homeAvg : awayAvg;
-
+                avg1 = isSwapped ? (actMatch.ap5 || "") : (actMatch.hp5 || "");
+                avg2 = isSwapped ? (actMatch.hp5 || "") : (actMatch.ap5 || "");
                 if (actMatch.m) writer = actMatch.m;
                 country1 = isSwapped ? (actMatch.aic || "") : (actMatch.hic || "");
                 country2 = isSwapped ? (actMatch.hic || "") : (actMatch.aic || "");
