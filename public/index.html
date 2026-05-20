@@ -444,7 +444,9 @@
     async function loadMatches() {
         if (!activeTournament) return;
         try {
-            const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            const extraPlayers = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
+            const extraParam = Array.isArray(extraPlayers) && extraPlayers.length ? `&extraPlayers=${encodeURIComponent(extraPlayers.join(','))}` : '';
+            const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}${extraParam}&_t=${Date.now()}`);
             if (!response.ok) throw new Error("Server error");
             const allMatches = await response.json();
             const container = document.getElementById('matches-container');

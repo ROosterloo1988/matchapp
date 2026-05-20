@@ -207,7 +207,7 @@ app.post('/api/fetch-players-preview', async (req, res) => {
 let isFirstRun = true;
 
 // --- DE CENTRALE DATA MOTOR ---
-async function fetchMatchesForTournament(requestedTournament) {
+async function fetchMatchesForTournament(requestedTournament, extraDarters = []) {
     const db = readDB();
     const tournament = db.tournaments.find(t => t.name === requestedTournament);
     if (!tournament) return [];
@@ -640,7 +640,8 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        const dartersLower = (tournament.darters || []).map(d => d.toLowerCase());
+        const combinedDarters = [...(tournament.darters || []), ...(Array.isArray(extraDarters) ? extraDarters : [])];
+        const dartersLower = [...new Set(combinedDarters.map(d => (d || '').toLowerCase()).filter(Boolean))];
         let definitieveLijst = [];
         let toegevoegdeIds = new Set();
         let nieuwGeplandCount = 0;
@@ -820,7 +821,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         if (nieuwGeplandCount > 0) writeDB(db);
 
         eigenWedstrijden.forEach(match => {
-            let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
+            let isSpeler = dartersLower.find(d => (match.player1 && match.player1.toLowerCase().includes(d)) || (match.player2 && match.player2.toLowerCase().includes(d)));
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "bezig") || (match.status === "gespeeld" && match.resultaat === "win"));
 
             if (magDoor && match.id) {
@@ -1018,14 +1019,24 @@ let cacheTimestamps = {};
 
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
-    
-    if (matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
+    const extraPlayers = (req.query.extraPlayers || '')
+        .split(',')
+        .map(p => p.trim())
+        .filter(Boolean);
+
+    const hasExtra = extraPlayers.length > 0;
+
+    if (!hasExtra && matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
         return res.json(matchCache[tName]);
     }
-    
-    const list = await fetchMatchesForTournament(tName);
-    matchCache[tName] = list;
-    cacheTimestamps[tName] = Date.now();
+
+    const list = await fetchMatchesForTournament(tName, extraPlayers);
+
+    if (!hasExtra) {
+        matchCache[tName] = list;
+        cacheTimestamps[tName] = Date.now();
+    }
+
     res.json(list);
 });
 
