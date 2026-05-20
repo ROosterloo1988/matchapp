@@ -715,9 +715,10 @@ async function fetchMatchesForTournament(requestedTournament) {
                         db.notifiedMatches.push(match.id);
                         if (!isFirstRun && db.subscriptions.length > 0) {
                             if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
+                                                      
                             const payload = JSON.stringify({
                                 title: titel,
-                                body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}`,
+                                body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time} | Schrijver: ${match.writer}`,
                                 icon: '/icon-192x192.png',
                                 badge: '/icon-192x192.png'
                             });
