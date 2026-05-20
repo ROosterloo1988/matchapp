@@ -139,6 +139,7 @@
         <button class="filter-btn" onclick="setFilter('gepland')" id="filter-gepland">⚡ Gepland</button>
         <button class="filter-btn" onclick="setFilter('mogelijk')" id="filter-mogelijk">🔮 Mogelijk</button>
         <button class="filter-btn" onclick="setFilter('gespeeld')" id="filter-gespeeld">✅ Gespeeld</button>
+        <button class="filter-btn" onclick="openPouleStandings()">📊 Live Stand Poules</button>
         <button class="filter-btn btn-push" onclick="openPushSettings()">🔔 Meldingen</button>
     </div>
     
@@ -157,6 +158,15 @@
             <div id="push-players-list" class="checkbox-container">Laden...</div>
             <button class="btn-yes" onclick="savePushSettings()">💾 Opslaan & Aanzetten</button>
             <button class="btn-no" onclick="closePushModal()">Annuleren</button>
+        </div>
+    </div>
+
+
+    <div id="poule-modal" class="push-modal">
+        <div class="push-box" style="max-width: 800px; border-color:#3498db;">
+            <h2 style="color:#3498db;">📊 Live Stand Poules</h2>
+            <div id="poule-standings-content" class="checkbox-container">Laden...</div>
+            <button class="btn-no" onclick="closePouleModal()">Sluiten</button>
         </div>
     </div>
 
@@ -753,6 +763,73 @@
             renderPushPlayerSelect(fullList);
         } catch(e) {
             listDiv.innerHTML = "Fout bij ophalen spelers.";
+        }
+    }
+
+
+    function closePouleModal() {
+        const modal = document.getElementById('poule-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function renderPouleStandings(groups) {
+        const content = document.getElementById('poule-standings-content');
+        const keys = Object.keys(groups || {}).sort();
+        if (!keys.length) {
+            content.innerHTML = "<div style='color:#888;text-align:center;'>Geen poulestanden beschikbaar.</div>";
+            return;
+        }
+
+        content.innerHTML = keys.map(group => {
+            const rows = (groups[group] || []).map(r => `
+                <tr>
+                    <td>${group}${r.rank ?? ''}</td>
+                    <td>${r.player}</td>
+                    <td>${r.mp ?? 0}</td>
+                    <td>${r.mw ?? 0}</td>
+                    <td>${r.gld ?? 0}</td>
+                    <td>${r.lw ?? 0}</td>
+                    <td>${r.ppr ?? '-'}</td>
+                </tr>
+            `).join('');
+
+            return `
+                <div style="margin-bottom:18px;">
+                    <h3 style="margin:0 0 8px 0; color:#fff;">Poule ${group}</h3>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%; border-collapse: collapse; font-size:0.95rem;">
+                            <thead>
+                                <tr style="color:#9aa0a6; border-bottom:1px solid #333; text-align:left;">
+                                    <th style="padding:6px;">#</th><th style="padding:6px;">Speler</th><th style="padding:6px;">MP</th><th style="padding:6px;">MW</th><th style="padding:6px;">L +/-</th><th style="padding:6px;">LW</th><th style="padding:6px;">3DA</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function openPouleStandings() {
+        const modal = document.getElementById('poule-modal');
+        const content = document.getElementById('poule-standings-content');
+        if (!modal || !content) return;
+
+        modal.style.display = 'flex';
+        if (!activeTournament) {
+            content.innerHTML = "<div style='color:#888;text-align:center;'>Kies eerst een toernooi.</div>";
+            return;
+        }
+
+        content.innerHTML = 'Poulestanden laden...';
+        try {
+            const res = await fetch(`/api/poule-standings?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Onbekende fout');
+            renderPouleStandings(data.groups || {});
+        } catch (e) {
+            content.innerHTML = `<div style='color:#ff7675;text-align:center;'>${e.message}</div>`;
         }
     }
 
