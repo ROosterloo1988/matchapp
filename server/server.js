@@ -467,30 +467,43 @@ async function fetchMatchesForTournament(requestedTournament) {
             if (typeof matchId === 'number') matchId = matchId.toString();
             if (typeof matchId === 'string') matchId = matchId.replace(/_/g, '-');
 
+            // --- HET NIEUWE, ROBUUSTE RONDE-DETECTIE SYSTEEM ---
             let rondeNaam = "Ronde ?";
-            if (m.rn) rondeNaam = m.rn;
-            else if (m.round_name) rondeNaam = m.round_name;
-            else if (m.rName) rondeNaam = m.rName;
-            else if (m._tree_round && m._tree_round !== "Ronde ?") rondeNaam = m._tree_round;
-            else if (m._bracket_type === "Groepsfase") rondeNaam = "Groepsfase";
-            else if (m.r && !isNaN(m.r)) rondeNaam = "Ronde " + m.r;
+            
+            // 1. Detecteer de fase op basis van Event Label (el) of bracket type
+            let fase = "";
+            if (m.el === "Winner's KO") fase = "Winnaarsronde";
+            else if (m.el === "Consolation KO") fase = "Verliezersronde";
+            else if (m.el === "Round Robin" || m._bracket_type === "Groepsfase") fase = "Poule";
+            else fase = m.el || "";
 
-            if (m._bracket_type === "Groepsfase" && matchId) {
+            // 2. Vertaal de 'r' (T-code) naar leesbare tekst (bijv. T16 -> Laatste 16)
+            if (m.r && typeof m.r === 'string' && m.r.startsWith('T')) {
+                let aantal = parseInt(m.r.substring(1), 10);
+                if (aantal === 1) rondeNaam = "Finale";
+                else if (aantal === 2) rondeNaam = "Halve Finale";
+                else if (aantal === 4) rondeNaam = "Kwartfinale";
+                else if (aantal === 8) rondeNaam = "Laatste 16";
+                else rondeNaam = "Laatste " + aantal;
+
+                // Plak de fase erachter voor extra duidelijkheid (bijv. "Kwartfinale (Verliezersronde)")
+                if (fase && fase !== "Knockout" && fase !== "Poule") {
+                    rondeNaam += ` (${fase})`;
+                }
+            } 
+            // 3. Specifieke afhandeling voor Poules (bijv. el: "Round Robin" + r: "E" -> Poule E)
+            else if (fase === "Poule" && m.r && isNaN(m.r)) {
+                rondeNaam = "Poule " + m.r;
+            }
+            // 4. Mocht de T-code missen, val dan veilig terug op de oude bekende namen
+            else if (m.rn) rondeNaam = m.rn;
+            else if (m.round_name) rondeNaam = m.round_name;
+            else if (m._tree_round && m._tree_round !== "Ronde ?") rondeNaam = m._tree_round;
+            
+            // Extra backup voor poule-weergave op basis van het ID
+            if (fase === "Poule" && rondeNaam === "Ronde ?" && matchId) {
                 let pouleMatch = matchId.match(/^([A-Za-z]+)\d+$/);
                 if (pouleMatch) rondeNaam = "Poule " + pouleMatch[1].toUpperCase();
-            }
-
-            let rondeMatch = matchId.match(/^(\d+)-/);
-            if (rondeMatch && rondeNaam === "Ronde ?") {
-                let rndKey = m._bron_url + "_" + rondeMatch[1];
-                let aW = rondeTellingen[rndKey];
-                if (aW === 1) rondeNaam = "Finale";
-                else if (aW === 2) rondeNaam = "Halve Finale";
-                else if (aW === 4) rondeNaam = "Kwartfinale";
-                else if (aW === 8) rondeNaam = "Laatste 16";
-                else if (aW === 16) rondeNaam = "Laatste 32";
-                else if (aW === 32) rondeNaam = "Laatste 64";
-                else rondeNaam = "Ronde " + rondeMatch[1];
             }
 
             let markerData = m.ch && m.ch.v ? m.ch.v : null;
@@ -848,8 +861,23 @@ async function fetchMatchesForTournament(requestedTournament) {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
-            let rA = a._tree_round_nr || (a.id ? (parseInt(a.id.split('-')[0]) || 0) : 0);
-            let rB = b._tree_round_nr || (b.id ? (parseInt(b.id.split('-')[0]) || 0) : 0);
+           // Haal het logische rondenummer op. Als er een T-code is (bijv. T16), rekenen we terug.
+            // Hoe kleiner het T-nummer (bijv. T2 = Halve finale), hoe verder in het toernooi, dus hoe hoger het rondenummer.
+            let rA = a._tree_round_nr || 0;
+            if (a.r && typeof a.r === 'string' && a.r.startsWith('T')) {
+                let aantal = parseInt(a.r.substring(1), 10);
+                rA = 1000 - aantal; // Zorgt voor de juiste chronologische volgorde (4096 -> 16 -> 4 -> 2)
+            } else if (a.id && a.id.includes('-')) {
+                rA = parseInt(a.id.split('-')[0], 10) || 0;
+            }
+
+            let rB = b._tree_round_nr || 0;
+            if (b.r && typeof b.r === 'string' && b.r.startsWith('T')) {
+                let aantal = parseInt(b.r.substring(1), 10);
+                rB = 1000 - aantal;
+            } else if (b.id && b.id.includes('-')) {
+                rB = parseInt(b.id.split('-')[0], 10) || 0;
+            }
 
             // Controleer of de wedstrijden wel echt een bekende tijd hebben
             let hasTimeA = a.time && !["Onbekend", "Niet bekend", "Later", "?"].includes(a.time);
