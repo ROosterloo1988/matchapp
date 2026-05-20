@@ -119,6 +119,23 @@ app.get('/api/tournaments/valid', (req, res) => {
     res.json(readDB().tournaments.map(t => t.name));
 });
 
+
+app.get('/api/tournament-config', (req, res) => {
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === req.query.tournament);
+
+    if (!tournament) {
+        return res.status(404).json({ error: 'Toernooi niet gevonden.' });
+    }
+
+    res.json({
+        name: tournament.name,
+        url: tournament.url || '',
+        darters: Array.isArray(tournament.darters) ? tournament.darters : [],
+        unlisted: !!tournament.unlisted
+    });
+});
+
 app.post('/api/user-add-tournament', async (req, res) => {
     const { name, url, darters } = req.body;
     const db = readDB();
