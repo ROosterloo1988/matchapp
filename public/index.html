@@ -707,25 +707,23 @@
 
             (Array.isArray(tournamentConfig.darters) ? tournamentConfig.darters : []).forEach(addPlayer);
 
-            if (tournamentConfig.unlisted && tournamentConfig.url) {
-                const firstUrl = tournamentConfig.url.split(',').map(u => u.trim()).filter(Boolean)[0];
-                if (firstUrl) {
-                    try {
-                        const previewRes = await fetch('/api/fetch-players-preview', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: firstUrl })
-                        });
+            const firstUrl = (tournamentConfig.url || '').split(',').map(u => u.trim()).filter(Boolean)[0];
+            if (firstUrl) {
+                try {
+                    const previewRes = await fetch('/api/fetch-players-preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: firstUrl })
+                    });
 
-                        if (previewRes.ok) {
-                            const allNames = await previewRes.json();
-                            allNames.forEach(n => {
-                                if (n.includes(' & ')) n.split(' & ').forEach(addPlayer);
-                                else addPlayer(n);
-                            });
-                        }
-                    } catch (_) {}
-                }
+                    if (previewRes.ok) {
+                        const allNames = await previewRes.json();
+                        allNames.forEach(n => {
+                            if (n.includes(' & ')) n.split(' & ').forEach(addPlayer);
+                            else addPlayer(n);
+                        });
+                    }
+                } catch (_) {}
             }
 
             const darters = Array.from(uniquePlayers.values()).sort((a, b) => a.localeCompare(b));
