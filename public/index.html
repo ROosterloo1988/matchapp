@@ -674,12 +674,18 @@
     }
 
     async function openPushSettings() {
-        if (!activeTournament) return;
         const pushModal = document.getElementById('push-modal');
         const listDiv = document.getElementById('push-players-list');
-        listDiv.innerHTML = "Spelers laden...";
-        document.getElementById('push-player-search').value = '';
+        if (!pushModal || !listDiv) return;
+
         pushModal.style.display = 'flex';
+
+        if (!activeTournament) {
+            listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Kies eerst een toernooi om meldingen in te stellen.</div>";
+            return;
+        }
+
+        listDiv.innerHTML = "Spelers laden...";
 
         try {
             const configRes = await fetch(`/api/tournament-config?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
