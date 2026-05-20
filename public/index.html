@@ -662,14 +662,28 @@
 
     function selectPushPlayerFromList() {
         const input = document.getElementById('push-player-select');
-        if (!input || !input.value) return;
+        const listDiv = document.getElementById('push-players-list');
+        if (!input || !listDiv || !input.value) return;
 
-        const target = input.value.toLowerCase();
-        const checkbox = Array.from(document.querySelectorAll('.darter-checkbox')).find(cb => cb.value.toLowerCase() === target);
+        const selectedName = input.value.trim();
+        if (!selectedName) return;
+
+        const target = selectedName.toLowerCase();
+        let checkbox = Array.from(document.querySelectorAll('.darter-checkbox')).find(cb => cb.value.toLowerCase() === target);
+
+        if (!checkbox) {
+            const row = document.createElement('label');
+            row.className = 'checkbox-label push-player-row';
+            row.innerHTML = `<input type="checkbox" value="${selectedName.replace(/"/g, '&quot;')}" class="darter-checkbox" checked> ${selectedName}`;
+            listDiv.appendChild(row);
+            checkbox = row.querySelector('.darter-checkbox');
+        }
+
         if (checkbox) {
             checkbox.checked = true;
             checkbox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
+
         input.value = '';
     }
 
