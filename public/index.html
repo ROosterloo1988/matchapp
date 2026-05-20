@@ -151,8 +151,10 @@
             <p>Kies de spelers waarvoor je een trilsignaal wilt ontvangen in dit toernooi:</p>
             <input type="text" class="search-filter" id="push-player-search" placeholder="Zoek speler..." oninput="filterPushPlayers()" style="margin-bottom: 10px;">
             <div style="display:flex; gap:8px; margin-bottom:10px;">
-                <input type="text" id="push-player-custom" placeholder="Speler handmatig toevoegen" style="flex:1;">
-                <button class="btn-yes" style="padding: 10px 14px; width: auto;" onclick="addCustomPushPlayer()">+ Voeg toe</button>
+                <select id="push-player-select" style="flex:1; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #222; color: white;">
+                    <option value="">Kies speler uit lijst...</option>
+                </select>
+                <button class="btn-yes" style="padding: 10px 14px; width: auto;" onclick="selectPushPlayerFromList()">+ Voeg toe</button>
             </div>
             <div id="push-players-list" class="checkbox-container">Laden...</div>
             <button class="btn-yes" onclick="savePushSettings()">💾 Opslaan & Aanzetten</button>
@@ -658,22 +660,28 @@
         });
     }
 
-    function addCustomPushPlayer() {
-        if (!activeTournament) return;
-        const input = document.getElementById('push-player-custom');
-        const name = (input.value || '').trim();
-        if (!name) return;
+    
 
-        const storageKey = 'customPushPlayers_' + activeTournament;
-        const existing = JSON.parse(localStorage.getItem(storageKey) || '[]');
-        const already = existing.some(p => p.toLowerCase() === name.toLowerCase());
-        if (!already) {
-            existing.push(name);
-            localStorage.setItem(storageKey, JSON.stringify(existing));
+    function renderPushPlayerSelect(darters) {
+        const select = document.getElementById('push-player-select');
+        if (!select) return;
+
+        select.innerHTML = `<option value="">Kies speler uit lijst...</option>` + darters.map(d => `
+            <option value="${d}">${d}</option>
+        `).join('');
+    }
+
+    function selectPushPlayerFromList() {
+        const select = document.getElementById('push-player-select');
+        if (!select || !select.value) return;
+
+        const target = select.value.toLowerCase();
+        const checkbox = Array.from(document.querySelectorAll('.darter-checkbox')).find(cb => cb.value.toLowerCase() === target);
+        if (checkbox) {
+            checkbox.checked = true;
+            checkbox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
-
-        input.value = '';
-        openPushSettings();
+        select.value = '';
     }
 
     async function openPushSettings() {
@@ -682,7 +690,6 @@
         const listDiv = document.getElementById('push-players-list');
         listDiv.innerHTML = "Spelers laden...";
         document.getElementById('push-player-search').value = '';
-        document.getElementById('push-player-custom').value = '';
         pushModal.style.display = 'flex';
 
         try {
@@ -721,12 +728,10 @@
                 }
             }
 
-            const customPlayers = JSON.parse(localStorage.getItem('customPushPlayers_' + activeTournament) || '[]');
-            customPlayers.forEach(addPlayer);
-
             const darters = Array.from(uniquePlayers.values()).sort((a, b) => a.localeCompare(b));
             const savedPrefs = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
             renderPushPlayerList(darters, savedPrefs);
+            renderPushPlayerSelect(darters);
         } catch(e) {
             listDiv.innerHTML = "Fout bij ophalen spelers.";
         }
