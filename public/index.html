@@ -136,7 +136,7 @@
 
         /* Tabel & Groep styling */
         .poule-group { margin-bottom: 20px; background: #111; border-radius: 8px; border: 1px solid #333; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .poule-group-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); color: white; padding: 8px 12px; font-weight: bold; font-size: 1.1rem; }
+        .poule-group-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); color: white; padding: 4px 12px; font-weight: bold; font-size: 0.95rem; }
         .poule-table-wrapper { overflow-x: auto; }
         .poule-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
         .poule-table th { padding: 8px 10px; color: #9aa0a6; border-bottom: 1px solid #333; font-weight: normal; text-transform: uppercase; font-size: 0.75rem; white-space: nowrap; background: #1a1a1a; }
@@ -144,7 +144,7 @@
         .poule-table tr:last-child td { border-bottom: none; }
         .poule-table tbody tr:nth-child(even) { background-color: #161616; }
         .poule-table .rank-col { font-weight: bold; color: white; text-align: center; width: 30px; }
-        .poule-table .player-col { color: white; font-weight: bold; width: 100%; } /* Zorgt dat speler-naam ruimte pakt */
+        .poule-table .player-col { color: white; font-weight: bold; width: 100%; max-width: 100px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } /* Zorgt dat speler-naam ruimte pakt */
         .poule-table .num-col { text-align: center; }
     </style>
 </head>
@@ -813,19 +813,18 @@
         content.innerHTML = keys.map(group => {
             const rows = (groups[group] || []).map(r => `
                 <tr>
-                    <td class="rank-col">${group}${r.rank ?? ''}</td>
+                    <td class="rank-col">${r.rank ?? ''}</td>
                     <td class="player-col">${r.player}</td>
                     <td class="num-col">${r.mp ?? 0}</td>
                     <td class="num-col">${r.mw ?? 0}</td>
                     <td class="num-col">${r.gld ?? 0}</td>
                     <td class="num-col">${r.lw ?? 0}</td>
-                    <td class="num-col" style="color:#888;">${r.ppr ?? '-'}</td>
                 </tr>
             `).join('');
 
             return `
                 <div class="poule-group">
-                    <div class="poule-group-header">🎯 Poule ${group}</div>
+                    <div class="poule-group-header">Poule ${group}</div>
                     <div class="poule-table-wrapper">
                         <table class="poule-table">
                             <thead>
@@ -836,7 +835,6 @@
                                     <th class="num-col">MW</th>
                                     <th class="num-col">L +/-</th>
                                     <th class="num-col">LW</th>
-                                    <th class="num-col">3DA</th>
                                 </tr>
                             </thead>
                             <tbody>${rows}</tbody>
