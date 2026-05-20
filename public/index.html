@@ -120,6 +120,32 @@
         .ios-install-text { font-size: 0.95rem; margin-bottom: 10px; font-weight: bold; }
         .ios-install-icon { display: inline-block; background: #f4f4f4; border-radius: 5px; padding: 2px 6px; border: 1px solid #ccc; font-size: 1.2rem; }
         .ios-close-btn { background: #333; color: white; border: none; padding: 8px 15px; border-radius: 5px; font-weight: bold; width: 100%; font-size: 1rem; }
+
+        /* --- POULE MODAL STYLING --- */
+        .poule-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; padding: 15px; }
+        .poule-box { background: #1E1E1E; padding: 20px 15px; border-radius: 10px; border: 2px solid #FF6600; width: 100%; max-width: 500px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
+        .poule-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px; }
+        .poule-header h2 { color: #FF6600; margin: 0; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 1px; }
+        .poule-close { background: #333; color: white; border: none; width: 35px; height: 35px; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 1.2rem; display: flex; justify-content: center; align-items: center; transition: 0.2s; }
+        .poule-close:hover { background: #e74c3c; }
+        .poule-content { overflow-y: auto; padding-right: 5px; flex-grow: 1; }
+        
+        /* Custom scrollbar voor de modal */
+        .poule-content::-webkit-scrollbar { width: 6px; }
+        .poule-content::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; }
+
+        /* Tabel & Groep styling */
+        .poule-group { margin-bottom: 20px; background: #111; border-radius: 8px; border: 1px solid #333; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .poule-group-header { background: linear-gradient(90deg, #FF6600 0%, #E65C00 100%); color: white; padding: 8px 12px; font-weight: bold; font-size: 1.1rem; }
+        .poule-table-wrapper { overflow-x: auto; }
+        .poule-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
+        .poule-table th { padding: 8px 10px; color: #9aa0a6; border-bottom: 1px solid #333; font-weight: normal; text-transform: uppercase; font-size: 0.75rem; white-space: nowrap; background: #1a1a1a; }
+        .poule-table td { padding: 8px 10px; border-bottom: 1px solid #222; color: #ccc; white-space: nowrap; }
+        .poule-table tr:last-child td { border-bottom: none; }
+        .poule-table tbody tr:nth-child(even) { background-color: #161616; }
+        .poule-table .rank-col { font-weight: bold; color: white; text-align: center; width: 30px; }
+        .poule-table .player-col { color: white; font-weight: bold; width: 100%; } /* Zorgt dat speler-naam ruimte pakt */
+        .poule-table .num-col { text-align: center; }
     </style>
 </head>
 <body>
@@ -162,11 +188,15 @@
     </div>
 
 
-    <div id="poule-modal" class="push-modal">
-        <div class="push-box" style="max-width: 800px; border-color:#3498db;">
-            <h2 style="color:#3498db;">📊 Live Stand Poules</h2>
-            <div id="poule-standings-content" class="checkbox-container">Laden...</div>
-            <button class="btn-no" onclick="closePouleModal()">Sluiten</button>
+    <div id="poule-modal" class="poule-modal">
+        <div class="poule-box">
+            <div class="poule-header">
+                <h2>📊 Live Stand Poules</h2>
+                <button class="poule-close" onclick="closePouleModal()">×</button>
+            </div>
+            <div id="poule-standings-content" class="poule-content">
+                <div style="color:#888;text-align:center;margin-top:20px;">Laden...</div>
+            </div>
         </div>
     </div>
 
@@ -776,31 +806,37 @@
         const content = document.getElementById('poule-standings-content');
         const keys = Object.keys(groups || {}).sort();
         if (!keys.length) {
-            content.innerHTML = "<div style='color:#888;text-align:center;'>Geen poulestanden beschikbaar.</div>";
+            content.innerHTML = "<div class='no-matches'>Geen poulestanden beschikbaar.</div>";
             return;
         }
 
         content.innerHTML = keys.map(group => {
             const rows = (groups[group] || []).map(r => `
                 <tr>
-                    <td>${group}${r.rank ?? ''}</td>
-                    <td>${r.player}</td>
-                    <td>${r.mp ?? 0}</td>
-                    <td>${r.mw ?? 0}</td>
-                    <td>${r.gld ?? 0}</td>
-                    <td>${r.lw ?? 0}</td>
-                    <td>${r.ppr ?? '-'}</td>
+                    <td class="rank-col">${group}${r.rank ?? ''}</td>
+                    <td class="player-col">${r.player}</td>
+                    <td class="num-col">${r.mp ?? 0}</td>
+                    <td class="num-col">${r.mw ?? 0}</td>
+                    <td class="num-col">${r.gld ?? 0}</td>
+                    <td class="num-col">${r.lw ?? 0}</td>
+                    <td class="num-col" style="color:#888;">${r.ppr ?? '-'}</td>
                 </tr>
             `).join('');
 
             return `
-                <div style="margin-bottom:18px;">
-                    <h3 style="margin:0 0 8px 0; color:#fff;">Poule ${group}</h3>
-                    <div style="overflow-x:auto;">
-                        <table style="width:100%; border-collapse: collapse; font-size:0.95rem;">
+                <div class="poule-group">
+                    <div class="poule-group-header">🎯 Poule ${group}</div>
+                    <div class="poule-table-wrapper">
+                        <table class="poule-table">
                             <thead>
-                                <tr style="color:#9aa0a6; border-bottom:1px solid #333; text-align:left;">
-                                    <th style="padding:6px;">#</th><th style="padding:6px;">Speler</th><th style="padding:6px;">MP</th><th style="padding:6px;">MW</th><th style="padding:6px;">L +/-</th><th style="padding:6px;">LW</th><th style="padding:6px;">3DA</th>
+                                <tr>
+                                    <th class="rank-col">#</th>
+                                    <th>Speler</th>
+                                    <th class="num-col">MP</th>
+                                    <th class="num-col">MW</th>
+                                    <th class="num-col">L +/-</th>
+                                    <th class="num-col">LW</th>
+                                    <th class="num-col">3DA</th>
                                 </tr>
                             </thead>
                             <tbody>${rows}</tbody>
