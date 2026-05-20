@@ -473,7 +473,7 @@
                         <span>Tijd: ${match.time} ${match.status === "mogelijk" ? '('+match.toernooi+')' : ''}</span>
                         <span style="display: flex; align-items: center; gap: 10px;">
                             <span>${match.ronde} | ID: <span class="match-id">${match.id || '?'}</span>
-                            <span>Bord: <strong>${match.board}</strong>${writerText}</span></span>
+                            <span>Bord: <strong>${match.board}</strong></span></span>
                             ${recapKnop}
                         </span>
                     </div>
@@ -487,6 +487,7 @@
                             <div>${match.player2}</div>
                             <div class="player-meta">AVG: ${avg2}</div>
                         </div>
+                        ${writerText}
                     </div>
                 </div>`;
             });
