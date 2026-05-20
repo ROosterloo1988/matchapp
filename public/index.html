@@ -633,13 +633,54 @@
         const listDiv = document.getElementById('push-players-list');
         listDiv.innerHTML = "Spelers laden...";
         pushModal.style.display = 'flex';
-        
+
         try {
-            const res = await fetch(`/api/darters?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
-            const darters = await res.json();
-            
+            const configRes = await fetch(`/api/tournament-config?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            if (!configRes.ok) throw new Error('config niet beschikbaar');
+            const tournamentConfig = await configRes.json();
+
+            let darters = Array.isArray(tournamentConfig.darters) ? tournamentConfig.darters : [];
+
+            if (tournamentConfig.unlisted && tournamentConfig.url) {
+                const firstUrl = tournamentConfig.url.split(',').map(u => u.trim()).filter(Boolean)[0];
+                if (firstUrl) {
+                    try {
+                        const previewRes = await fetch('/api/fetch-players-preview', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ url: firstUrl })
+                        });
+
+                        if (previewRes.ok) {
+                            const allNames = await previewRes.json();
+                            const uniquePlayers = new Map();
+
+                            const addPlayer = (name) => {
+                                const trimmed = (name || '').trim();
+                                if (!trimmed) return;
+                                const key = trimmed.toLowerCase();
+                                if (!uniquePlayers.has(key)) uniquePlayers.set(key, trimmed);
+                            };
+
+                            darters.forEach(addPlayer);
+                            allNames.forEach(n => {
+                                if (n.includes(' & ')) {
+                                    n.split(' & ').forEach(addPlayer);
+                                } else {
+                                    addPlayer(n);
+                                }
+                            });
+
+                            darters = Array.from(uniquePlayers.values()).sort((a, b) => a.localeCompare(b));
+                        }
+                    } catch (_) {
+                        // Fallback: dan gebruiken we alleen de reeds opgeslagen darters.
+                    }
+                }
+            }
+
             const savedPrefs = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
-            
+
             if (darters.length === 0) {
                 listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
             } else {
