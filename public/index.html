@@ -52,7 +52,9 @@
         .players-area { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; flex-grow: 1; }
         .player-name { flex: 1 1 0%; min-width: 0; text-align: center; overflow-wrap: break-word; word-break: break-word; }
         .player-meta { font-size: 0.75rem; color: #9aa0a6; margin-top: 4px; text-align: center; }
-                .score-box { flex-shrink: 0; background: #111; padding: 10px 15px; margin: 0 10px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 75px; text-align: center; transition: all 0.3s ease; }
+        .score-box { flex-shrink: 0; background: #111; padding: 10px 15px; margin: 0 10px; border-radius: 6px; font-size: 1.8rem; font-weight: bold; color: #FF6600; border: 2px solid #333; min-width: 75px; text-align: center; transition: all 0.3s ease; }
+        .player-avg { font-size: 0.85rem; color: #888; margin-top: 3px; font-weight: normal; }
+        .card-writer { font-size: 0.85rem; color: #888; font-weight: normal; margin-left: 5px; }
         
         /* --- DE SCORE HIGHLIGHT ANIMATIE --- */
         .score-flash {
@@ -445,6 +447,7 @@
                 let resultClass = match.resultaat ? match.resultaat : "";
                 let avg1 = (match.avg1 !== undefined && match.avg1 !== null && match.avg1 !== "") ? match.avg1 : "-";
                 let avg2 = (match.avg2 !== undefined && match.avg2 !== null && match.avg2 !== "") ? match.avg2 : "-";
+                let writerText = match.writer ? `<span class="card-writer">| Schrijver: ${match.writer}</span>` : '';
                 
                 // --- DE SLIMME KNOP LOGICA (LIVE vs RECAP) ---
                 let btnText = match.status === "bezig" ? "🔴 KIJK LIVE" : "📊 RECAP";
@@ -469,14 +472,15 @@
                     <div class="card-subheader">
                         <span>Tijd: ${match.time} ${match.status === "mogelijk" ? '('+match.toernooi+')' : ''}</span>
                         <span style="display: flex; align-items: center; gap: 10px;">
-                            <span>${match.ronde} | ID: <span class="match-id">${match.id || '?'}</span></span>
+                            <span>${match.ronde} | ID: <span class="match-id">${match.id || '?'}</span>
+                            <span>Bord: <strong>${match.board}</strong>${writerText}</span></span>
                             ${recapKnop}
                         </span>
                     </div>
                     <div class="players-area">
                          <div class="player-name">
                             <div>${match.player1}</div>
-                            <div class="player-meta">AVG: ${avg1}</div>
+                            <div class="player-avg">AVG: ${avg1}</div>
                         </div>
                         <div class="score-box ${flashClass}">${scoreText}</div>
                         <div class="player-name">
