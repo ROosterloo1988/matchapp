@@ -119,6 +119,23 @@ app.get('/api/tournaments/valid', (req, res) => {
     res.json(readDB().tournaments.map(t => t.name));
 });
 
+
+app.get('/api/tournament-config', (req, res) => {
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === req.query.tournament);
+
+    if (!tournament) {
+        return res.status(404).json({ error: 'Toernooi niet gevonden.' });
+    }
+
+    res.json({
+        name: tournament.name,
+        url: tournament.url || '',
+        darters: Array.isArray(tournament.darters) ? tournament.darters : [],
+        unlisted: !!tournament.unlisted
+    });
+});
+
 app.post('/api/user-add-tournament', async (req, res) => {
     const { name, url, darters } = req.body;
     const db = readDB();
@@ -190,7 +207,7 @@ app.post('/api/fetch-players-preview', async (req, res) => {
 let isFirstRun = true;
 
 // --- DE CENTRALE DATA MOTOR ---
-async function fetchMatchesForTournament(requestedTournament) {
+async function fetchMatchesForTournament(requestedTournament, extraDarters = []) {
     const db = readDB();
     const tournament = db.tournaments.find(t => t.name === requestedTournament);
     if (!tournament) return [];
@@ -623,7 +640,8 @@ async function fetchMatchesForTournament(requestedTournament) {
             }
         });
 
-        const dartersLower = (tournament.darters || []).map(d => d.toLowerCase());
+        const combinedDarters = [...(tournament.darters || []), ...(Array.isArray(extraDarters) ? extraDarters : [])];
+        const dartersLower = [...new Set(combinedDarters.map(d => (d || '').toLowerCase()).filter(Boolean))];
         let definitieveLijst = [];
         let toegevoegdeIds = new Set();
         let nieuwGeplandCount = 0;
@@ -803,7 +821,7 @@ async function fetchMatchesForTournament(requestedTournament) {
         if (nieuwGeplandCount > 0) writeDB(db);
 
         eigenWedstrijden.forEach(match => {
-            let isSpeler = tournament.darters.find(d => (match.player1 && match.player1.toLowerCase().includes(d.toLowerCase())) || (match.player2 && match.player2.toLowerCase().includes(d.toLowerCase())));
+            let isSpeler = dartersLower.find(d => (match.player1 && match.player1.toLowerCase().includes(d)) || (match.player2 && match.player2.toLowerCase().includes(d)));
             let magDoor = isSpeler && ((match.status === "gepland") || (match.status === "bezig") || (match.status === "gespeeld" && match.resultaat === "win"));
 
             if (magDoor && match.id) {
@@ -927,19 +945,98 @@ async function fetchMatchesForTournament(requestedTournament) {
     }
 }
 
+
+app.get('/api/poule-standings', async (req, res) => {
+    const tName = req.query.tournament;
+    if (!tName) return res.status(400).json({ error: 'Toernooi ontbreekt.' });
+
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === tName);
+    if (!tournament || !tournament.url) {
+        return res.status(404).json({ error: 'Toernooi of URL niet gevonden.' });
+    }
+
+    const urls = tournament.url.split(',').map(u => u.trim()).filter(Boolean);
+
+    let rrUrl = urls.find(u => u.includes('/round-robin/'));
+    if (!rrUrl) {
+        const bracketUrl = urls.find(u => u.includes('/bracket/'));
+        if (bracketUrl) {
+            rrUrl = bracketUrl.replace('/bracket/', '/round-robin/');
+        }
+    }
+
+    if (!rrUrl) {
+        return res.status(400).json({ error: 'Geen poule (round-robin of bracket) link gevonden voor dit toernooi.' });
+    }
+
+    try {
+        const response = await axios.post(rrUrl, {});
+        const dataContainer = response.data.payload || response.data || {};
+
+        const found = [];
+        function zoekStanden(obj) {
+            if (!obj || typeof obj !== 'object') return;
+            if (obj.opponent && obj.rr_group !== undefined && obj.mp !== undefined && obj.mw !== undefined) {
+                found.push(obj);
+            }
+            Object.values(obj).forEach(v => zoekStanden(v));
+        }
+        zoekStanden(dataContainer);
+
+        if (found.length === 0) {
+            return res.status(404).json({ error: 'Geen poulestand gevonden in de API-respons.' });
+        }
+
+        const grouped = {};
+        found.forEach(row => {
+            const group = (row.rr_group || '?').toString();
+            if (!grouped[group]) grouped[group] = [];
+            grouped[group].push({
+                rank: row.init_rank || row.final_rank || null,
+                player: row.opponent || 'Onbekend',
+                mp: row.mp ?? 0,
+                mw: row.mw ?? 0,
+                gld: row.gld ?? 0,
+                lw: row.lw ?? 0,
+                ppr: row.ppr ?? null
+            });
+        });
+
+        Object.values(grouped).forEach(rows => {
+            rows.sort((a, b) => (a.rank || 999) - (b.rank || 999));
+        });
+
+        res.json({ tournament: tName, groups: grouped });
+    } catch (e) {
+        console.error('Fout bij ophalen poulestand:', e.message);
+        res.status(500).json({ error: 'Fout bij ophalen poulestand.' });
+    }
+});
+
 let matchCache = {};
 let cacheTimestamps = {};
 
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
-    
-    if (matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
+    const extraPlayers = (req.query.extraPlayers || '')
+        .split(',')
+        .map(p => p.trim())
+        .filter(Boolean);
+
+    const hasExtra = extraPlayers.length > 0;
+
+    if (!hasExtra && matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
         return res.json(matchCache[tName]);
     }
-    
-    const list = await fetchMatchesForTournament(tName);
-    matchCache[tName] = list;
-    cacheTimestamps[tName] = Date.now();
+
+    const list = await fetchMatchesForTournament(tName, extraPlayers);
+
+    if (!hasExtra) {
+        matchCache[tName] = list;
+        cacheTimestamps[tName] = Date.now();
+    }
+
     res.json(list);
 });
 
