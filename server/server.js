@@ -956,9 +956,17 @@ app.get('/api/poule-standings', async (req, res) => {
     }
 
     const urls = tournament.url.split(',').map(u => u.trim()).filter(Boolean);
-    const rrUrl = urls.find(u => u.includes('/round-robin/'));
+
+    let rrUrl = urls.find(u => u.includes('/round-robin/'));
     if (!rrUrl) {
-        return res.status(400).json({ error: 'Geen poule (round-robin) link gevonden voor dit toernooi.' });
+        const bracketUrl = urls.find(u => u.includes('/bracket/'));
+        if (bracketUrl) {
+            rrUrl = bracketUrl.replace('/bracket/', '/round-robin/');
+        }
+    }
+
+    if (!rrUrl) {
+        return res.status(400).json({ error: 'Geen poule (round-robin of bracket) link gevonden voor dit toernooi.' });
     }
 
     try {
