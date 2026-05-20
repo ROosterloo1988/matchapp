@@ -447,7 +447,7 @@
                 let resultClass = match.resultaat ? match.resultaat : "";
                 let avg1 = (match.avg1 !== undefined && match.avg1 !== null && match.avg1 !== "") ? match.avg1 : "-";
                 let avg2 = (match.avg2 !== undefined && match.avg2 !== null && match.avg2 !== "") ? match.avg2 : "-";
-                let writerText = match.writer ? `<span class="card-writer">| Schrijver: ${match.writer}</span>` : '';
+                let writerText = match.writer ? `<span class="card-writer">Schrijver: ${match.writer}</span>` : '';
                 
                 // --- DE SLIMME KNOP LOGICA (LIVE vs RECAP) ---
                 let btnText = match.status === "bezig" ? "🔴 KIJK LIVE" : "📊 RECAP";
@@ -485,7 +485,7 @@
                         <div class="score-box ${flashClass}">${scoreText}</div>
                         <div class="player-name">
                             <div>${match.player2}</div>
-                            <div class="player-meta">AVG: ${avg2}</div>
+                            <div class="player-avg">AVG: ${avg2}</div>
                         </div>
                     </div>
                     ${writerText}
