@@ -1,79 +1,326 @@
 # 🎯 Dart Match App (Live Toernooi Tracker)
 
-Een geavanceerde Progressive Web App (PWA) ontworpen voor live darttoernooien. De app koppelt direct met de verborgen API's van **DartConnect** (en is voorbereid op 2K Darts) om spelers realtime inzicht te geven in hun geplande wedstrijden, uitslagen en bordtoewijzingen. 
+Dart Match App is een Progressive Web App (PWA) voor live darttoernooien. De app leest DartConnect-data uit, toont alleen de relevante wedstrijden voor geselecteerde spelers en verstuurt persoonlijke pushmeldingen wanneer een speler moet spelen of schrijven.
 
-De absolute "killer feature" van deze app is het **gepersonaliseerde pushmeldingen-systeem**, waarbij spelers alleen een trilsignaal krijgen als zijzelf of hun teamgenoten moeten spelen (of schrijven).
+De app is bedoeld voor toernooien met één of meerdere fasen, zoals poules, winnaarsronde en verliezersronde. Naast live wedstrijden kan de app ook live poulestanden tonen via de Round Robin-data van DartConnect.
 
-## ✨ Belangrijkste Functies
+> Let op: de app gebruikt onofficiële/afgeleide DartConnect-endpoints. Als DartConnect routes of veldnamen wijzigt, kan parsing aangepast moeten worden.
 
-* **🔗 Multi-Bracket Integratie:** Koppel moeiteloos Poules, Winnaars- en Verliezersrondes (WR/VR) aan elkaar onder één toernooinaam.
-* **📊 Slimme Poule-Herkenning:** De server herkent automatisch poule-letters (bijv. ID `C5` wordt "Poule C") en groepeert de bekendmaking van poules tot één samenvattende pushmelding om spam te voorkomen.
-* **🔔 Gepersonaliseerde Pushmeldingen:** Gebruikers kunnen per toernooi aanvinken voor welke spelers ze meldingen (10-minuten waarschuwing of nieuwe ronde) willen ontvangen.
-* **✍️ Schrijvers-Waarschuwing:** Herkent automatisch of een speler de "Marker" (schrijver) is en past de melding hierop aan.
-* **📱 Progressive Web App (PWA):** Installeerbaar op zowel Android als iOS (inclusief slimme iOS installatie-banner). Draait fullscreen zonder browserbalken.
-* **⚙️ Beveiligd Admin Paneel:** Een afgeschermd beheerderspaneel voor het toevoegen van toernooien, het importeren van namen en het versturen van handmatige 'Omroep'-berichten naar alle telefoons.
+---
+
+## ✨ Belangrijkste functies
+
+### Voor spelers
+
+- **Toernooioverzicht** met publieke en zelf toegevoegde toernooien.
+- **Wedstrijdstatussen**: live/bezig, gepland, mogelijk volgende ronde en gespeeld.
+- **Live scores** inclusief score-update highlight.
+- **DartConnect live-link** via watch/spectator key wanneer een wedstrijd live is.
+- **Recap-link** naar DartConnect Recap voor gespeelde wedstrijden.
+- **Bordnummer, ronde, match-id, schrijver/marker en gemiddelden** waar beschikbaar.
+- **Live poulestanden** via de knop `📊 Live Stand Poules`.
+- **Persoonlijke pushmeldingen** per toernooi en per speler.
+- **Zelf toernooi toevoegen** als verborgen/user toernooi.
+- **PWA-installatie** op Android en iOS, inclusief iOS-installatiehint.
+
+### Voor beheer
+
+- **Beveiligd admin-paneel** via Basic Auth.
+- **Toernooien toevoegen, bewerken en verwijderen**.
+- **Verborgen/user toernooien** markeren.
+- **Ondersteuning voor meerdere toernooi-opzetten**:
+  - Enkel schema.
+  - Poules + knockout.
+  - Poules + winnaarsronde + verliezersronde.
+- **Automatische DartConnect URL-vertaling** van pagina-links naar API-links.
+- **Spelers importeren/ophalen** vanuit de gekoppelde DartConnect-bron.
+- **Darters per toernooi beheren**.
+- **Handmatige pushmelding** naar alle actieve abonnees.
+
+---
+
+## 🧩 Hoe de app globaal werkt
+
+Gebruiker/Admin
+   ↓
+Frontend PWA: public/index.html + public/admin.html
+   ↓
+Node/Express backend: server/server.js
+   ↓
+DartConnect endpoints
+   ↓
+Genormaliseerde data terug naar de app
+
+
+De backend fungeert als proxy en normalisatielaag. De frontend roept dus niet rechtstreeks DartConnect aan, maar gebruikt de eigen backend-routes zoals `/api/matches` en `/api/poule-standings`.
+
+---
 
 ## 📂 Mapstructuur
 
-\`\`\`text
 matchapp/
 │
-├── public/                 # De voorkant (Frontend)
-│   ├── index.html          # De hoofd-app voor de spelers
-│   ├── admin.html          # Het afgeschermde beheerpaneel
-│   ├── manifest.json       # PWA configuratie
-│   ├── service-worker.js   # Offline cache & Push-ontvanger
-│   └── icon-192x192.png    # App icoontje
+├── public/
+│   ├── index.html          # Hoofd-app voor spelers
+│   ├── admin.html          # Beveiligd beheerpaneel
+│   ├── manifest.json       # PWA-configuratie
+│   ├── service-worker.js   # Offline cache + push notification handler
+│   └── icon-192x192.png    # App-icoon
 │
-├── server/                 # De achterkant (Backend)
-│   ├── server.js           # De centrale motor & API
-│   └── database.json       # (Wordt automatisch gegenereerd) Opslag voor toernooien en abonnees
+├── server/
+│   ├── server.js           # Express server, DartConnect proxy en pushlogica
+│   └── database.json       # Wordt automatisch aangemaakt/gebruikt
 │
 └── README.md
-\`\`\`
 
-## 🚀 Installatie & Setup
+---
 
-1. **Zorg dat Node.js is geïnstalleerd** op je server.
-2. **Navigeer naar de projectmap** en installeer de benodigde pakketten:
-   \`\`\`bash
-   npm install express cors axios web-push
-   \`\`\`
-3. **Beheer-wachtwoord wijzigen:** Open `server/server.js` en pas bovenaan de inloggegevens aan:
-   \`\`\`javascript
-   const ADMIN_USER = "matchapp";
-   const ADMIN_PASS = "dutchopen2026"; 
-   \`\`\`
+## 🚀 Installatie
 
-## 🏃‍♂️ Applicatie Starten
+### 1. Node.js installeren
 
-Voor lokaal testen kun je de app starten met Node:
-\`\`\`bash
+Zorg dat Node.js en npm beschikbaar zijn op de server.
+
+node -v
+npm -v
+
+### 2. Dependencies installeren
+
+Ga naar de projectmap en installeer de packages:
+
+npm install express cors axios web-push
+
+### 3. Admin-login instellen
+
+Open `server/server.js` en wijzig bovenaan de admingegevens:
+
+const ADMIN_USER = "...";
+const ADMIN_PASS = "...";
+
+Gebruik in productie geen standaardwachtwoord.
+
+---
+
+## ▶️ Applicatie starten
+
+### Lokaal testen
+
 node server/server.js
-\`\`\`
 
-Voor productie (zodat de app online blijft als je de terminal sluit) is het aanbevolen om **PM2** te gebruiken:
-\`\`\`bash
-pm2 start server/server.js --name dart-proxy
+De server draait standaard op:
+
+http://localhost:3000
+
+### Productie met PM2
+
+npm install -g pm2
+pm2 start server/server.js --name dart-match-app
 pm2 save
-\`\`\`
+pm2 startup
 
-De server draait standaard op poort `3000`.
+Handige commando's:
 
-## 🛠️ Gebruiksaanwijzing (Admin)
+pm2 logs dart-match-app
+pm2 restart dart-match-app
+pm2 stop dart-match-app
 
-1. Ga in je browser naar `jouw-domein.nl/admin.html` (of `localhost:3000/admin.html`).
-2. Log in met je ingestelde gebruikersnaam en wachtwoord.
-3. **Stap 1: Toernooi toevoegen:** * Geef het toernooi een naam.
-   * Kies de opzet (bijv. Groepen + WR + VR).
-   * Plak de originele DartConnect linkjes in de velden. De Auto-Vertaler zet ze op de achtergrond om naar de juiste API-links.
-4. **Stap 2: Darters Toevoegen:**
-   * Selecteer je aangemaakte toernooi.
-   * Typ de namen van de darters (exact zoals bekend in DartConnect) in en voeg ze toe. Alleen deze spelers worden getoond in de app.
-5. **Stap 3: Omroepsysteem:**
-   * Typ een bericht en klik op versturen om alle actieve telefoons te laten trillen (negeert persoonlijke vinkjes).
+---
 
-## ⚠️ Bekende Aandachtspunten
-* **Push Meldingen & iOS:** Pushmeldingen op iOS werken pas als de speler de app daadwerkelijk via het "Deel" icoon op zijn/haar beginscherm heeft gezet. De ingebouwde banner in `index.html` helpt gebruikers hieraan herinneren.
-* **Service Worker Cache:** Als er wijzigingen in `index.html` worden gemaakt, vergeet dan niet het versienummer in `service-worker.js` op te hogen om telefoons te dwingen de nieuwe versie te downloaden.
+## 🌐 Belangrijke backend-routes
 
+| Route | Methode | Doel |
+|---|---:|---|
+| `/api/tournaments` | GET | Publieke toernooien ophalen |
+| `/api/tournaments/valid` | GET | Alle geldige toernooien ophalen, inclusief verborgen/user toernooien |
+| `/api/tournament-config?tournament=...` | GET | Configuratie, URLs en darters van één toernooi ophalen |
+| `/api/matches?tournament=...` | GET | Genormaliseerde wedstrijden ophalen |
+| `/api/poule-standings?tournament=...` | GET | Live poulestanden ophalen |
+| `/api/fetch-players-preview` | POST | Spelers ophalen/importeren uit DartConnect-bron |
+| `/api/user-add-tournament` | POST | Verborgen/user toernooi toevoegen |
+| `/api/subscribe` | POST | Push subscription + spelerselectie opslaan |
+| `/api/vapidPublicKey` | GET | Publieke VAPID-key voor pushmeldingen |
+| `/api/settings` | GET/POST | Admin-instellingen ophalen/opslaan |
+| `/api/admin/send-push` | POST | Handmatige pushmelding sturen |
+| `/api/test-push` | GET | Testmelding versturen |
+
+---
+
+## 🔗 DartConnect URL's toevoegen
+
+In het admin-paneel plak je de normale DartConnect-pagina-URL. De app vertaalt die naar een API-link.
+
+### Belangrijk verschil
+
+| DartConnect API | Bevat |
+|---|---|
+| `/api/event/{event}/bracket/{eventId}` | Wedstrijden, schema, scores per match |
+| `/api/event/{event}/round-robin/{eventId}` | Ploeg-/spelerstanden per poule |
+| `/event/{event}/state/matches?fetch_type=initial` | Live/completed match-state |
+| `/api/event/{event}/confirmation/{eventId}/players` | Ingeschreven/confirmed spelers vóór de loting |
+
+---
+
+## 📊 Live poulestanden
+
+De knop `📊 Live Stand Poules` opent een modal in de app. De frontend roept daarvoor aan:
+
+GET /api/poule-standings?tournament=TOERNOOINAAM
+
+De backend zoekt de eerste poule-/bracket-link van het toernooi, zet die om naar `/round-robin/` en leest de `roster` uit. De response wordt gegroepeerd per poule.
+
+Velden die worden gebruikt:
+
+| Veld | Betekenis |
+|---|---|
+| `opponent` | Spelernaam |
+| `rr_group` | Pouleletter |
+| `mp` | Matches played |
+| `mw` | Matches won |
+| `gld` | Leg difference |
+| `lw` | Legs won |
+| `ppr` | Gemiddelde, indien beschikbaar |
+| `init_rank` / `final_rank` | Ranking/positie |
+
+---
+
+## 🎯 Wedstrijddata en live scoring
+
+De centrale functie `fetchMatchesForTournament()` in `server.js` haalt data uit de gekoppelde DartConnect-bronnen en normaliseert alles naar één formaat voor de frontend.
+
+De app combineert o.a.:
+
+- bracket-/poulewedstrijden;
+- DartConnect state data voor live en gespeelde wedstrijden;
+- speler-id naar naam mapping;
+- live scores;
+- writer/marker informatie;
+- bordnummer;
+- watch/spectator key;
+- recap-id;
+- rondeherkenning voor poules, winnaarsronde en verliezersronde.
+
+De frontend toont wedstrijden als:
+
+bezig      → live wedstrijden
+gepland    → bekende komende wedstrijden
+mogelijk   → mogelijke volgende ronde
+gespeeld   → afgeronde wedstrijden
+
+---
+
+## 🔔 Pushmeldingen
+
+De app gebruikt Web Push via `web-push` en automatisch gegenereerde VAPID keys. Subscriptions worden opgeslagen in `server/database.json`.
+
+Gebruikers kunnen per toernooi kiezen voor welke spelers ze meldingen willen ontvangen. De app gebruikt daarbij:
+
+- de geconfigureerde darters in de backend;
+- opgeslagen voorkeuren in `localStorage`;
+- spelers die via DartConnect preview/import beschikbaar zijn.
+
+Pushmeldingen worden gebruikt voor o.a.:
+
+- nieuwe geplande wedstrijd;
+- wedstrijd binnen ongeveer 10 minuten;
+- poule-indeling bekend;
+- marker/schrijver-taak;
+- handmatige admin-omroep.
+
+### iOS
+
+Op iOS werken pushmeldingen alleen betrouwbaar als de gebruiker de app op het beginscherm heeft gezet via het deelmenu. De app toont hiervoor een iOS-installatiebanner.
+
+---
+
+## ⚙️ Admin-handleiding
+
+1. Open `/admin.html`.
+2. Log in met de ingestelde Basic Auth-gegevens.
+3. Voeg een toernooi toe:
+   - Vul een naam in.
+   - Kies de opzet.
+   - Plak de DartConnect links.
+   - Markeer eventueel als verborgen/user toernooi.
+4. Sla het toernooi op.
+5. Selecteer het toernooi bij “Darters per Toernooi”.
+6. Voeg de relevante spelers toe.
+7. Klik op “Alles Opslaan”.
+
+### Toernooi-opzetten
+
+| Opzet | Gebruik |
+|---|---|
+| Enkel schema | Alleen knockout of alleen poule |
+| Poules + hoofdschema | Poules gevolgd door knockout |
+| Poules + winnaarsronde + verliezersronde | Poules gevolgd door WR en VR |
+
+---
+
+## 👤 Zelf toernooi toevoegen door gebruiker
+
+In de hoofd-app kan een gebruiker zelf een toernooi toevoegen. Dit toernooi wordt als `unlisted` opgeslagen en verschijnt alleen voor die gebruiker via `localStorage`.
+
+Stappen:
+
+1. Klik op `➕ Zelf toernooi toevoegen`.
+2. Vul toernooinaam en DartConnect-links in.
+3. Laat de app spelers ophalen.
+4. Selecteer spelers voor meldingen.
+5. Sla op.
+
+---
+
+## 🗄️ database.json
+
+De server maakt/gebruikt `server/database.json` als eenvoudige opslag.
+
+Belangrijke onderdelen:
+
+{
+  "tournaments": [],
+  "subscriptions": [],
+  "notifiedMatches": [],
+  "notifiedPoules": [],
+  "vapidKeys": {}
+}
+
+### Toernooi-object
+
+{
+  "name": "Voorbeeld Toernooi",
+  "url": "https://tv.dartconnect.com/api/event/.../bracket/192955",
+  "matchlistUrl": "",
+  "darters": ["Speler, Naam"],
+  "unlisted": false
+}
+
+---
+
+## ⏱️ Caching en verversing
+
+- De frontend ververst wedstrijddata elke 10 seconden.
+- De backend gebruikt een korte match-cache van ongeveer 10 seconden.
+- De heartbeat draait periodiek en vult de cache alvast.
+- Scorewijzigingen krijgen in de frontend een visuele flash.
+- Bij terugkeer naar de app (`visibilitychange`) wordt direct opnieuw ververst.
+
+---
+
+## 🔐 Security-aandachtspunten
+
+- Wijzig altijd de standaard admin-login.
+- Plaats de app achter HTTPS.
+- Houd `database.json` buiten publieke statische mappen.
+- Deel geen cookies, tokens of DartConnect-dumps publiek.
+- Overweeg environment variables voor admin-login en VAPID-contactadres.
+
+---
+
+## 🧭 Roadmap / ideeën
+
+- Per gebruiker meerdere spelerslijsten/profielen.
+---
+
+## Korte samenvatting
+
+Deze app volgt live darttoernooien, filtert wedstrijden op gekozen spelers, toont live scores en poulestanden, en stuurt slimme pushmeldingen wanneer spelers moeten spelen of schrijven. De backend normaliseert DartConnect-data zodat de frontend eenvoudig en snel blijft.
