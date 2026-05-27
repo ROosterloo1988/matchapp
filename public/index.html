@@ -181,6 +181,7 @@
                 <datalist id="push-player-options"></datalist>
                 <button class="btn-yes" style="padding: 10px 14px; width: auto;" onclick="selectPushPlayerFromList()">+ Voeg toe</button>
             </div>
+            <div id="push-player-validation" style="display:none; color:#ff7675; font-size:0.85rem; margin:-4px 0 10px 0;"></div>
             <div id="push-players-list" class="checkbox-container">Laden...</div>
             <button class="btn-yes" onclick="savePushSettings()">💾 Opslaan & Aanzetten</button>
             <button class="btn-no" onclick="closePushModal()">Annuleren</button>
@@ -265,7 +266,12 @@
         if (document.visibilityState === "visible" && activeTournament) {
             console.log("App is weer geopend! Forceer een directe verversing...");
             updatePouleButtonVisibility();
-        loadMatches();
+            loadMatches();
+
+            const pouleModal = document.getElementById('poule-modal');
+            if (pouleModal && pouleModal.style.display === 'flex') {
+                refreshPouleStandings();
+            }
         }
     });
 
@@ -740,6 +746,19 @@
 
         list.innerHTML = allPlayers.map(d => `<option value="${d}"></option>`).join('');
         input.value = '';
+        setPushValidation('');
+    }
+
+    function setPushValidation(message) {
+        const validation = document.getElementById('push-player-validation');
+        if (!validation) return;
+        if (!message) {
+            validation.style.display = 'none';
+            validation.textContent = '';
+            return;
+        }
+        validation.style.display = 'block';
+        validation.textContent = message;
     }
 
     function selectPushPlayerFromList() {
@@ -750,9 +769,11 @@
         const selectedName = input.value.trim();
         if (!selectedName) return;
 
+        setPushValidation('');
+
         const target = selectedName.toLowerCase();
         if (!pushPlayersFullSet.has(target)) {
-            alert('Kies een speler uit de lijst (niet handmatig typen).');
+            setPushValidation('Kies een speler uit de lijst (niet handmatig typen).');
             return;
         }
         let checkbox = Array.from(document.querySelectorAll('.darter-checkbox')).find(cb => cb.value.toLowerCase() === target);
@@ -845,9 +866,13 @@
 
 
 
+    function shouldRefreshPouleStandings() {
+        return document.visibilityState === 'visible' && !!activeTournament;
+    }
+
     async function refreshPouleStandings() {
         const content = document.getElementById('poule-standings-content');
-        if (!content || !activeTournament) return;
+        if (!content || !activeTournament || !shouldRefreshPouleStandings()) return;
 
         try {
             const res = await fetch(`/api/poule-standings?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
@@ -926,7 +951,10 @@
         await refreshPouleStandings();
 
         if (pouleRefreshInterval) clearInterval(pouleRefreshInterval);
-        pouleRefreshInterval = setInterval(refreshPouleStandings, 25000);
+        pouleRefreshInterval = setInterval(() => {
+            if (!shouldRefreshPouleStandings()) return;
+            refreshPouleStandings();
+        }, 25000);
     }
 
     function closePushModal() {

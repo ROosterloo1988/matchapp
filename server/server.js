@@ -990,7 +990,7 @@ app.get('/api/poule-standings', async (req, res) => {
     }
 
     try {
-        const response = await axios.post(rrUrl, {});
+        const response = await axios.post(rrUrl, {}, { timeout: 8000 });
         const dataContainer = response.data.payload || response.data || {};
 
         const found = [];
