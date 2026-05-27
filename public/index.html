@@ -195,6 +195,7 @@
                 <h2>📊 Live Stand Poules</h2>
                 <button class="poule-close" onclick="closePouleModal()">×</button>
             </div>
+            <div id="poule-standings-status" style="color:#9aa0a6; font-size:0.8rem; margin:-6px 0 10px 0;">Nog niet ververst.</div>
             <div id="poule-standings-content" class="poule-content">
                 <div style="color:#888;text-align:center;margin-top:20px;">Laden...</div>
             </div>
@@ -243,6 +244,7 @@
     let activeTournament = null;
     let refreshInterval = null;
     let pouleRefreshInterval = null;
+    let pouleRefreshDelayMs = 25000;
     let pushPlayersFullSet = new Set();
     let currentFilter = 'alles';
     
@@ -870,6 +872,24 @@
         return document.visibilityState === 'visible' && !!activeTournament;
     }
 
+    function setPouleStatus(message) {
+        const el = document.getElementById('poule-standings-status');
+        if (!el) return;
+        el.textContent = message;
+    }
+
+    function formatTimeNow() {
+        return new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function resetPouleRefreshTimer() {
+        if (pouleRefreshInterval) clearInterval(pouleRefreshInterval);
+        pouleRefreshInterval = setInterval(() => {
+            if (!shouldRefreshPouleStandings()) return;
+            refreshPouleStandings();
+        }, pouleRefreshDelayMs);
+    }
+
     async function refreshPouleStandings() {
         const content = document.getElementById('poule-standings-content');
         if (!content || !activeTournament || !shouldRefreshPouleStandings()) return;
@@ -879,8 +899,15 @@
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Onbekende fout');
             renderPouleStandings(data.groups || {});
+            pouleRefreshDelayMs = 25000;
+            setPouleStatus(`Laatst bijgewerkt: ${formatTimeNow()} · volgende refresh over 25s`);
+            resetPouleRefreshTimer();
         } catch (e) {
+            const delaySec = Math.round(pouleRefreshDelayMs / 1000);
             content.innerHTML = `<div style='color:#ff7675;text-align:center;'>${e.message}</div>`;
+            setPouleStatus(`Bron tijdelijk traag/fout. Nieuwe poging over ${delaySec}s.`);
+            pouleRefreshDelayMs = Math.min(60000, Math.round(pouleRefreshDelayMs * 1.6));
+            resetPouleRefreshTimer();
         }
     }
 
@@ -891,6 +918,7 @@
             clearInterval(pouleRefreshInterval);
             pouleRefreshInterval = null;
         }
+        setPouleStatus('Nog niet ververst.');
     }
 
     function renderPouleStandings(groups) {
@@ -948,13 +976,10 @@
         }
 
         content.innerHTML = 'Poulestanden laden...';
+        pouleRefreshDelayMs = 25000;
+        setPouleStatus('Poulestanden laden...');
+        resetPouleRefreshTimer();
         await refreshPouleStandings();
-
-        if (pouleRefreshInterval) clearInterval(pouleRefreshInterval);
-        pouleRefreshInterval = setInterval(() => {
-            if (!shouldRefreshPouleStandings()) return;
-            refreshPouleStandings();
-        }, 25000);
     }
 
     function closePushModal() {
