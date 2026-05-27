@@ -241,6 +241,8 @@
 <script>
     let activeTournament = null;
     let refreshInterval = null;
+    let pouleRefreshInterval = null;
+    let pushPlayersFullSet = new Set();
     let currentFilter = 'alles';
     
     // --- NIEUW: GEHEUGEN VOOR SCORE HIGHLIGHTS ---
@@ -409,11 +411,7 @@
             const res = await fetch(`/api/tournament-config?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
             if (!res.ok) throw new Error('config');
             const cfg = await res.json();
-            const urls = (cfg.url || '').split(',').map(u => u.trim()).filter(Boolean);
-            const hasRoundRobin = urls.some(u => u.includes('/round-robin/'));
-            const likelyPouleAsFirstBracket = urls.length >= 2 && urls[0].includes('/bracket/');
-            const hasPoulePhase = hasRoundRobin || likelyPouleAsFirstBracket;
-            btn.style.display = hasPoulePhase ? 'inline-block' : 'none';
+            btn.style.display = cfg.hasPoulePhase ? 'inline-block' : 'none';
         } catch (_) {
             btn.style.display = 'none';
         }
@@ -474,7 +472,9 @@
         if (!activeTournament) return;
         try {
             const extraPlayers = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
-            const extraParam = Array.isArray(extraPlayers) && extraPlayers.length ? `&extraPlayers=${encodeURIComponent(extraPlayers.join(','))}` : '';
+            const extraParam = Array.isArray(extraPlayers) && extraPlayers.length
+                ? extraPlayers.map(p => `&extraPlayers=${encodeURIComponent(p)}`).join('')
+                : '';
             const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}${extraParam}&_t=${Date.now()}`);
             if (!response.ok) throw new Error("Server error");
             const allMatches = await response.json();
@@ -751,6 +751,10 @@
         if (!selectedName) return;
 
         const target = selectedName.toLowerCase();
+        if (!pushPlayersFullSet.has(target)) {
+            alert('Kies een speler uit de lijst (niet handmatig typen).');
+            return;
+        }
         let checkbox = Array.from(document.querySelectorAll('.darter-checkbox')).find(cb => cb.value.toLowerCase() === target);
 
         if (!checkbox) {
@@ -831,6 +835,7 @@
 
             const shortList = Array.from(shortListMap.values()).sort((a, b) => a.localeCompare(b));
             const fullList = Array.from(fullListMap.values()).sort((a, b) => a.localeCompare(b));
+            pushPlayersFullSet = new Set(fullList.map(name => name.toLowerCase()));
             renderPushPlayerList(shortList, savedPrefs);
             renderPushPlayerSelect(fullList);
         } catch(e) {
@@ -839,9 +844,28 @@
     }
 
 
+
+    async function refreshPouleStandings() {
+        const content = document.getElementById('poule-standings-content');
+        if (!content || !activeTournament) return;
+
+        try {
+            const res = await fetch(`/api/poule-standings?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Onbekende fout');
+            renderPouleStandings(data.groups || {});
+        } catch (e) {
+            content.innerHTML = `<div style='color:#ff7675;text-align:center;'>${e.message}</div>`;
+        }
+    }
+
     function closePouleModal() {
         const modal = document.getElementById('poule-modal');
         if (modal) modal.style.display = 'none';
+        if (pouleRefreshInterval) {
+            clearInterval(pouleRefreshInterval);
+            pouleRefreshInterval = null;
+        }
     }
 
     function renderPouleStandings(groups) {
@@ -899,14 +923,10 @@
         }
 
         content.innerHTML = 'Poulestanden laden...';
-        try {
-            const res = await fetch(`/api/poule-standings?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Onbekende fout');
-            renderPouleStandings(data.groups || {});
-        } catch (e) {
-            content.innerHTML = `<div style='color:#ff7675;text-align:center;'>${e.message}</div>`;
-        }
+        await refreshPouleStandings();
+
+        if (pouleRefreshInterval) clearInterval(pouleRefreshInterval);
+        pouleRefreshInterval = setInterval(refreshPouleStandings, 25000);
     }
 
     function closePushModal() {
