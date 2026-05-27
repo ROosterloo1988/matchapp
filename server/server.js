@@ -964,6 +964,8 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 }
 
 
+let pouleStandingsCache = {};
+
 app.get('/api/poule-standings', async (req, res) => {
     const tName = req.query.tournament;
     if (!tName) return res.status(400).json({ error: 'Toernooi ontbreekt.' });
@@ -1031,9 +1033,27 @@ app.get('/api/poule-standings', async (req, res) => {
             console.log(`[poule-standings][${tName}] groups=${Object.keys(grouped).length} rows=${rowCount}`);
         }
 
-        res.json({ tournament: tName, groups: grouped });
+        const payload = {
+            tournament: tName,
+            groups: grouped,
+            stale: false,
+            updatedAt: new Date().toISOString()
+        };
+
+        pouleStandingsCache[tName] = payload;
+        res.json(payload);
     } catch (e) {
         console.error('Fout bij ophalen poulestand:', e.message);
+
+        const cached = pouleStandingsCache[tName];
+        if (cached && cached.groups) {
+            return res.json({
+                ...cached,
+                stale: true,
+                staleReason: 'upstream_error'
+            });
+        }
+
         res.status(500).json({ error: 'Fout bij ophalen poulestand.' });
     }
 });

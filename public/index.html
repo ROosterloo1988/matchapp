@@ -900,7 +900,16 @@
             if (!res.ok) throw new Error(data.error || 'Onbekende fout');
             renderPouleStandings(data.groups || {});
             pouleRefreshDelayMs = 25000;
-            setPouleStatus(`Laatst bijgewerkt: ${formatTimeNow()} · volgende refresh over 25s`);
+
+            if (data.stale) {
+                const updatedText = data.updatedAt
+                    ? new Date(data.updatedAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                    : 'onbekend';
+                setPouleStatus(`⚠️ Tijdelijke bronfout. Laatste bekende stand van ${updatedText}. Nieuwe refresh over 25s.`);
+            } else {
+                setPouleStatus(`Laatst bijgewerkt: ${formatTimeNow()} · volgende refresh over 25s`);
+            }
+
             resetPouleRefreshTimer();
         } catch (e) {
             const delaySec = Math.round(pouleRefreshDelayMs / 1000);
