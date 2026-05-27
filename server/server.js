@@ -29,6 +29,20 @@ app.use('/admin.html', (req, res, next) => {
 
 app.use(express.static(path.join(__dirname, '../public')));
 
+const systemStatus = {
+    startedAt: new Date().toISOString(),
+    poule: { lastSuccessAt: null, lastErrorAt: null, lastErrorMessage: null, staleServedCount: 0, lastDurationMs: null },
+    matches: { cacheHits: 0, cacheMisses: 0, lastFetchAt: null, lastDurationMs: null },
+    push: { lastSuccessAt: null, lastErrorAt: null, lastErrorMessage: null, lastSuccessCount: 0, lastFailureCount: 0 },
+    recentErrors: []
+};
+
+function addSystemError(scope, message) {
+    const entry = { at: new Date().toISOString(), scope, message: String(message || 'onbekende fout') };
+    systemStatus.recentErrors.unshift(entry);
+    if (systemStatus.recentErrors.length > 20) systemStatus.recentErrors.length = 20;
+}
+
 const DB_FILE = path.join(__dirname, 'database.json');
 
 // --- DATABASE & PUSH SETUP (MET SUPERSNELLE MEMORY-CACHE!) ---
@@ -1192,10 +1206,6 @@ runHeartbeat();
 setInterval(runHeartbeat, 60000);
 
 app.get('/api/admin/system-status', (req, res) => {
-    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
-    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send('Onbevoegd');
-
     res.json({
         uptimeSeconds: Math.floor(process.uptime()),
         startedAt: systemStatus.startedAt,
@@ -1213,4 +1223,3 @@ app.get('/api/admin/system-status', (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
-
