@@ -992,6 +992,7 @@ app.get('/api/poule-standings', async (req, res) => {
     }
 
     try {
+        const startedAt = Date.now();
         const response = await axios.post(rrUrl, {}, { timeout: 8000 });
         const dataContainer = response.data.payload || response.data || {};
 
@@ -1041,12 +1042,18 @@ app.get('/api/poule-standings', async (req, res) => {
         };
 
         pouleStandingsCache[tName] = payload;
+        systemStatus.poule.lastSuccessAt = payload.updatedAt;
+        systemStatus.poule.lastDurationMs = Date.now() - startedAt;
         res.json(payload);
     } catch (e) {
         console.error('Fout bij ophalen poulestand:', e.message);
+        systemStatus.poule.lastErrorAt = new Date().toISOString();
+        systemStatus.poule.lastErrorMessage = e.message;
+        addSystemError('poule-standings', e.message);
 
         const cached = pouleStandingsCache[tName];
         if (cached && cached.groups) {
+            systemStatus.poule.staleServedCount += 1;
             return res.json({
                 ...cached,
                 stale: true,
@@ -1080,12 +1087,17 @@ app.get('/api/matches', async (req, res) => {
     const cacheKey = `${tName}::${extrasKey}`;
 
     if (matchCache[cacheKey] && cacheTimestamps[cacheKey] && (Date.now() - cacheTimestamps[cacheKey] < 10000)) {
+        systemStatus.matches.cacheHits += 1;
         return res.json(matchCache[cacheKey]);
     }
 
+    systemStatus.matches.cacheMisses += 1;
+    const startedAt = Date.now();
     const list = await fetchMatchesForTournament(tName, extraPlayers);
     matchCache[cacheKey] = list;
     cacheTimestamps[cacheKey] = Date.now();
+    systemStatus.matches.lastFetchAt = new Date().toISOString();
+    systemStatus.matches.lastDurationMs = Date.now() - startedAt;
 
     res.json(list);
 });
@@ -1178,5 +1190,27 @@ async function runHeartbeat() {
 
 runHeartbeat();
 setInterval(runHeartbeat, 60000);
+
+app.get('/api/admin/system-status', (req, res) => {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send('Onbevoegd');
+
+    res.json({
+        uptimeSeconds: Math.floor(process.uptime()),
+        startedAt: systemStatus.startedAt,
+        poule: {
+            ...systemStatus.poule,
+            cacheTournaments: Object.keys(pouleStandingsCache).length
+        },
+        matches: {
+            ...systemStatus.matches,
+            cacheKeys: Object.keys(matchCache).length
+        },
+        push: systemStatus.push,
+        recentErrors: systemStatus.recentErrors
+    });
+});
+
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
 
