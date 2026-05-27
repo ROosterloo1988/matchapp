@@ -409,8 +409,9 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             if (!str) return "";
             return String(str).toLowerCase()
                 .normalize("NFD")
+                .replace(/<[^>]*>?/gm, " ")
                 .replace(/[\u0300-\u036f]/g, "")
-                .replace(/[^a-z0-9\s]/g, "")
+                .replace(/[^a-z0-9\s]/g, " ")
                 .split(/\s+/)
                 .filter(w => w.length > 0)
                 .sort()
@@ -427,6 +428,11 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             
             if (match.mi) {
                 liveMatchDict[match.mi.toString()] = match;
+            }
+
+            if (match.match_id) {
+                liveMatchDict[match.match_id.toString()] = match;
+                liveMatchDict[match.match_id.toString().replace(/_/g, '-')] = match;
             }
 
             if (p1Name && p2Name) {
