@@ -128,11 +128,16 @@ app.get('/api/tournament-config', (req, res) => {
         return res.status(404).json({ error: 'Toernooi niet gevonden.' });
     }
 
+    const urls = (tournament.url || '').split(',').map(u => u.trim()).filter(Boolean);
+    const hasRoundRobin = urls.some(u => u.includes('/round-robin/'));
+    const likelyPouleAsFirstBracket = urls.length >= 2 && urls[0].includes('/bracket/');
+
     res.json({
         name: tournament.name,
         url: tournament.url || '',
         darters: Array.isArray(tournament.darters) ? tournament.darters : [],
-        unlisted: !!tournament.unlisted
+        unlisted: !!tournament.unlisted,
+        hasPoulePhase: hasRoundRobin || likelyPouleAsFirstBracket
     });
 });
 
@@ -959,6 +964,8 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 }
 
 
+let pouleStandingsCache = {};
+
 app.get('/api/poule-standings', async (req, res) => {
     const tName = req.query.tournament;
     if (!tName) return res.status(400).json({ error: 'Toernooi ontbreekt.' });
@@ -969,6 +976,7 @@ app.get('/api/poule-standings', async (req, res) => {
         return res.status(404).json({ error: 'Toernooi of URL niet gevonden.' });
     }
 
+    const debugParse = req.query.debug === '1';
     const urls = tournament.url.split(',').map(u => u.trim()).filter(Boolean);
 
     let rrUrl = urls.find(u => u.includes('/round-robin/'));
@@ -984,7 +992,7 @@ app.get('/api/poule-standings', async (req, res) => {
     }
 
     try {
-        const response = await axios.post(rrUrl, {});
+        const response = await axios.post(rrUrl, {}, { timeout: 8000 });
         const dataContainer = response.data.payload || response.data || {};
 
         const found = [];
@@ -1020,9 +1028,32 @@ app.get('/api/poule-standings', async (req, res) => {
             rows.sort((a, b) => (a.rank || 999) - (b.rank || 999));
         });
 
-        res.json({ tournament: tName, groups: grouped });
+        if (debugParse) {
+            const rowCount = Object.values(grouped).reduce((acc, rows) => acc + rows.length, 0);
+            console.log(`[poule-standings][${tName}] groups=${Object.keys(grouped).length} rows=${rowCount}`);
+        }
+
+        const payload = {
+            tournament: tName,
+            groups: grouped,
+            stale: false,
+            updatedAt: new Date().toISOString()
+        };
+
+        pouleStandingsCache[tName] = payload;
+        res.json(payload);
     } catch (e) {
         console.error('Fout bij ophalen poulestand:', e.message);
+
+        const cached = pouleStandingsCache[tName];
+        if (cached && cached.groups) {
+            return res.json({
+                ...cached,
+                stale: true,
+                staleReason: 'upstream_error'
+            });
+        }
+
         res.status(500).json({ error: 'Fout bij ophalen poulestand.' });
     }
 });
@@ -1032,23 +1063,29 @@ let cacheTimestamps = {};
 
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
-    const extraPlayers = (req.query.extraPlayers || '')
-        .split(',')
-        .map(p => p.trim())
-        .filter(Boolean);
 
-    const hasExtra = extraPlayers.length > 0;
+    let extraPlayers = [];
+    if (Array.isArray(req.query.extraPlayers)) {
+        extraPlayers = req.query.extraPlayers;
+    } else if (typeof req.query.extraPlayers === 'string') {
+        extraPlayers = req.query.extraPlayers.split(',');
+    }
 
-    if (!hasExtra && matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
-        return res.json(matchCache[tName]);
+    extraPlayers = extraPlayers.map(p => p.trim()).filter(Boolean);
+
+    const extrasKey = extraPlayers
+        .map(p => p.toLowerCase())
+        .sort((a, b) => a.localeCompare(b))
+        .join('|');
+    const cacheKey = `${tName}::${extrasKey}`;
+
+    if (matchCache[cacheKey] && cacheTimestamps[cacheKey] && (Date.now() - cacheTimestamps[cacheKey] < 10000)) {
+        return res.json(matchCache[cacheKey]);
     }
 
     const list = await fetchMatchesForTournament(tName, extraPlayers);
-
-    if (!hasExtra) {
-        matchCache[tName] = list;
-        cacheTimestamps[tName] = Date.now();
-    }
+    matchCache[cacheKey] = list;
+    cacheTimestamps[cacheKey] = Date.now();
 
     res.json(list);
 });
