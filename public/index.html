@@ -165,7 +165,7 @@
         <button class="filter-btn" onclick="setFilter('gepland')" id="filter-gepland">⚡ Gepland</button>
         <button class="filter-btn" onclick="setFilter('mogelijk')" id="filter-mogelijk">🔮 Mogelijk</button>
         <button class="filter-btn" onclick="setFilter('gespeeld')" id="filter-gespeeld">✅ Gespeeld</button>
-        <button class="filter-btn" onclick="openPouleStandings()">📊 Live Stand Poules</button>
+        <button class="filter-btn" onclick="openPouleStandings()" id="btn-live-poules" style="display: none;">📊 Live Stand Poules</button>
         <button class="filter-btn btn-push" onclick="openPushSettings()">🔔 Meldingen</button>
     </div>
     
@@ -461,6 +461,17 @@
                 }
                 return m;
             });
+
+            const btnLivePoules = document.getElementById('btn-live-poules');
+            if (btnLivePoules) {
+                // Check of er in dit toernooi minimaal één poulewedstrijd zit
+                const heeftPoules = matches.some(match => 
+                    match.ronde && (match.ronde.toLowerCase().includes('poule') || match.ronde.toLowerCase().includes('group'))
+                );
+                // Laat knop zien indien poules gevonden, anders verbergen
+                btnLivePoules.style.display = heeftPoules ? 'inline-block' : 'none';
+            }
+            
             if (currentFilter !== 'alles') matches = matches.filter(m => m.status === currentFilter);
             if (matches.length === 0) { 
                 container.innerHTML = `<div class='no-matches'>Geen wedstrijden gevonden voor dit filter.</div>`;
