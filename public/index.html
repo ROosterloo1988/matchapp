@@ -181,6 +181,7 @@
                 <datalist id="push-player-options"></datalist>
                 <button class="btn-yes" style="padding: 10px 14px; width: auto;" onclick="selectPushPlayerFromList()">+ Voeg toe</button>
             </div>
+            <div id="push-player-validation" style="display:none; color:#ff7675; font-size:0.85rem; margin:-4px 0 10px 0;"></div>
             <div id="push-players-list" class="checkbox-container">Laden...</div>
             <button class="btn-yes" onclick="savePushSettings()">💾 Opslaan & Aanzetten</button>
             <button class="btn-no" onclick="closePushModal()">Annuleren</button>
@@ -241,6 +242,8 @@
 <script>
     let activeTournament = null;
     let refreshInterval = null;
+    let pouleRefreshInterval = null;
+    let pushPlayersFullSet = new Set();
     let currentFilter = 'alles';
     
     // --- NIEUW: GEHEUGEN VOOR SCORE HIGHLIGHTS ---
@@ -263,7 +266,12 @@
         if (document.visibilityState === "visible" && activeTournament) {
             console.log("App is weer geopend! Forceer een directe verversing...");
             updatePouleButtonVisibility();
-        loadMatches();
+            loadMatches();
+
+            const pouleModal = document.getElementById('poule-modal');
+            if (pouleModal && pouleModal.style.display === 'flex') {
+                refreshPouleStandings();
+            }
         }
     });
 
@@ -409,11 +417,7 @@
             const res = await fetch(`/api/tournament-config?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
             if (!res.ok) throw new Error('config');
             const cfg = await res.json();
-            const urls = (cfg.url || '').split(',').map(u => u.trim()).filter(Boolean);
-            const hasRoundRobin = urls.some(u => u.includes('/round-robin/'));
-            const likelyPouleAsFirstBracket = urls.length >= 2 && urls[0].includes('/bracket/');
-            const hasPoulePhase = hasRoundRobin || likelyPouleAsFirstBracket;
-            btn.style.display = hasPoulePhase ? 'inline-block' : 'none';
+            btn.style.display = cfg.hasPoulePhase ? 'inline-block' : 'none';
         } catch (_) {
             btn.style.display = 'none';
         }
@@ -474,7 +478,9 @@
         if (!activeTournament) return;
         try {
             const extraPlayers = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
-            const extraParam = Array.isArray(extraPlayers) && extraPlayers.length ? `&extraPlayers=${encodeURIComponent(extraPlayers.join(','))}` : '';
+            const extraParam = Array.isArray(extraPlayers) && extraPlayers.length
+                ? extraPlayers.map(p => `&extraPlayers=${encodeURIComponent(p)}`).join('')
+                : '';
             const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}${extraParam}&_t=${Date.now()}`);
             if (!response.ok) throw new Error("Server error");
             const allMatches = await response.json();
@@ -740,6 +746,19 @@
 
         list.innerHTML = allPlayers.map(d => `<option value="${d}"></option>`).join('');
         input.value = '';
+        setPushValidation('');
+    }
+
+    function setPushValidation(message) {
+        const validation = document.getElementById('push-player-validation');
+        if (!validation) return;
+        if (!message) {
+            validation.style.display = 'none';
+            validation.textContent = '';
+            return;
+        }
+        validation.style.display = 'block';
+        validation.textContent = message;
     }
 
     function selectPushPlayerFromList() {
@@ -750,7 +769,13 @@
         const selectedName = input.value.trim();
         if (!selectedName) return;
 
+        setPushValidation('');
+
         const target = selectedName.toLowerCase();
+        if (!pushPlayersFullSet.has(target)) {
+            setPushValidation('Kies een speler uit de lijst (niet handmatig typen).');
+            return;
+        }
         let checkbox = Array.from(document.querySelectorAll('.darter-checkbox')).find(cb => cb.value.toLowerCase() === target);
 
         if (!checkbox) {
@@ -831,6 +856,7 @@
 
             const shortList = Array.from(shortListMap.values()).sort((a, b) => a.localeCompare(b));
             const fullList = Array.from(fullListMap.values()).sort((a, b) => a.localeCompare(b));
+            pushPlayersFullSet = new Set(fullList.map(name => name.toLowerCase()));
             renderPushPlayerList(shortList, savedPrefs);
             renderPushPlayerSelect(fullList);
         } catch(e) {
@@ -839,9 +865,32 @@
     }
 
 
+
+    function shouldRefreshPouleStandings() {
+        return document.visibilityState === 'visible' && !!activeTournament;
+    }
+
+    async function refreshPouleStandings() {
+        const content = document.getElementById('poule-standings-content');
+        if (!content || !activeTournament || !shouldRefreshPouleStandings()) return;
+
+        try {
+            const res = await fetch(`/api/poule-standings?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Onbekende fout');
+            renderPouleStandings(data.groups || {});
+        } catch (e) {
+            content.innerHTML = `<div style='color:#ff7675;text-align:center;'>${e.message}</div>`;
+        }
+    }
+
     function closePouleModal() {
         const modal = document.getElementById('poule-modal');
         if (modal) modal.style.display = 'none';
+        if (pouleRefreshInterval) {
+            clearInterval(pouleRefreshInterval);
+            pouleRefreshInterval = null;
+        }
     }
 
     function renderPouleStandings(groups) {
@@ -899,14 +948,13 @@
         }
 
         content.innerHTML = 'Poulestanden laden...';
-        try {
-            const res = await fetch(`/api/poule-standings?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Onbekende fout');
-            renderPouleStandings(data.groups || {});
-        } catch (e) {
-            content.innerHTML = `<div style='color:#ff7675;text-align:center;'>${e.message}</div>`;
-        }
+        await refreshPouleStandings();
+
+        if (pouleRefreshInterval) clearInterval(pouleRefreshInterval);
+        pouleRefreshInterval = setInterval(() => {
+            if (!shouldRefreshPouleStandings()) return;
+            refreshPouleStandings();
+        }, 25000);
     }
 
     function closePushModal() {
