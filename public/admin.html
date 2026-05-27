@@ -50,6 +50,12 @@
         .bracket-group label { font-size: 0.9rem; font-weight: bold; color: #555; display: block; margin-bottom: 5px; }
         .bracket-group input { margin-bottom: 5px; }
         .bracket-group input:last-child { margin-bottom: 0; }
+        .status-box { background:#f9fafb; border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:10px; }
+        .status-row { display:flex; justify-content:space-between; gap:10px; font-size:0.9rem; margin:4px 0; }
+        .status-badge { padding:3px 8px; border-radius:999px; font-weight:bold; font-size:0.75rem; }
+        .status-ok { background:#e8f7ec; color:#1e7e34; }
+        .status-warn { background:#fff3cd; color:#856404; }
+        .error-log { background:#111; color:#ddd; border-radius:8px; padding:10px; font-family:monospace; font-size:0.8rem; max-height:180px; overflow:auto; }
     </style>
 </head>
 <body>
@@ -105,6 +111,13 @@
         <textarea id="custom-push-body" rows="3" placeholder="Bericht (bijv: Vergeet niet je pijlen te slijpen en op tijd te zijn...)"></textarea>
         <button class="add-btn" onclick="sendCustomPush()">🚀 Verstuur Melding Naar Iedereen</button>
         <div id="push-status"></div>
+    </div>
+
+    <h2>4. 📟 Systeemstatus</h2>
+    <div class="push-section">
+        <p>Live status van backend onderdelen en recente fouten.</p>
+        <button class="add-btn" onclick="loadSystemStatus()">🔄 Vernieuw status</button>
+        <div id="system-status" style="margin-top:10px;">Nog niet geladen.</div>
     </div>
 </div>
 
@@ -387,8 +400,69 @@
         }
     }
 
+    function asText(value) {
+        return value === null || value === undefined || value === '' ? '-' : String(value);
+    }
+
+    function statusBadge(type, label) {
+        return `<span class="status-badge ${type}">${label}</span>`;
+    }
+
+    async function loadSystemStatus() {
+        const box = document.getElementById('system-status');
+        if (!box) return;
+        box.innerHTML = 'Status laden...';
+
+        try {
+            const res = await fetch('/api/admin/system-status?_t=' + Date.now());
+            if (!res.ok) throw new Error('Status endpoint niet bereikbaar');
+            const data = await res.json();
+
+            const pouleDegraded = data.poule?.lastErrorAt && (!data.poule?.lastSuccessAt || data.poule.lastErrorAt > data.poule.lastSuccessAt);
+            const pushDegraded = data.push?.lastErrorAt && (!data.push?.lastSuccessAt || data.push.lastErrorAt > data.push.lastSuccessAt);
+            const recentErrors = (data.recentErrors || []).map(e =>
+                `[${asText(e.at)}] ${asText(e.scope)}: ${asText(e.message)}`
+            ).join('<br>') || 'Geen recente fouten.';
+
+            box.innerHTML = `
+                <div class="status-box">
+                    <div class="status-row"><b>Uptime</b><span>${asText(data.uptimeSeconds)}s</span></div>
+                    <div class="status-row"><b>Server gestart</b><span>${asText(data.startedAt)}</span></div>
+                </div>
+                <div class="status-box">
+                    <div class="status-row"><b>Poule API</b><span>${pouleDegraded ? statusBadge('status-warn', 'DEGRADED') : statusBadge('status-ok', 'OK')}</span></div>
+                    <div class="status-row"><span>Laatste succes</span><span>${asText(data.poule?.lastSuccessAt)}</span></div>
+                    <div class="status-row"><span>Laatste fout</span><span>${asText(data.poule?.lastErrorAt)}</span></div>
+                    <div class="status-row"><span>Laatste foutmelding</span><span>${asText(data.poule?.lastErrorMessage)}</span></div>
+                    <div class="status-row"><span>Stale responses</span><span>${asText(data.poule?.staleServedCount)}</span></div>
+                    <div class="status-row"><span>Cache toernooien</span><span>${asText(data.poule?.cacheTournaments)}</span></div>
+                </div>
+                <div class="status-box">
+                    <div class="status-row"><b>Matches API</b><span>${statusBadge('status-ok','INFO')}</span></div>
+                    <div class="status-row"><span>Cache hits/misses</span><span>${asText(data.matches?.cacheHits)} / ${asText(data.matches?.cacheMisses)}</span></div>
+                    <div class="status-row"><span>Laatste fetch</span><span>${asText(data.matches?.lastFetchAt)}</span></div>
+                    <div class="status-row"><span>Laatste duur</span><span>${asText(data.matches?.lastDurationMs)}ms</span></div>
+                    <div class="status-row"><span>Cache keys</span><span>${asText(data.matches?.cacheKeys)}</span></div>
+                </div>
+                <div class="status-box">
+                    <div class="status-row"><b>Push</b><span>${pushDegraded ? statusBadge('status-warn', 'WAARSCHUWING') : statusBadge('status-ok', 'OK')}</span></div>
+                    <div class="status-row"><span>Laatste succes</span><span>${asText(data.push?.lastSuccessAt)}</span></div>
+                    <div class="status-row"><span>Laatste fout</span><span>${asText(data.push?.lastErrorAt)}</span></div>
+                    <div class="status-row"><span>Laatste resultaat</span><span>${asText(data.push?.lastSuccessCount)} ok / ${asText(data.push?.lastFailureCount)} fail</span></div>
+                </div>
+                <div class="status-box">
+                    <div style="font-weight:bold; margin-bottom:8px;">Recente fouten</div>
+                    <div class="error-log">${recentErrors}</div>
+                </div>
+            `;
+        } catch (e) {
+            box.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`;
+        }
+    }
+
     updateTournamentFields();
     loadSettings();
+    loadSystemStatus();
 </script>
 </body>
 </html>
