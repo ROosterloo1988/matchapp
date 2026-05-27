@@ -29,6 +29,20 @@ app.use('/admin.html', (req, res, next) => {
 
 app.use(express.static(path.join(__dirname, '../public')));
 
+const systemStatus = {
+    startedAt: new Date().toISOString(),
+    poule: { lastSuccessAt: null, lastErrorAt: null, lastErrorMessage: null, staleServedCount: 0, lastDurationMs: null },
+    matches: { cacheHits: 0, cacheMisses: 0, lastFetchAt: null, lastDurationMs: null },
+    push: { lastSuccessAt: null, lastErrorAt: null, lastErrorMessage: null, lastSuccessCount: 0, lastFailureCount: 0 },
+    recentErrors: []
+};
+
+function addSystemError(scope, message) {
+    const entry = { at: new Date().toISOString(), scope, message: String(message || 'onbekende fout') };
+    systemStatus.recentErrors.unshift(entry);
+    if (systemStatus.recentErrors.length > 20) systemStatus.recentErrors.length = 20;
+}
+
 const DB_FILE = path.join(__dirname, 'database.json');
 
 // --- DATABASE & PUSH SETUP (MET SUPERSNELLE MEMORY-CACHE!) ---
@@ -128,11 +142,16 @@ app.get('/api/tournament-config', (req, res) => {
         return res.status(404).json({ error: 'Toernooi niet gevonden.' });
     }
 
+    const urls = (tournament.url || '').split(',').map(u => u.trim()).filter(Boolean);
+    const hasRoundRobin = urls.some(u => u.includes('/round-robin/'));
+    const likelyPouleAsFirstBracket = urls.length >= 2 && urls[0].includes('/bracket/');
+
     res.json({
         name: tournament.name,
         url: tournament.url || '',
         darters: Array.isArray(tournament.darters) ? tournament.darters : [],
-        unlisted: !!tournament.unlisted
+        unlisted: !!tournament.unlisted,
+        hasPoulePhase: hasRoundRobin || likelyPouleAsFirstBracket
     });
 });
 
@@ -419,8 +438,23 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
         }
 
         matchlistData.forEach(match => {
-            let p1Name = match.hc || match.p1;
-            let p2Name = match.ac || match.p2;
+            const sta = (match.sta || match.status || "").toString().toUpperCase();
+            const isLikelyActiveFromStatus = ["O", "A", "LIVE", "IN_PROGRESS", "ACTIVE"].includes(sta);
+            const hasLiveScores = (
+                (match.hs !== undefined && match.hs !== null && match.as !== undefined && match.as !== null) ||
+                (match.s1 !== undefined && match.s1 !== null && match.s2 !== undefined && match.s2 !== null)
+            );
+            if (!match._is_active_now && isLikelyActiveFromStatus) {
+                match._is_active_now = true;
+            }
+            if (!match._is_completed_now && isLikelyActiveFromStatus && hasLiveScores) {
+                // Zorg dat live matches met score niet onterecht als "gepland" binnenkomen.
+                match._is_active_now = true;
+            }
+
+            // Gebruik bij voorkeur full names (hcf/acf), dit matcht beter voor koppels/initialen.
+            let p1Name = match.hcf || match.hc || match.p1;
+            let p2Name = match.acf || match.ac || match.p2;
 
             if (match.mi && p1Name && p2Name) {
                 alleRecaps.push({ id: match.mi.toString(), p1: p1Name, p2: p2Name });
@@ -561,7 +595,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
             if (actMatch) {
                 let isSwapped = false;
-                let liveP1Name = actMatch.hc || actMatch.p1 || "";
+                let liveP1Name = actMatch.hcf || actMatch.hc || actMatch.p1 || "";
                 let mlAc = cleanNameForMatching(liveP1Name);
                 if (targetP1 !== mlAc) isSwapped = true;
 
@@ -959,6 +993,8 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 }
 
 
+let pouleStandingsCache = {};
+
 app.get('/api/poule-standings', async (req, res) => {
     const tName = req.query.tournament;
     if (!tName) return res.status(400).json({ error: 'Toernooi ontbreekt.' });
@@ -969,6 +1005,7 @@ app.get('/api/poule-standings', async (req, res) => {
         return res.status(404).json({ error: 'Toernooi of URL niet gevonden.' });
     }
 
+    const debugParse = req.query.debug === '1';
     const urls = tournament.url.split(',').map(u => u.trim()).filter(Boolean);
 
     let rrUrl = urls.find(u => u.includes('/round-robin/'));
@@ -984,7 +1021,8 @@ app.get('/api/poule-standings', async (req, res) => {
     }
 
     try {
-        const response = await axios.post(rrUrl, {});
+        const startedAt = Date.now();
+        const response = await axios.post(rrUrl, {}, { timeout: 8000 });
         const dataContainer = response.data.payload || response.data || {};
 
         const found = [];
@@ -1020,9 +1058,38 @@ app.get('/api/poule-standings', async (req, res) => {
             rows.sort((a, b) => (a.rank || 999) - (b.rank || 999));
         });
 
-        res.json({ tournament: tName, groups: grouped });
+        if (debugParse) {
+            const rowCount = Object.values(grouped).reduce((acc, rows) => acc + rows.length, 0);
+            console.log(`[poule-standings][${tName}] groups=${Object.keys(grouped).length} rows=${rowCount}`);
+        }
+
+        const payload = {
+            tournament: tName,
+            groups: grouped,
+            stale: false,
+            updatedAt: new Date().toISOString()
+        };
+
+        pouleStandingsCache[tName] = payload;
+        systemStatus.poule.lastSuccessAt = payload.updatedAt;
+        systemStatus.poule.lastDurationMs = Date.now() - startedAt;
+        res.json(payload);
     } catch (e) {
         console.error('Fout bij ophalen poulestand:', e.message);
+        systemStatus.poule.lastErrorAt = new Date().toISOString();
+        systemStatus.poule.lastErrorMessage = e.message;
+        addSystemError('poule-standings', e.message);
+
+        const cached = pouleStandingsCache[tName];
+        if (cached && cached.groups) {
+            systemStatus.poule.staleServedCount += 1;
+            return res.json({
+                ...cached,
+                stale: true,
+                staleReason: 'upstream_error'
+            });
+        }
+
         res.status(500).json({ error: 'Fout bij ophalen poulestand.' });
     }
 });
@@ -1032,23 +1099,34 @@ let cacheTimestamps = {};
 
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
-    const extraPlayers = (req.query.extraPlayers || '')
-        .split(',')
-        .map(p => p.trim())
-        .filter(Boolean);
 
-    const hasExtra = extraPlayers.length > 0;
-
-    if (!hasExtra && matchCache[tName] && cacheTimestamps[tName] && (Date.now() - cacheTimestamps[tName] < 10000)) {
-        return res.json(matchCache[tName]);
+    let extraPlayers = [];
+    if (Array.isArray(req.query.extraPlayers)) {
+        extraPlayers = req.query.extraPlayers;
+    } else if (typeof req.query.extraPlayers === 'string') {
+        extraPlayers = req.query.extraPlayers.split(',');
     }
 
+    extraPlayers = extraPlayers.map(p => p.trim()).filter(Boolean);
+
+    const extrasKey = extraPlayers
+        .map(p => p.toLowerCase())
+        .sort((a, b) => a.localeCompare(b))
+        .join('|');
+    const cacheKey = `${tName}::${extrasKey}`;
+
+    if (matchCache[cacheKey] && cacheTimestamps[cacheKey] && (Date.now() - cacheTimestamps[cacheKey] < 10000)) {
+        systemStatus.matches.cacheHits += 1;
+        return res.json(matchCache[cacheKey]);
+    }
+
+    systemStatus.matches.cacheMisses += 1;
+    const startedAt = Date.now();
     const list = await fetchMatchesForTournament(tName, extraPlayers);
-
-    if (!hasExtra) {
-        matchCache[tName] = list;
-        cacheTimestamps[tName] = Date.now();
-    }
+    matchCache[cacheKey] = list;
+    cacheTimestamps[cacheKey] = Date.now();
+    systemStatus.matches.lastFetchAt = new Date().toISOString();
+    systemStatus.matches.lastDurationMs = Date.now() - startedAt;
 
     res.json(list);
 });
@@ -1141,5 +1219,22 @@ async function runHeartbeat() {
 
 runHeartbeat();
 setInterval(runHeartbeat, 60000);
-app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
 
+app.get('/api/admin/system-status', (req, res) => {
+    res.json({
+        uptimeSeconds: Math.floor(process.uptime()),
+        startedAt: systemStatus.startedAt,
+        poule: {
+            ...systemStatus.poule,
+            cacheTournaments: Object.keys(pouleStandingsCache).length
+        },
+        matches: {
+            ...systemStatus.matches,
+            cacheKeys: Object.keys(matchCache).length
+        },
+        push: systemStatus.push,
+        recentErrors: systemStatus.recentErrors
+    });
+});
+
+app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
