@@ -139,6 +139,7 @@
         <button class="filter-btn" onclick="setFilter('gepland')" id="filter-gepland">⚡ Gepland</button>
         <button class="filter-btn" onclick="setFilter('mogelijk')" id="filter-mogelijk">🔮 Mogelijk</button>
         <button class="filter-btn" onclick="setFilter('gespeeld')" id="filter-gespeeld">✅ Gespeeld</button>
+        <button class="filter-btn" id="btn-poule-stand" onclick="openPouleStandings()" style="display:none;">📊 Live Stand Poules</button>
         <button class="filter-btn btn-push" onclick="openPushSettings()">🔔 Meldingen</button>
     </div>
     
@@ -149,9 +150,23 @@
         <div class="push-box">
             <h2>🔔 Meldingen</h2>
             <p>Kies de spelers waarvoor je een trilsignaal wilt ontvangen in dit toernooi:</p>
+            <div style="display:flex; gap:8px; margin-bottom:10px;">
+                <input type="text" id="push-player-select" list="push-player-options" placeholder="Kies speler uit lijst..." style="flex:1; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #222; color: white;">
+                <datalist id="push-player-options"></datalist>
+                <button class="btn-yes" style="padding: 10px 14px; width: auto;" onclick="selectPushPlayerFromList()">+ Voeg toe</button>
+            </div>
             <div id="push-players-list" class="checkbox-container">Laden...</div>
             <button class="btn-yes" onclick="savePushSettings()">💾 Opslaan & Aanzetten</button>
             <button class="btn-no" onclick="closePushModal()">Annuleren</button>
+        </div>
+    </div>
+
+
+    <div id="poule-modal" class="push-modal">
+        <div class="push-box" style="max-width: 800px; border-color:#3498db;">
+            <h2 style="color:#3498db;">📊 Live Stand Poules</h2>
+            <div id="poule-standings-content" class="checkbox-container">Laden...</div>
+            <button class="btn-no" onclick="closePouleModal()">Sluiten</button>
         </div>
     </div>
 
@@ -217,7 +232,8 @@
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible" && activeTournament) {
             console.log("App is weer geopend! Forceer een directe verversing...");
-            loadMatches();
+            updatePouleButtonVisibility();
+        loadMatches();
         }
     });
 
@@ -349,6 +365,30 @@
         container.innerHTML = html;
     }
 
+
+    async function updatePouleButtonVisibility() {
+        const btn = document.getElementById('btn-poule-stand');
+        if (!btn) return;
+
+        if (!activeTournament) {
+            btn.style.display = 'none';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/tournament-config?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            if (!res.ok) throw new Error('config');
+            const cfg = await res.json();
+            const urls = (cfg.url || '').split(',').map(u => u.trim()).filter(Boolean);
+            const hasRoundRobin = urls.some(u => u.includes('/round-robin/'));
+            const likelyPouleAsFirstBracket = urls.length >= 2 && urls[0].includes('/bracket/');
+            const hasPoulePhase = hasRoundRobin || likelyPouleAsFirstBracket;
+            btn.style.display = hasPoulePhase ? 'inline-block' : 'none';
+        } catch (_) {
+            btn.style.display = 'none';
+        }
+    }
+
     function selectTournament(name, pushUrl = true) {
         activeTournament = name;
         lastKnownScores = {}; // Reset de score-geheugenkaartjes als we switchen
@@ -367,7 +407,8 @@
         document.getElementById('matches-container').style.display = 'grid';
         document.getElementById('btn-back').style.display = 'block';
         document.getElementById('main-title').innerText = name.toUpperCase();
-        
+
+        updatePouleButtonVisibility();
         loadMatches();
         refreshInterval = setInterval(loadMatches, 10000);
     }
@@ -387,6 +428,9 @@
         document.getElementById('matches-container').style.display = 'none';
         document.getElementById('btn-back').style.display = 'none';
         document.getElementById('main-title').innerText = "🎯 TOERNOOIEN";
+
+        const pouleBtn = document.getElementById('btn-poule-stand');
+        if (pouleBtn) pouleBtn.style.display = 'none';
     }
 
     function setFilter(status) {
@@ -399,7 +443,9 @@
     async function loadMatches() {
         if (!activeTournament) return;
         try {
-            const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            const extraPlayers = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
+            const extraParam = Array.isArray(extraPlayers) && extraPlayers.length ? `&extraPlayers=${encodeURIComponent(extraPlayers.join(','))}` : '';
+            const response = await fetch(`/api/matches?tournament=${encodeURIComponent(activeTournament)}${extraParam}&_t=${Date.now()}`);
             if (!response.ok) throw new Error("Server error");
             const allMatches = await response.json();
             const container = document.getElementById('matches-container');
@@ -627,33 +673,194 @@
         }
     }
 
+    function renderPushPlayerList(darters, savedPrefs) {
+        const listDiv = document.getElementById('push-players-list');
+        if (darters.length === 0) {
+            listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
+            return;
+        }
+
+        listDiv.innerHTML = darters.map(d => {
+            const isChecked = savedPrefs.includes(d) ? 'checked' : '';
+            return `
+            <label class="checkbox-label push-player-row">
+                <input type="checkbox" value="${d}" class="darter-checkbox" ${isChecked}>
+                ${d}
+            </label>
+        `}).join('');
+    }
+
+    
+
+    function renderPushPlayerSelect(allPlayers) {
+        const list = document.getElementById('push-player-options');
+        const input = document.getElementById('push-player-select');
+        if (!list || !input) return;
+
+        list.innerHTML = allPlayers.map(d => `<option value="${d}"></option>`).join('');
+        input.value = '';
+    }
+
+    function selectPushPlayerFromList() {
+        const input = document.getElementById('push-player-select');
+        const listDiv = document.getElementById('push-players-list');
+        if (!input || !listDiv || !input.value) return;
+
+        const selectedName = input.value.trim();
+        if (!selectedName) return;
+
+        const target = selectedName.toLowerCase();
+        let checkbox = Array.from(document.querySelectorAll('.darter-checkbox')).find(cb => cb.value.toLowerCase() === target);
+
+        if (!checkbox) {
+            const row = document.createElement('label');
+            row.className = 'checkbox-label push-player-row';
+            row.innerHTML = `<input type="checkbox" value="${selectedName.replace(/"/g, '&quot;')}" class="darter-checkbox" checked> ${selectedName}`;
+            listDiv.appendChild(row);
+            checkbox = row.querySelector('.darter-checkbox');
+        }
+
+        if (checkbox) {
+            checkbox.checked = true;
+            checkbox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+
+        input.value = '';
+    }
+
     async function openPushSettings() {
-        if (!activeTournament) return;
         const pushModal = document.getElementById('push-modal');
         const listDiv = document.getElementById('push-players-list');
-        listDiv.innerHTML = "Spelers laden...";
+        if (!pushModal || !listDiv) return;
+
         pushModal.style.display = 'flex';
-        
+
+        if (!activeTournament) {
+            listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Kies eerst een toernooi om meldingen in te stellen.</div>";
+            return;
+        }
+
+        listDiv.innerHTML = "Spelers laden...";
+
         try {
-            const res = await fetch(`/api/darters?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
-            const darters = await res.json();
-            
+            const configRes = await fetch(`/api/tournament-config?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            if (!configRes.ok) throw new Error('config niet beschikbaar');
+            const tournamentConfig = await configRes.json();
+
+            const backendPlayers = Array.isArray(tournamentConfig.darters) ? tournamentConfig.darters : [];
             const savedPrefs = JSON.parse(localStorage.getItem('pushPrefs_' + activeTournament) || '[]');
-            
-            if (darters.length === 0) {
-                listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
-            } else {
-                listDiv.innerHTML = darters.map(d => {
-                    const isChecked = savedPrefs.includes(d) ? 'checked' : '';
-                    return `
-                    <label class="checkbox-label">
-                        <input type="checkbox" value="${d}" class="darter-checkbox" ${isChecked}>
-                        ${d}
-                    </label>
-                `}).join('');
+
+            const shortListMap = new Map();
+            const addShort = (name) => {
+                const trimmed = (name || '').trim();
+                if (!trimmed) return;
+                const key = trimmed.toLowerCase();
+                if (!shortListMap.has(key)) shortListMap.set(key, trimmed);
+            };
+            backendPlayers.forEach(addShort);
+            savedPrefs.forEach(addShort);
+
+            const fullListMap = new Map();
+            const addFull = (name) => {
+                const trimmed = (name || '').trim();
+                if (!trimmed) return;
+                const key = trimmed.toLowerCase();
+                if (!fullListMap.has(key)) fullListMap.set(key, trimmed);
+            };
+            backendPlayers.forEach(addFull);
+
+            const firstUrl = (tournamentConfig.url || '').split(',').map(u => u.trim()).filter(Boolean)[0];
+            if (firstUrl) {
+                try {
+                    const previewRes = await fetch('/api/fetch-players-preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: firstUrl })
+                    });
+
+                    if (previewRes.ok) {
+                        const allNames = await previewRes.json();
+                        allNames.forEach(n => {
+                            if (n.includes(' & ')) n.split(' & ').forEach(addFull);
+                            else addFull(n);
+                        });
+                    }
+                } catch (_) {}
             }
+
+            const shortList = Array.from(shortListMap.values()).sort((a, b) => a.localeCompare(b));
+            const fullList = Array.from(fullListMap.values()).sort((a, b) => a.localeCompare(b));
+            renderPushPlayerList(shortList, savedPrefs);
+            renderPushPlayerSelect(fullList);
         } catch(e) {
             listDiv.innerHTML = "Fout bij ophalen spelers.";
+        }
+    }
+
+
+    function closePouleModal() {
+        const modal = document.getElementById('poule-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function renderPouleStandings(groups) {
+        const content = document.getElementById('poule-standings-content');
+        const keys = Object.keys(groups || {}).sort();
+        if (!keys.length) {
+            content.innerHTML = "<div style='color:#888;text-align:center;'>Geen poulestanden beschikbaar.</div>";
+            return;
+        }
+
+        content.innerHTML = keys.map(group => {
+            const rows = (groups[group] || []).map(r => `
+                <tr>
+                    <td>${group}${r.rank ?? ''}</td>
+                    <td>${r.player}</td>
+                    <td>${r.mp ?? 0}</td>
+                    <td>${r.mw ?? 0}</td>
+                    <td>${r.gld ?? 0}</td>
+                    <td>${r.lw ?? 0}</td>
+                    <td>${r.ppr ?? '-'}</td>
+                </tr>
+            `).join('');
+
+            return `
+                <div style="margin-bottom:18px;">
+                    <h3 style="margin:0 0 8px 0; color:#fff;">Poule ${group}</h3>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%; border-collapse: collapse; font-size:0.95rem;">
+                            <thead>
+                                <tr style="color:#9aa0a6; border-bottom:1px solid #333; text-align:left;">
+                                    <th style="padding:6px;">#</th><th style="padding:6px;">Speler</th><th style="padding:6px;">MP</th><th style="padding:6px;">MW</th><th style="padding:6px;">L +/-</th><th style="padding:6px;">LW</th><th style="padding:6px;">3DA</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function openPouleStandings() {
+        const modal = document.getElementById('poule-modal');
+        const content = document.getElementById('poule-standings-content');
+        if (!modal || !content) return;
+
+        modal.style.display = 'flex';
+        if (!activeTournament) {
+            content.innerHTML = "<div style='color:#888;text-align:center;'>Kies eerst een toernooi.</div>";
+            return;
+        }
+
+        content.innerHTML = 'Poulestanden laden...';
+        try {
+            const res = await fetch(`/api/poule-standings?tournament=${encodeURIComponent(activeTournament)}&_t=${Date.now()}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Onbekende fout');
+            renderPouleStandings(data.groups || {});
+        } catch (e) {
+            content.innerHTML = `<div style='color:#ff7675;text-align:center;'>${e.message}</div>`;
         }
     }
 
