@@ -452,8 +452,9 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                 match._is_active_now = true;
             }
 
-            let p1Name = match.hc || match.p1;
-            let p2Name = match.ac || match.p2;
+            // Gebruik bij voorkeur full names (hcf/acf), dit matcht beter voor koppels/initialen.
+            let p1Name = match.hcf || match.hc || match.p1;
+            let p2Name = match.acf || match.ac || match.p2;
 
             if (match.mi && p1Name && p2Name) {
                 alleRecaps.push({ id: match.mi.toString(), p1: p1Name, p2: p2Name });
@@ -594,7 +595,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
             if (actMatch) {
                 let isSwapped = false;
-                let liveP1Name = actMatch.hc || actMatch.p1 || "";
+                let liveP1Name = actMatch.hcf || actMatch.hc || actMatch.p1 || "";
                 let mlAc = cleanNameForMatching(liveP1Name);
                 if (targetP1 !== mlAc) isSwapped = true;
 
