@@ -438,6 +438,20 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
         }
 
         matchlistData.forEach(match => {
+            const sta = (match.sta || match.status || "").toString().toUpperCase();
+            const isLikelyActiveFromStatus = ["O", "A", "LIVE", "IN_PROGRESS", "ACTIVE"].includes(sta);
+            const hasLiveScores = (
+                (match.hs !== undefined && match.hs !== null && match.as !== undefined && match.as !== null) ||
+                (match.s1 !== undefined && match.s1 !== null && match.s2 !== undefined && match.s2 !== null)
+            );
+            if (!match._is_active_now && isLikelyActiveFromStatus) {
+                match._is_active_now = true;
+            }
+            if (!match._is_completed_now && isLikelyActiveFromStatus && hasLiveScores) {
+                // Zorg dat live matches met score niet onterecht als "gepland" binnenkomen.
+                match._is_active_now = true;
+            }
+
             let p1Name = match.hc || match.p1;
             let p2Name = match.ac || match.p2;
 
