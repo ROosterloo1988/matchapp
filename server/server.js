@@ -677,30 +677,34 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                 let hasTime = match.time && match.time.includes(':');
 
                 if (isPoule && !hasTime && isSpeler) {
-                    let pouleKey = `${tournament.name}_${isSpeler}_${match.ronde}`;
+                    let pouleKey = `${tournament.name}_${match.ronde}`;
                     if (!db.notifiedPoules.includes(pouleKey)) {
                         db.notifiedPoules.push(pouleKey);
                         let spelersInPoule = Array.from(pouleIndelingen[match.ronde] || []);
-                        let ik = spelersInPoule.find(p => p.toLowerCase().includes(isSpeler)) || isSpeler;
-                        let anderen = spelersInPoule.filter(p => p !== ik);
-                        
-                        let titel = `📊 Poule Indeling Bekend!`;
-                        let body = `${ik} is ingedeeld in ${match.ronde} met: ${anderen.join(', ')}`;
                         
                         if (!isFirstRun && db.subscriptions.length > 0) {
-                            const payload = JSON.stringify({ title: titel, body: body, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
                             let activeSubs = [];
                             await Promise.all(db.subscriptions.map(async (sub) => {
                                 let wilHoren = false;
+                                let mijnGevolgdeSpeler = "";
+
                                 if (sub.preferences && sub.preferences[tournament.name]) {
                                     let gekozenSpelers = sub.preferences[tournament.name];
                                     if (gekozenSpelers.length > 0) {
-                                        wilHoren = gekozenSpelers.some(filter => match.player1.toLowerCase().includes(filter) || match.player2.toLowerCase().includes(filter));
+                                        mijnGevolgdeSpeler = gekozenSpelers.find(filter => match.player1.toLowerCase().includes(filter) || match.player2.toLowerCase().includes(filter));
+                                        if (mijnGevolgdeSpeler) wilHoren = true;
                                     }
                                 }
+
                                 if (wilHoren) {
                                     try {
-                                        await webpush.sendNotification(sub, payload);
+                                        // Maak de tekst PERSOONLIJK (Zet mijn gevolgde speler vooraan)
+                                        let ik = spelersInPoule.find(p => p.toLowerCase().includes(mijnGevolgdeSpeler)) || mijnGevolgdeSpeler;
+                                        let anderen = spelersInPoule.filter(p => p !== ik);
+                                        let body = `${ik} is ingedeeld in ${match.ronde} met: ${anderen.join(', ')}`;
+                                        
+                                        const persoonlijkPayload = JSON.stringify({ title: `📊 Poule Indeling Bekend!`, body: body, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
+                                        await webpush.sendNotification(sub, persoonlijkPayload);
                                         activeSubs.push(sub);
                                     } catch (err) {
                                         if (err.statusCode !== 410 && err.statusCode !== 404) activeSubs.push(sub);
@@ -738,32 +742,35 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                     if (stuurMelding) {
                         db.notifiedMatches.push(match.id);
                         if (!isFirstRun && db.subscriptions.length > 0) {
-                            if (!isSpeler && isMarker) titel += " (SCHRIJVEN)";
-                                                      
-                            const payload = JSON.stringify({
-                                title: titel,
-                                body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time} | Schrijver: ${match.writer}`,
-                                icon: '/icon-192x192.png',
-                                badge: '/icon-192x192.png'
-                            });
-                            
+                            let schrijfTekst = match.writer ? `\nSchrijver: ${match.writer}` : "";
                             let activeSubs = [];
+                            
                             await Promise.all(db.subscriptions.map(async (sub) => {
-                                let wilHoren = false;
+                                let subIsSpeler = false;
+                                let subIsMarker = false;
+
                                 if (sub.preferences && sub.preferences[tournament.name]) {
                                     let gekozenSpelers = sub.preferences[tournament.name];
                                     if (gekozenSpelers.length > 0) {
-                                        wilHoren = gekozenSpelers.some(filter => 
-                                            match.player1.toLowerCase().includes(filter) || 
-                                            match.player2.toLowerCase().includes(filter) || 
-                                            (match.marker && match.marker.toLowerCase().includes(filter))
-                                        );
+                                        subIsSpeler = gekozenSpelers.some(filter => match.player1.toLowerCase().includes(filter) || match.player2.toLowerCase().includes(filter));
+                                        subIsMarker = gekozenSpelers.some(filter => match.marker && match.marker.toLowerCase().includes(filter));
                                     }
                                 }
 
-                                if (wilHoren) {
+                                if (subIsSpeler || subIsMarker) {
                                     try {
-                                        await webpush.sendNotification(sub, payload);
+                                        let persoonlijkeTitel = titel;
+                                        // Plak alléén (SCHRIJVEN) in de titel als DEZE specifieke gebruiker de schrijver volgt
+                                        if (!subIsSpeler && subIsMarker) persoonlijkeTitel += " (SCHRIJVEN)";
+                                        
+                                        const persoonlijkPayload = JSON.stringify({
+                                            title: persoonlijkeTitel,
+                                            body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}${schrijfTekst}`,
+                                            icon: '/icon-192x192.png',
+                                            badge: '/icon-192x192.png'
+                                        });
+
+                                        await webpush.sendNotification(sub, persoonlijkPayload);
                                         activeSubs.push(sub);
                                     } catch (err) {
                                         if (err.statusCode !== 410 && err.statusCode !== 404) activeSubs.push(sub);
