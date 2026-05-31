@@ -438,16 +438,9 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
         }
 
         matchlistData.forEach(match => {
-            // 1. Zeker weten dat de actieve status klopt (overschrijf foute aannames uit de live-feed)
-            if (match.sta === 'O' || match.sta === 'W') {
-                // O = Ongoing, W = Waiting at board
-                match._is_active_now = true;
-                match._is_completed_now = false;
-            } else if (match.sta === 'C' || match.sta === 'P' || match.sta === 'F') {
-                // C = Completed, P = Played, F = Finished
-                match._is_active_now = false; 
-                match._is_completed_now = true;
-            }
+            // 1. Zeker weten dat de actieve status (Ongoing/Completed) klopt
+            if (match.sta === 'O') match._is_active_now = true;
+            if (match.sta === 'C') match._is_completed_now = true;
 
             let p1Name = match.hc || match.p1;
             let p2Name = match.ac || match.p2;
