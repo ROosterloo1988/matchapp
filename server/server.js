@@ -438,21 +438,15 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
         }
 
         matchlistData.forEach(match => {
-            const sta = (match.sta || match.status || "").toString().toUpperCase();
-            const isLikelyActiveFromStatus = ["O", "A", "LIVE", "IN_PROGRESS", "ACTIVE"].includes(sta);
-            const hasLiveScores = (
-                (match.hs !== undefined && match.hs !== null && match.as !== undefined && match.as !== null) ||
-                (match.s1 !== undefined && match.s1 !== null && match.s2 !== undefined && match.s2 !== null)
-            );
-            if (!match._is_active_now && isLikelyActiveFromStatus) {
+            // 1. Zeker weten dat de actieve status klopt (O = Ongoing, W = Waiting, C = Completed, P = Played)
+            if (match.sta === 'O' || match.sta === 'W') {
                 match._is_active_now = true;
-            }
-            if (!match._is_completed_now && isLikelyActiveFromStatus && hasLiveScores) {
-                // Zorg dat live matches met score niet onterecht als "gepland" binnenkomen.
-                match._is_active_now = true;
+                match._is_completed_now = false;
+            } else if (match.sta === 'C' || match.sta === 'P' || match.sta === 'F') {
+                match._is_active_now = false; 
+                match._is_completed_now = true;
             }
 
-            // Gebruik bij voorkeur full names (hcf/acf), dit matcht beter voor koppels/initialen.
             let p1Name = match.hcf || match.hc || match.p1;
             let p2Name = match.acf || match.ac || match.p2;
 
@@ -460,15 +454,20 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                 alleRecaps.push({ id: match.mi.toString(), p1: p1Name, p2: p2Name });
             }
             
-            if (match.mi) {
-                liveMatchDict[match.mi.toString()] = match;
-            }
-
+            // 2. ALLEEN VEILIGE, LANGE ID'S GEBRUIKEN
+            // (We hebben bmi en tmi verwijderd, want korte ID's zoals 'A1' overschrijven elkaar bij singles!)
+            let mogelijkeLiveIds = [];
+            if (match.mi) mogelijkeLiveIds.push(match.mi.toString());
             if (match.match_id) {
-                liveMatchDict[match.match_id.toString()] = match;
-                liveMatchDict[match.match_id.toString().replace(/_/g, '-')] = match;
+                mogelijkeLiveIds.push(match.match_id.toString());
+                mogelijkeLiveIds.push(match.match_id.toString().replace(/_/g, '-'));
             }
 
+            mogelijkeLiveIds.forEach(id => {
+                liveMatchDict[id] = match;
+            });
+
+            // 3. Namen-Schoonmaker: Dit is ons super-vangnet voor koppels én singles!
             if (p1Name && p2Name) {
                 let cleanP1 = cleanNameForMatching(p1Name);
                 let cleanP2 = cleanNameForMatching(p2Name);
@@ -476,11 +475,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                 liveMatchByNameDict[cleanP2 + "_" + cleanP1] = match; 
             }
 
-            let mogelijkeIds = [];
-            if (match.mi) mogelijkeIds.push(match.mi.toString());
-            if (match.match_id) mogelijkeIds.push(match.match_id.toString().replace(/_/g, '-'));
-
-            mogelijkeIds.forEach(pId => {
+            mogelijkeLiveIds.forEach(pId => {
                 let s1Val = match.hs !== undefined ? match.hs : match.s1;
                 let s2Val = match.as !== undefined ? match.as : match.s2;
                 if (s1Val !== undefined && s1Val !== null && s2Val !== undefined && s2Val !== null) {
