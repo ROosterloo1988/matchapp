@@ -527,14 +527,16 @@
                 }
 
                 // --- HIGHLIGHT DE GEWIJZIGDE SCORES ---
+                let uniqueKey = `${match._bron_url}_${match.id}_${match.player1}`; 
+                
                 let newScoreKey = `${match.score1}-${match.score2}`;
                 let flashClass = "";
                 let scoreText = (match.score1 !== "" || match.score2 !== "") ? `${match.score1} - ${match.score2}` : "vs";
 
-                if (lastKnownScores[match.id] !== undefined && lastKnownScores[match.id] !== newScoreKey && newScoreKey !== "-") {
+                if (lastKnownScores[uniqueKey] !== undefined && lastKnownScores[uniqueKey] !== newScoreKey && newScoreKey !== "-") {
                     flashClass = "score-flash";
                 }
-                lastKnownScores[match.id] = newScoreKey;
+                lastKnownScores[uniqueKey] = newScoreKey;
 
                 let headerText = match.status === "mogelijk" ? `MOGELIJK VOOR: ${match.mogelijkVoor.toUpperCase()}` : match.toernooi.toUpperCase();
                 if (match.rol === "marker") { headerText += " ✍️ (SCHRIJVEN)"; }
