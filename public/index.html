@@ -244,6 +244,7 @@
 <script>
     let activeTournament = null;
     let refreshInterval = null;
+    let liveScoreInterval = null;
     let pouleRefreshInterval = null;
     let pouleRefreshDelayMs = 25000;
     let pushPlayersFullSet = new Set();
@@ -448,11 +449,13 @@
         updatePouleButtonVisibility();
         loadMatches();
         refreshInterval = setInterval(loadMatches, 10000);
+        liveScoreInterval = setInterval(updateLiveScores, 15000);
     }
 
     function showMenu() {
         activeTournament = null;
         clearInterval(refreshInterval);
+        clearInterval(liveScoreInterval);
         const url = new URL(window.location);
         url.searchParams.delete('t');
         window.history.pushState({}, '', url);
@@ -475,6 +478,26 @@
         document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`filter-${status}`).classList.add('active');
         loadMatches();
+    }
+
+    async function updateLiveScores() {
+        if (!activeTournament) return;
+        const bezigCards = document.querySelectorAll('.match-card.bezig');
+        if (bezigCards.length === 0) return;
+        try {
+            const res = await fetch(`/api/live-scores?tournament=${encodeURIComponent(activeTournament)}`);
+            if (!res.ok) return;
+            const scores = await res.json();
+            bezigCards.forEach(card => {
+                const matchId = card.dataset.matchId;
+                if (!matchId || !scores[matchId]) return;
+                const { hs, as: as2 } = scores[matchId];
+                const scoreBox = card.querySelector('.score-box');
+                if (scoreBox && hs !== undefined && as2 !== undefined) {
+                    scoreBox.textContent = `${hs} - ${as2}`;
+                }
+            });
+        } catch(e) {}
     }
 
     async function loadMatches() {
@@ -561,10 +584,14 @@
                     recapKnop = `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>`;
                 }
 
-                let mogelijkBanner = match.status === "mogelijk" ? `<div class="mogelijk-voor-banner">🔮 Mogelijk voor: <strong>${match.mogelijkVoor.toUpperCase()}</strong></div>` : '';
+                let mogelijkBanner = "";
+                if (match.status === "mogelijk") {
+                    let tgStr = match.mogelijkeTegenstander ? ` vs <strong>${match.mogelijkeTegenstander}</strong>` : " vs Onbekend";
+                    mogelijkBanner = `<div class="mogelijk-voor-banner">🔮 Mogelijk voor: <strong>${match.mogelijkVoor.toUpperCase()}</strong>${tgStr}</div>`;
+                }
 
                 htmlString += `
-                <div class="match-card ${match.status} ${resultClass}">
+                <div class="match-card ${match.status} ${resultClass}" data-match-id="${match.id || ''}">
                     <div class="card-header">
                         <span>${match.ronde}</span>
                         <span class="board-badge">BORD ${match.board}</span>
