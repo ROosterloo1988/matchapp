@@ -751,12 +751,14 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                                     const persoonlijkPayload = JSON.stringify({ title: `📊 Poule Indeling Bekend!`, body, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
                                     await webpush.sendNotification(sub, persoonlijkPayload);
                                     db.notifiedPoules[pouleKey].push(sub.endpoint);
+                                    console.log(`[PUSH] ✅ Poule verstuurd: ${pouleKey} → ...${sub.endpoint.slice(-20)}`);
                                 } catch (err) {
+                                    console.error(`[PUSH] ❌ Fout bij poule ${pouleKey} → ...${sub.endpoint.slice(-20)}: status=${err.statusCode} msg=${err.message}`);
+                                    addSystemError('push', `poule ${pouleKey}: ${err.statusCode} ${err.message}`);
                                     if (err.statusCode === 410 || err.statusCode === 404) {
                                         deadEndpoints.push(sub.endpoint);
-                                    } else {
-                                        db.notifiedPoules[pouleKey].push(sub.endpoint);
                                     }
+                                    // Niet markeren bij fout — volgende hartslag probeert opnieuw
                                 }
                             }));
                             if (deadEndpoints.length > 0) db.subscriptions = db.subscriptions.filter(s => !deadEndpoints.includes(s.endpoint));
@@ -819,12 +821,15 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                                         });
                                         await webpush.sendNotification(sub, persoonlijkPayload);
                                         db.notifiedMatches[match.id].push(sub.endpoint);
+                                        console.log(`[PUSH] ✅ Verstuurd: ${match.id} → ...${sub.endpoint.slice(-20)}`);
+                                        systemStatus.push.lastSuccessAt = new Date().toISOString();
                                     } catch (err) {
+                                        console.error(`[PUSH] ❌ Fout bij ${match.id} → ...${sub.endpoint.slice(-20)}: status=${err.statusCode} msg=${err.message}`);
+                                        addSystemError('push', `match ${match.id}: ${err.statusCode} ${err.message}`);
                                         if (err.statusCode === 410 || err.statusCode === 404) {
                                             deadEndpoints.push(sub.endpoint);
-                                        } else {
-                                            db.notifiedMatches[match.id].push(sub.endpoint);
                                         }
+                                        // Niet markeren als gemeld bij fout — volgende hartslag probeert het opnieuw
                                     }
                                 }));
                                 if (deadEndpoints.length > 0) db.subscriptions = db.subscriptions.filter(s => !deadEndpoints.includes(s.endpoint));
@@ -1276,6 +1281,68 @@ app.get('/api/admin/debug-matches', async (req, res) => {
         deelsGemeld: deelsGemeld.map(m => ({ id: m.id, player1: m.player1, player2: m.player2, time: m.time, notifiedEndpoints: (db.notifiedMatches[m.id] || []).map(ep => ep.slice(-20)) })),
         nogNietGemeld: nogNietGemeld.map(m => ({ id: m.id, player1: m.player1, player2: m.player2, time: m.time, ronde: m.ronde })),
     });
+});
+
+app.post('/api/admin/reset-notified', (req, res) => {
+    const { tournament } = req.body;
+    const db = readDB();
+
+    if (tournament) {
+        const t = db.tournaments.find(x => x.name === tournament);
+        if (!t) return res.status(404).json({ error: 'Toernooi niet gevonden' });
+        let count = 0;
+        Object.keys(db.notifiedMatches).forEach(id => {
+            // Match IDs are not tournament-scoped, so reset all (safe since matches have unique IDs)
+            delete db.notifiedMatches[id];
+            count++;
+        });
+        Object.keys(db.notifiedPoules).forEach(key => {
+            if (key.startsWith(tournament + '_')) {
+                delete db.notifiedPoules[key];
+            }
+        });
+        writeDB(db);
+        res.json({ success: true, message: `Reset ${count} match IDs en poule entries voor ${tournament}` });
+    } else {
+        db.notifiedMatches = {};
+        db.notifiedPoules = {};
+        writeDB(db);
+        res.json({ success: true, message: 'Alle notified matches en poules gereset' });
+    }
+});
+
+app.get('/api/admin/debug-notify', async (req, res) => {
+    const { tournament: tName, matchId } = req.query;
+    if (!tName || !matchId) return res.status(400).json({ error: 'Geef ?tournament=...&matchId=... mee' });
+
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === tName);
+    if (!tournament) return res.status(404).json({ error: 'Toernooi niet gevonden' });
+
+    const notifiedForMatch = db.notifiedMatches[matchId] || [];
+
+    const subDiagnose = db.subscriptions.map(sub => {
+        const prefs = sub.preferences && sub.preferences[tName];
+        if (!prefs || prefs.length === 0) return { endpoint: sub.endpoint.slice(-20), reden: 'geen prefs voor dit toernooi' };
+        // We need player names - check against a fake match since we don't have them here
+        const alGemeld = notifiedForMatch.includes(sub.endpoint);
+        return { endpoint: sub.endpoint.slice(-20), prefs, alGemeld, hasKeys: !!(sub.keys && sub.keys.p256dh && sub.keys.auth) };
+    });
+
+    // Try sending a test push to the first sub that has prefs for this tournament
+    const testSub = db.subscriptions.find(s => s.preferences && s.preferences[tName] && s.preferences[tName].length > 0);
+    let testResult = null;
+    if (testSub) {
+        try {
+            const payload = JSON.stringify({ title: '🔔 Push diagnose test', body: `Tournament: ${tName}`, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
+            await webpush.sendNotification(testSub, payload);
+            testResult = { success: true, endpoint: testSub.endpoint.slice(-20) };
+        } catch (err) {
+            testResult = { success: false, endpoint: testSub.endpoint.slice(-20), statusCode: err.statusCode, message: err.message, body: err.body };
+        }
+    }
+
+    res.json({ isFirstRun, tName, notifiedForMatch: notifiedForMatch.map(ep => ep.slice(-20)), subDiagnose, testResult });
 });
 
 app.get('/api/admin/debug-subscriptions', (req, res) => {
