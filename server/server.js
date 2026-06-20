@@ -159,18 +159,23 @@ app.post('/api/user-add-tournament', async (req, res) => {
     const { name, url, darters } = req.body;
     const db = readDB();
 
-    if (!db.tournaments.find(t => t.name === name)) {
-        db.tournaments.push({ 
-            name, url, matchlistUrl: "", darters, 
-            unlisted: true 
+    const existingT = db.tournaments.find(t => t.name === name);
+    if (!existingT) {
+        db.tournaments.push({
+            name, url, matchlistUrl: "", darters,
+            unlisted: true
         });
         writeDB(db);
     } else {
-        let existingT = db.tournaments.find(t => t.name === name);
-        if(existingT && existingT.unlisted) {
-            darters.forEach(d => { if(!existingT.darters.includes(d)) existingT.darters.push(d); });
-            writeDB(db);
-        }
+        // Voeg ontbrekende spelers toe, case-insensitief vergelijken om duplicaten te voorkomen
+        const bestaandeLower = existingT.darters.map(d => d.toLowerCase());
+        darters.forEach(d => {
+            if (!bestaandeLower.includes(d.toLowerCase())) {
+                existingT.darters.push(d);
+                bestaandeLower.push(d.toLowerCase());
+            }
+        });
+        writeDB(db);
     }
     res.json({ success: true });
 });
@@ -1201,7 +1206,10 @@ async function runHeartbeat() {
     if (db.tournaments.length === 0) return;
     
     for (let t of db.tournaments) {
-        const nieuwLijstje = await fetchMatchesForTournament(t.name);
+        const allSubPlayers = db.subscriptions
+            .flatMap(sub => (sub.preferences && sub.preferences[t.name]) || []);
+        const extraFromSubs = [...new Set(allSubPlayers)];
+        const nieuwLijstje = await fetchMatchesForTournament(t.name, extraFromSubs);
         matchCache[t.name] = nieuwLijstje;
         cacheTimestamps[t.name] = Date.now();
     }
