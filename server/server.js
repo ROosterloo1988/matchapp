@@ -52,7 +52,7 @@ function readDB() {
     if (memDB) return memDB; 
 
     if (!fs.existsSync(DB_FILE)) {
-        memDB = { tournaments: [], subscriptions: [], notifiedMatches: {}, notifiedPoules: {} };
+        memDB = { tournaments: [], subscriptions: [], notifiedMatches: {}, notifiedPoules: {}, notifiedResults: {} };
         return memDB;
     }
     
@@ -61,6 +61,7 @@ function readDB() {
     if (!db.subscriptions) db.subscriptions = [];
     if (!db.notifiedMatches) db.notifiedMatches = {};
     if (!db.notifiedPoules) db.notifiedPoules = {};
+    if (!db.notifiedResults) db.notifiedResults = {};
     db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
 
     // Migrate legacy array format to per-subscription object format
@@ -889,6 +890,45 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                 const s1 = parseScore(match.score1);
                 const s2 = parseScore(match.score2);
                 match.resultaat = (isP1 && s1 > s2) || (!isP1 && s2 > s1) ? "win" : "verlies";
+
+                // Uitslag-notificatie sturen
+                if (!db.notifiedResults[match.id]) db.notifiedResults[match.id] = [];
+                let subsVoorUitslag = db.subscriptions.filter(sub => {
+                    if (!sub.preferences || !sub.preferences[tournament.name]) return false;
+                    let gekozen = sub.preferences[tournament.name];
+                    return gekozen.length > 0
+                        && gekozen.some(f => match.player1.toLowerCase().includes(f) || match.player2.toLowerCase().includes(f))
+                        && !db.notifiedResults[match.id].includes(sub.endpoint);
+                });
+
+                if (!isFirstRun && subsVoorUitslag.length > 0 && match.score1 !== "" && match.score2 !== "") {
+                    let uitslag = `${match.player1} ${match.score1} - ${match.score2} ${match.player2}`;
+                    let deadEndpoints = [];
+                    await Promise.all(subsVoorUitslag.map(async (sub) => {
+                        let gekozen = sub.preferences[tournament.name];
+                        let mijnSpeler = gekozen.find(f => match.player1.toLowerCase().includes(f) || match.player2.toLowerCase().includes(f));
+                        let isWin = mijnSpeler && ((match.player1.toLowerCase().includes(mijnSpeler) && s1 > s2) || (match.player2.toLowerCase().includes(mijnSpeler) && s2 > s1));
+                        let emoji = isWin ? "🏆" : "❌";
+                        let resultTekst = isWin ? "GEWONNEN" : "VERLOREN";
+                        try {
+                            await webpush.sendNotification(sub, JSON.stringify({
+                                title: `${emoji} ${resultTekst}: ${match.ronde}`,
+                                body: uitslag,
+                                icon: '/icon-192x192.png',
+                                badge: '/icon-192x192.png'
+                            }));
+                            db.notifiedResults[match.id].push(sub.endpoint);
+                            console.log(`[PUSH] ✅ Uitslag verstuurd: ${match.id} → ...${sub.endpoint.slice(-20)}`);
+                        } catch (err) {
+                            console.error(`[PUSH] ❌ Uitslag fout: ${match.id}: ${err.statusCode} ${err.message}`);
+                            if (err.statusCode === 410 || err.statusCode === 404) deadEndpoints.push(sub.endpoint);
+                        }
+                    }));
+                    if (deadEndpoints.length > 0) db.subscriptions = db.subscriptions.filter(s => !deadEndpoints.includes(s.endpoint));
+                    nieuwGeplandCount++;
+                } else if (isFirstRun) {
+                    subsVoorUitslag.forEach(sub => db.notifiedResults[match.id].push(sub.endpoint));
+                }
             }
 
             let uniekeMatchID = match._bron_url + "_" + match.id;
@@ -946,7 +986,32 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                     );
 
                     if (!toegevoegdeIds.has(uniekeVolgendeID) && !isAlGeweest && !heeftAlEchteMatchInDezeRonde) {
-                        definitieveLijst.push({ ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: isSpeler, rol: "speler" });
+                        // Bepaal de potentiële tegenstander voor de mogelijke volgende ronde
+                        let mogelijkeTegenstander = "";
+                        let p1Naam = mogelijkeMatch.player1 && mogelijkeMatch.player1 !== "Onbekend" ? mogelijkeMatch.player1 : null;
+                        let p2Naam = mogelijkeMatch.player2 && mogelijkeMatch.player2 !== "Onbekend" ? mogelijkeMatch.player2 : null;
+                        let mijnKant = (p1Naam && p1Naam.toLowerCase().includes(isSpeler)) ? "p1" : "p2";
+                        let anderKant = mijnKant === "p1" ? p2Naam : p1Naam;
+
+                        if (anderKant) {
+                            mogelijkeTegenstander = anderKant;
+                        } else {
+                            // Tegenstander nog onbekend — zoek wie er in de andere bracket-match speelt
+                            let bronId = mogelijkeMatch.id ? mogelijkeMatch.id.toString().replace(/-/g, '_') : null;
+                            if (bronId) {
+                                let [rNr, mNr] = bronId.split('_').map(Number);
+                                // De andere invoer van deze match is een broer-match
+                                let broerIds = [`${rNr - 1}_${(mNr - 1) * 2 + 1}`, `${rNr - 1}_${(mNr - 1) * 2 + 2}`];
+                                let broerMatches = definitieveLijst.filter(m => {
+                                    let mId = (m.id || "").toString().replace(/-/g, '_');
+                                    return m._bron_url === mogelijkeMatch._bron_url && broerIds.includes(mId);
+                                });
+                                let anderSpeler = broerMatches.flatMap(m => [m.player1, m.player2]).find(n => n && n !== "Onbekend" && !n.toLowerCase().includes(isSpeler));
+                                if (anderSpeler) mogelijkeTegenstander = anderSpeler;
+                            }
+                        }
+
+                        definitieveLijst.push({ ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: isSpeler, mogelijkeTegenstander, rol: "speler" });
                         toegevoegdeIds.add(uniekeVolgendeID);
                     }
                 }
@@ -1127,6 +1192,41 @@ app.get('/api/poule-standings', async (req, res) => {
 
 let matchCache = {};
 let cacheTimestamps = {};
+
+app.get('/api/live-scores', async (req, res) => {
+    const tName = req.query.tournament;
+    if (!tName) return res.status(400).json({ error: 'Geef ?tournament=... mee' });
+
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === tName);
+    if (!tournament) return res.status(404).json({ error: 'Toernooi niet gevonden' });
+
+    const bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(Boolean);
+    let scores = {};
+
+    for (let bUrl of bracketUrls) {
+        let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
+        if (!eventMatch) continue;
+        let mUrls = [
+            `https://tv.dartconnect.com/event/${eventMatch[1]}/state/matches?fetch_type=initial`,
+            `https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`
+        ];
+        for (let mUrl of mUrls) {
+            try {
+                let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
+                let data = mlRes.data?.payload || mlRes.data || {};
+                let actief = data.active || data.matches_live || {};
+                let entries = Array.isArray(actief) ? actief : Object.values(actief);
+                entries.forEach(m => {
+                    let id = (m.bmi || m.mi || m.match_id || "").toString();
+                    if (id) scores[id] = { hs: m.hs ?? m.s1, as: m.as ?? m.s2, actief: true };
+                });
+            } catch(e) {}
+        }
+    }
+
+    res.json(scores);
+});
 
 app.get('/api/matches', async (req, res) => {
     const tName = req.query.tournament;
