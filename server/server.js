@@ -52,16 +52,30 @@ function readDB() {
     if (memDB) return memDB; 
 
     if (!fs.existsSync(DB_FILE)) {
-        memDB = { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
+        memDB = { tournaments: [], subscriptions: [], notifiedMatches: {}, notifiedPoules: {} };
         return memDB;
     }
     
     let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     if (!db.tournaments) db.tournaments = [];
     if (!db.subscriptions) db.subscriptions = [];
-    if (!db.notifiedMatches) db.notifiedMatches = [];
-    if (!db.notifiedPoules) db.notifiedPoules = [];
+    if (!db.notifiedMatches) db.notifiedMatches = {};
+    if (!db.notifiedPoules) db.notifiedPoules = {};
     db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
+
+    // Migrate legacy array format to per-subscription object format
+    if (Array.isArray(db.notifiedMatches)) {
+        const endpoints = db.subscriptions.map(s => s.endpoint);
+        const obj = {};
+        db.notifiedMatches.forEach(id => { obj[id] = [...endpoints]; });
+        db.notifiedMatches = obj;
+    }
+    if (Array.isArray(db.notifiedPoules)) {
+        const endpoints = db.subscriptions.map(s => s.endpoint);
+        const obj = {};
+        db.notifiedPoules.forEach(key => { obj[key] = [...endpoints]; });
+        db.notifiedPoules = obj;
+    }
     
     if (!db.vapidKeys) {
         db.vapidKeys = webpush.generateVAPIDKeys();
@@ -712,46 +726,46 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
                 if (isPoule && !hasTime && isSpeler) {
                     let pouleKey = `${tournament.name}_${match.ronde}`;
-                    if (!db.notifiedPoules.includes(pouleKey)) {
-                        db.notifiedPoules.push(pouleKey);
+                    if (!db.notifiedPoules[pouleKey]) db.notifiedPoules[pouleKey] = [];
+
+                    let subsToNotify = db.subscriptions.filter(sub => {
+                        if (!sub.preferences || !sub.preferences[tournament.name]) return false;
+                        let gekozenSpelers = sub.preferences[tournament.name];
+                        if (gekozenSpelers.length === 0) return false;
+                        let raakt = gekozenSpelers.find(f => match.player1.toLowerCase().includes(f) || match.player2.toLowerCase().includes(f));
+                        return raakt && !db.notifiedPoules[pouleKey].includes(sub.endpoint);
+                    });
+
+                    if (subsToNotify.length > 0) {
                         let spelersInPoule = Array.from(pouleIndelingen[match.ronde] || []);
-                        
-                        if (!isFirstRun && db.subscriptions.length > 0) {
-                            let activeSubs = [];
-                            await Promise.all(db.subscriptions.map(async (sub) => {
-                                let wilHoren = false;
-                                let mijnGevolgdeSpeler = "";
+                        let deadEndpoints = [];
 
-                                if (sub.preferences && sub.preferences[tournament.name]) {
-                                    let gekozenSpelers = sub.preferences[tournament.name];
-                                    if (gekozenSpelers.length > 0) {
-                                        mijnGevolgdeSpeler = gekozenSpelers.find(filter => match.player1.toLowerCase().includes(filter) || match.player2.toLowerCase().includes(filter));
-                                        if (mijnGevolgdeSpeler) wilHoren = true;
+                        if (!isFirstRun) {
+                            await Promise.all(subsToNotify.map(async (sub) => {
+                                let mijnGevolgdeSpeler = sub.preferences[tournament.name].find(f =>
+                                    match.player1.toLowerCase().includes(f) || match.player2.toLowerCase().includes(f));
+                                try {
+                                    let ik = spelersInPoule.find(p => p.toLowerCase().includes(mijnGevolgdeSpeler)) || mijnGevolgdeSpeler;
+                                    let anderen = spelersInPoule.filter(p => p !== ik);
+                                    let body = `${ik} is ingedeeld in ${match.ronde} met: ${anderen.join(', ')}`;
+                                    const persoonlijkPayload = JSON.stringify({ title: `📊 Poule Indeling Bekend!`, body, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
+                                    await webpush.sendNotification(sub, persoonlijkPayload);
+                                    db.notifiedPoules[pouleKey].push(sub.endpoint);
+                                } catch (err) {
+                                    if (err.statusCode === 410 || err.statusCode === 404) {
+                                        deadEndpoints.push(sub.endpoint);
+                                    } else {
+                                        db.notifiedPoules[pouleKey].push(sub.endpoint);
                                     }
-                                }
-
-                                if (wilHoren) {
-                                    try {
-                                        // Maak de tekst PERSOONLIJK (Zet mijn gevolgde speler vooraan)
-                                        let ik = spelersInPoule.find(p => p.toLowerCase().includes(mijnGevolgdeSpeler)) || mijnGevolgdeSpeler;
-                                        let anderen = spelersInPoule.filter(p => p !== ik);
-                                        let body = `${ik} is ingedeeld in ${match.ronde} met: ${anderen.join(', ')}`;
-                                        
-                                        const persoonlijkPayload = JSON.stringify({ title: `📊 Poule Indeling Bekend!`, body: body, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
-                                        await webpush.sendNotification(sub, persoonlijkPayload);
-                                        activeSubs.push(sub);
-                                    } catch (err) {
-                                        if (err.statusCode !== 410 && err.statusCode !== 404) activeSubs.push(sub);
-                                    }
-                                } else {
-                                    activeSubs.push(sub);
                                 }
                             }));
-                            if (db.subscriptions.length !== activeSubs.length) db.subscriptions = activeSubs;
+                            if (deadEndpoints.length > 0) db.subscriptions = db.subscriptions.filter(s => !deadEndpoints.includes(s.endpoint));
+                        } else {
+                            subsToNotify.forEach(sub => db.notifiedPoules[pouleKey].push(sub.endpoint));
                         }
                         nieuwGeplandCount++;
                     }
-                } else if (!db.notifiedMatches.includes(match.id)) {
+                } else {
                     let stuurMelding = false;
                     let titel = "";
 
@@ -762,8 +776,8 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                         let currentTotalMins = (amsDate.getHours() * 60) + amsDate.getMinutes();
                         let matchTotalMins = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
                         let timeDiff = matchTotalMins - currentTotalMins;
-                        if (timeDiff < -1000) timeDiff += 1440; 
-                        
+                        if (timeDiff < -1000) timeDiff += 1440;
+
                         if (timeDiff <= 10 && timeDiff >= 0) {
                             stuurMelding = true;
                             titel = "🎯 Over 10 minuten de volgende wedstrijd";
@@ -774,48 +788,51 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                     }
 
                     if (stuurMelding) {
-                        db.notifiedMatches.push(match.id);
-                        if (!isFirstRun && db.subscriptions.length > 0) {
-                            let schrijfTekst = match.writer ? `\nSchrijver: ${match.writer}` : "";
-                            let activeSubs = [];
-                            
-                            await Promise.all(db.subscriptions.map(async (sub) => {
-                                let subIsSpeler = false;
-                                let subIsMarker = false;
+                        if (!db.notifiedMatches[match.id]) db.notifiedMatches[match.id] = [];
 
-                                if (sub.preferences && sub.preferences[tournament.name]) {
+                        let subsToNotify = db.subscriptions.filter(sub => {
+                            if (!sub.preferences || !sub.preferences[tournament.name]) return false;
+                            let gekozenSpelers = sub.preferences[tournament.name];
+                            if (gekozenSpelers.length === 0) return false;
+                            let subIsSpeler = gekozenSpelers.some(f => match.player1.toLowerCase().includes(f) || match.player2.toLowerCase().includes(f));
+                            let subIsMarker = gekozenSpelers.some(f => match.marker && match.marker.toLowerCase().includes(f));
+                            return (subIsSpeler || subIsMarker) && !db.notifiedMatches[match.id].includes(sub.endpoint);
+                        });
+
+                        if (subsToNotify.length > 0) {
+                            if (!isFirstRun) {
+                                let schrijfTekst = match.writer ? `\nSchrijver: ${match.writer}` : "";
+                                let deadEndpoints = [];
+
+                                await Promise.all(subsToNotify.map(async (sub) => {
                                     let gekozenSpelers = sub.preferences[tournament.name];
-                                    if (gekozenSpelers.length > 0) {
-                                        subIsSpeler = gekozenSpelers.some(filter => match.player1.toLowerCase().includes(filter) || match.player2.toLowerCase().includes(filter));
-                                        subIsMarker = gekozenSpelers.some(filter => match.marker && match.marker.toLowerCase().includes(filter));
-                                    }
-                                }
-
-                                if (subIsSpeler || subIsMarker) {
+                                    let subIsSpeler = gekozenSpelers.some(f => match.player1.toLowerCase().includes(f) || match.player2.toLowerCase().includes(f));
+                                    let subIsMarker = gekozenSpelers.some(f => match.marker && match.marker.toLowerCase().includes(f));
                                     try {
                                         let persoonlijkeTitel = titel;
-                                        // Plak alléén (SCHRIJVEN) in de titel als DEZE specifieke gebruiker de schrijver volgt
                                         if (!subIsSpeler && subIsMarker) persoonlijkeTitel += " (SCHRIJVEN)";
-                                        
                                         const persoonlijkPayload = JSON.stringify({
                                             title: persoonlijkeTitel,
                                             body: `${match.player1} tegen ${match.player2}\nBord: ${match.board} | Tijd: ${match.time}${schrijfTekst}`,
                                             icon: '/icon-192x192.png',
                                             badge: '/icon-192x192.png'
                                         });
-
                                         await webpush.sendNotification(sub, persoonlijkPayload);
-                                        activeSubs.push(sub);
+                                        db.notifiedMatches[match.id].push(sub.endpoint);
                                     } catch (err) {
-                                        if (err.statusCode !== 410 && err.statusCode !== 404) activeSubs.push(sub);
+                                        if (err.statusCode === 410 || err.statusCode === 404) {
+                                            deadEndpoints.push(sub.endpoint);
+                                        } else {
+                                            db.notifiedMatches[match.id].push(sub.endpoint);
+                                        }
                                     }
-                                } else {
-                                    activeSubs.push(sub);
-                                }
-                            }));
-                            if (db.subscriptions.length !== activeSubs.length) db.subscriptions = activeSubs;
+                                }));
+                                if (deadEndpoints.length > 0) db.subscriptions = db.subscriptions.filter(s => !deadEndpoints.includes(s.endpoint));
+                            } else {
+                                subsToNotify.forEach(sub => db.notifiedMatches[match.id].push(sub.endpoint));
+                            }
+                            nieuwGeplandCount++;
                         }
-                        nieuwGeplandCount++;
                     }
                 }
             }
@@ -1238,8 +1255,16 @@ app.get('/api/admin/debug-matches', async (req, res) => {
     const matches = await fetchMatchesForTournament(tName, extraFromSubs);
 
     const gepland = matches.filter(m => m.status === 'gepland');
-    const alGemeld = gepland.filter(m => db.notifiedMatches.includes(m.id));
-    const nogNietGemeld = gepland.filter(m => !db.notifiedMatches.includes(m.id));
+    const endpoints = db.subscriptions.map(s => s.endpoint);
+    const alGemeld = gepland.filter(m => {
+        const notified = db.notifiedMatches[m.id] || [];
+        return endpoints.length > 0 && endpoints.every(ep => notified.includes(ep));
+    });
+    const deelsGemeld = gepland.filter(m => {
+        const notified = db.notifiedMatches[m.id] || [];
+        return notified.length > 0 && !endpoints.every(ep => notified.includes(ep));
+    });
+    const nogNietGemeld = gepland.filter(m => !db.notifiedMatches[m.id] || db.notifiedMatches[m.id].length === 0);
 
     res.json({
         tournament: tName,
@@ -1247,7 +1272,8 @@ app.get('/api/admin/debug-matches', async (req, res) => {
         extraFromSubs,
         totalMatches: matches.length,
         geplandCount: gepland.length,
-        alInNotifiedMatches: alGemeld.map(m => ({ id: m.id, player1: m.player1, player2: m.player2, time: m.time })),
+        volledigGemeld: alGemeld.map(m => ({ id: m.id, player1: m.player1, player2: m.player2, time: m.time })),
+        deelsGemeld: deelsGemeld.map(m => ({ id: m.id, player1: m.player1, player2: m.player2, time: m.time, notifiedEndpoints: (db.notifiedMatches[m.id] || []).map(ep => ep.slice(-20)) })),
         nogNietGemeld: nogNietGemeld.map(m => ({ id: m.id, player1: m.player1, player2: m.player2, time: m.time, ronde: m.ronde })),
     });
 });
