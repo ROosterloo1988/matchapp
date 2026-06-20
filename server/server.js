@@ -1398,6 +1398,43 @@ app.get('/api/admin/debug-matches', async (req, res) => {
     });
 });
 
+app.get('/api/admin/debug-mogelijk', async (req, res) => {
+    const tName = req.query.tournament;
+    if (!tName) return res.status(400).json({ error: 'Geef ?tournament=... mee' });
+    const db = readDB();
+    const t = db.tournaments.find(x => x.name === tName);
+    if (!t) return res.status(404).json({ error: 'Toernooi niet gevonden' });
+
+    const allSubPlayers = db.subscriptions.flatMap(sub => (sub.preferences && sub.preferences[tName]) || []);
+    const extraFromSubs = [...new Set(allSubPlayers)];
+    const matches = await fetchMatchesForTournament(tName, extraFromSubs);
+
+    const mogelijk = matches.filter(m => m.status === 'mogelijk');
+    const gepland = matches.filter(m => m.status === 'gepland');
+    const gespeeld = matches.filter(m => m.status === 'gespeeld');
+
+    res.json({
+        totalMatches: matches.length,
+        geplandCount: gepland.length,
+        gespeeldCount: gespeeld.length,
+        mogelijkCount: mogelijk.length,
+        mogelijkMatches: mogelijk.map(m => ({
+            id: m.id, ronde: m.ronde, player1: m.player1, player2: m.player2,
+            mogelijkVoor: m.mogelijkVoor, mogelijkeTegenstander: m.mogelijkeTegenstander,
+            _tree_round_nr: m._tree_round_nr, _tree_match_nr: m._tree_match_nr
+        })),
+        geplandSample: gepland.slice(0, 5).map(m => ({
+            id: m.id, ronde: m.ronde, player1: m.player1, player2: m.player2,
+            score1: m.score1, score2: m.score2, isFinished: m.isFinished,
+            _tree_round_nr: m._tree_round_nr, _tree_match_nr: m._tree_match_nr
+        })),
+        gespeeldSample: gespeeld.slice(0, 3).map(m => ({
+            id: m.id, ronde: m.ronde, player1: m.player1, player2: m.player2,
+            resultaat: m.resultaat, _tree_round_nr: m._tree_round_nr, _tree_match_nr: m._tree_match_nr
+        }))
+    });
+});
+
 app.post('/api/admin/reset-notified', (req, res) => {
     const { tournament } = req.body;
     const db = readDB();
