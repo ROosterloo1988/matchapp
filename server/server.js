@@ -313,16 +313,17 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                         });
                     });
 
+                    // Bepaal bracket-grootte op basis van de eerste ronde (inclusief nulls/byes)
+                    const eersteRondeGrootte = bronMap[0] ? bronMap[0].length : 0;
+
                     bronMap.forEach((roundArray, rIndex) => {
-                        let rName = "Ronde " + (rIndex + 1);
-                        let matchCount = roundArray.length;
-                        
-                        if (matchCount === 32) rName = "Laatste 64";
-                        else if (matchCount === 16) rName = "Laatste 32";
-                        else if (matchCount === 8) rName = "Laatste 16";
-                        else if (matchCount === 4) rName = "Kwartfinale";
-                        else if (matchCount === 2) rName = "Halve Finale";
-                        else if (matchCount === 1) rName = "Finale";
+                        let spelersOverig = eersteRondeGrootte * 2 / Math.pow(2, rIndex);
+                        let rName;
+                        if (spelersOverig === 2) rName = "Finale";
+                        else if (spelersOverig === 4) rName = "Halve Finale";
+                        else if (spelersOverig === 8) rName = "Kwartfinale";
+                        else if (spelersOverig > 8) rName = "Laatste " + Math.round(spelersOverig);
+                        else rName = "Ronde " + (rIndex + 1);
 
                         roundArray.forEach((m, mIndex) => {
                             if (!m || typeof m !== 'object') return;
