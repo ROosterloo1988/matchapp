@@ -313,16 +313,17 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                         });
                     });
 
+                    // Bepaal bracket-grootte op basis van de eerste ronde (inclusief nulls/byes)
+                    const eersteRondeGrootte = bronMap[0] ? bronMap[0].length : 0;
+
                     bronMap.forEach((roundArray, rIndex) => {
-                        let rName = "Ronde " + (rIndex + 1);
-                        let matchCount = roundArray.length;
-                        
-                        if (matchCount === 32) rName = "Laatste 64";
-                        else if (matchCount === 16) rName = "Laatste 32";
-                        else if (matchCount === 8) rName = "Laatste 16";
-                        else if (matchCount === 4) rName = "Kwartfinale";
-                        else if (matchCount === 2) rName = "Halve Finale";
-                        else if (matchCount === 1) rName = "Finale";
+                        let spelersOverig = eersteRondeGrootte * 2 / Math.pow(2, rIndex);
+                        let rName;
+                        if (spelersOverig === 2) rName = "Finale";
+                        else if (spelersOverig === 4) rName = "Halve Finale";
+                        else if (spelersOverig === 8) rName = "Kwartfinale";
+                        else if (spelersOverig > 8) rName = "Laatste " + Math.round(spelersOverig);
+                        else rName = "Ronde " + (rIndex + 1);
 
                         roundArray.forEach((m, mIndex) => {
                             if (!m || typeof m !== 'object') return;
@@ -1309,6 +1310,75 @@ app.post('/api/admin/reset-notified', (req, res) => {
         writeDB(db);
         res.json({ success: true, message: 'Alle notified matches en poules gereset' });
     }
+});
+
+app.get('/api/admin/debug-raw', async (req, res) => {
+    const tName = req.query.tournament;
+    if (!tName) return res.status(400).json({ error: 'Geef ?tournament=... mee' });
+
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === tName);
+    if (!tournament) return res.status(404).json({ error: 'Toernooi niet gevonden' });
+
+    const bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(Boolean);
+    const resultaat = [];
+
+    for (let bUrl of bracketUrls) {
+        try {
+            const response = await axios.post(bUrl, {});
+            const dataContainer = response.data.payload || response.data || {};
+            let proBracketArray = dataContainer.proBracket || (dataContainer.bracketData && dataContainer.bracketData.proBracket);
+            let bronMap = proBracketArray || dataContainer.bracketData || dataContainer;
+            let isStructural = Array.isArray(bronMap) && bronMap.length > 0 && Array.isArray(bronMap[0]);
+
+            let rondeSamples = [];
+
+            if (isStructural) {
+                bronMap.forEach((roundArray, rIndex) => {
+                    let eersteWedstrijd = roundArray.find(m => m && typeof m === 'object' && ('p1' in m || 'd1' in m));
+                    if (eersteWedstrijd) {
+                        rondeSamples.push({
+                            rIndex,
+                            matchCount: roundArray.length,
+                            eersteWedstrijdVelden: eersteWedstrijd
+                        });
+                    }
+                });
+            } else {
+                // Non-structural: collect a few raw match objects
+                let gevonden = [];
+                function zoek(obj, depth = 0) {
+                    if (!obj || typeof obj !== 'object' || depth > 10) return;
+                    if ('p1' in obj || 'd1' in obj) { gevonden.push(obj); return; }
+                    Object.values(obj).forEach(v => zoek(v, depth + 1));
+                }
+                zoek(bronMap);
+                rondeSamples = gevonden.slice(0, 10);
+            }
+
+            // Matchlist API
+            let matchlistSamples = [];
+            let eventMatch = bUrl.match(/\/event\/([^\/]+)/i);
+            if (eventMatch) {
+                let mUrl = `https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`;
+                try {
+                    let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
+                    let data = mlRes.data?.payload || mlRes.data || {};
+                    let arr = [];
+                    if (data.completed) arr = arr.concat(Array.isArray(data.completed) ? data.completed : Object.values(data.completed));
+                    if (data.active) arr = arr.concat(Array.isArray(data.active) ? data.active : Object.values(data.active));
+                    if (Array.isArray(mlRes.data)) arr = mlRes.data;
+                    matchlistSamples = arr.slice(0, 5);
+                } catch(e) { matchlistSamples = [{ error: e.message }]; }
+            }
+
+            resultaat.push({ url: bUrl, isStructural, rondeSamples, matchlistSamples });
+        } catch(e) {
+            resultaat.push({ url: bUrl, error: e.message });
+        }
+    }
+
+    res.json(resultaat);
 });
 
 app.get('/api/admin/debug-notify', async (req, res) => {
