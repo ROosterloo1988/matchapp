@@ -1223,6 +1223,25 @@ async function runHeartbeat() {
 runHeartbeat();
 setInterval(runHeartbeat, 60000);
 
+app.get('/api/admin/debug-subscriptions', (req, res) => {
+    const db = readDB();
+    const result = db.tournaments.map(t => {
+        const allSubPlayers = db.subscriptions
+            .flatMap(sub => (sub.preferences && sub.preferences[t.name]) || []);
+        const extraFromSubs = [...new Set(allSubPlayers)];
+        return {
+            tournament: t.name,
+            unlisted: t.unlisted || false,
+            dartersInDB: t.darters || [],
+            extraFromSubscriptions: extraFromSubs,
+            subscriptionsWithPrefs: db.subscriptions
+                .filter(sub => sub.preferences && sub.preferences[t.name] && sub.preferences[t.name].length > 0)
+                .map(sub => ({ endpoint: sub.endpoint.slice(-20), players: sub.preferences[t.name] }))
+        };
+    });
+    res.json({ subscriptionCount: db.subscriptions.length, tournaments: result });
+});
+
 app.get('/api/admin/system-status', (req, res) => {
     res.json({
         uptimeSeconds: Math.floor(process.uptime()),
