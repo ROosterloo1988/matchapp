@@ -508,13 +508,17 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
         });
 
         let rondeTellingen = {};
+        let bmiToRCode = {};  // bracket match ID → T-code uit matchlist
         dcMatchesList.forEach(m => {
             let matchId = (m._custom_id || m.match_id || m.id || "").toString();
             let rndMatch = matchId.match(/^(\d+)[_-]/);
             if (rndMatch) {
-                let rndKey = m._bron_url + "_" + rndMatch[1]; 
+                let rndKey = m._bron_url + "_" + rndMatch[1];
                 rondeTellingen[rndKey] = (rondeTellingen[rndKey] || 0) + 1;
             }
+        });
+        matchlistData.forEach(m => {
+            if (m.bmi && m.r) bmiToRCode[m.bmi.toString()] = m.r;
         });
 
         function getSpelerNaam(idOrArray) {
@@ -541,13 +545,17 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
             // --- HET NIEUWE, ROBUUSTE RONDE-DETECTIE SYSTEEM ---
             let rondeNaam = "Ronde ?";
-            
+
             // 1. Detecteer de fase op basis van Event Label (el) of bracket type
             let fase = "";
             if (m.el === "Winner's KO") fase = "Winnaarsronde";
             else if (m.el === "Consolation KO") fase = "Verliezersronde";
             else if (m.el === "Round Robin" || m._bracket_type === "Groepsfase") fase = "Poule";
             else fase = m.el || "";
+
+            // Verrijk met T-code uit matchlist als het bracket-match-ID overeenkomt met bmi
+            let rawBracketId = (m.id || "").toString();
+            if (!m.r && bmiToRCode[rawBracketId]) m.r = bmiToRCode[rawBracketId];
 
             // 2. Vertaal de 'r' (T-code) naar leesbare tekst (bijv. T16 -> Laatste 16)
             if (m.r && typeof m.r === 'string' && m.r.startsWith('T')) {
