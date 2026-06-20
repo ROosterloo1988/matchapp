@@ -1278,6 +1278,34 @@ app.get('/api/admin/debug-matches', async (req, res) => {
     });
 });
 
+app.post('/api/admin/reset-notified', (req, res) => {
+    const { tournament } = req.body;
+    const db = readDB();
+
+    if (tournament) {
+        const t = db.tournaments.find(x => x.name === tournament);
+        if (!t) return res.status(404).json({ error: 'Toernooi niet gevonden' });
+        let count = 0;
+        Object.keys(db.notifiedMatches).forEach(id => {
+            // Match IDs are not tournament-scoped, so reset all (safe since matches have unique IDs)
+            delete db.notifiedMatches[id];
+            count++;
+        });
+        Object.keys(db.notifiedPoules).forEach(key => {
+            if (key.startsWith(tournament + '_')) {
+                delete db.notifiedPoules[key];
+            }
+        });
+        writeDB(db);
+        res.json({ success: true, message: `Reset ${count} match IDs en poule entries voor ${tournament}` });
+    } else {
+        db.notifiedMatches = {};
+        db.notifiedPoules = {};
+        writeDB(db);
+        res.json({ success: true, message: 'Alle notified matches en poules gereset' });
+    }
+});
+
 app.get('/api/admin/debug-subscriptions', (req, res) => {
     const db = readDB();
     const result = db.tournaments.map(t => {
