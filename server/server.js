@@ -1311,6 +1311,40 @@ app.post('/api/admin/reset-notified', (req, res) => {
     }
 });
 
+app.get('/api/admin/debug-notify', async (req, res) => {
+    const { tournament: tName, matchId } = req.query;
+    if (!tName || !matchId) return res.status(400).json({ error: 'Geef ?tournament=...&matchId=... mee' });
+
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === tName);
+    if (!tournament) return res.status(404).json({ error: 'Toernooi niet gevonden' });
+
+    const notifiedForMatch = db.notifiedMatches[matchId] || [];
+
+    const subDiagnose = db.subscriptions.map(sub => {
+        const prefs = sub.preferences && sub.preferences[tName];
+        if (!prefs || prefs.length === 0) return { endpoint: sub.endpoint.slice(-20), reden: 'geen prefs voor dit toernooi' };
+        // We need player names - check against a fake match since we don't have them here
+        const alGemeld = notifiedForMatch.includes(sub.endpoint);
+        return { endpoint: sub.endpoint.slice(-20), prefs, alGemeld, hasKeys: !!(sub.keys && sub.keys.p256dh && sub.keys.auth) };
+    });
+
+    // Try sending a test push to the first sub that has prefs for this tournament
+    const testSub = db.subscriptions.find(s => s.preferences && s.preferences[tName] && s.preferences[tName].length > 0);
+    let testResult = null;
+    if (testSub) {
+        try {
+            const payload = JSON.stringify({ title: '🔔 Push diagnose test', body: `Tournament: ${tName}`, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
+            await webpush.sendNotification(testSub, payload);
+            testResult = { success: true, endpoint: testSub.endpoint.slice(-20) };
+        } catch (err) {
+            testResult = { success: false, endpoint: testSub.endpoint.slice(-20), statusCode: err.statusCode, message: err.message, body: err.body };
+        }
+    }
+
+    res.json({ isFirstRun, tName, notifiedForMatch: notifiedForMatch.map(ep => ep.slice(-20)), subDiagnose, testResult });
+});
+
 app.get('/api/admin/debug-subscriptions', (req, res) => {
     const db = readDB();
     const result = db.tournaments.map(t => {
