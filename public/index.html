@@ -723,20 +723,21 @@
     }
 
     function renderPushPlayerList(darters, savedPrefs) {
-        const listDiv = document.getElementById('push-players-list');
-        if (darters.length === 0) {
-            listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
-            return;
-        }
+    const listDiv = document.getElementById('push-players-list');
+    if (darters.length === 0) {
+        listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
+        return;
+    }
 
-        listDiv.innerHTML = darters.map(d => {
-            const isChecked = savedPrefs.includes(d) ? 'checked' : '';
-            return `
-            <label class="checkbox-label push-player-row">
-                <input type="checkbox" value="${d}" class="darter-checkbox" ${isChecked}>
-                ${d}
-            </label>
-        `}).join('');
+    const savedPrefsLower = savedPrefs.map(p => p.toLowerCase());
+    listDiv.innerHTML = darters.map(d => {
+        const isChecked = savedPrefsLower.includes(d.toLowerCase()) ? 'checked' : '';
+        return `
+        <label class="checkbox-label push-player-row">
+            <input type="checkbox" value="${d}" class="darter-checkbox" ${isChecked}>
+            ${d}
+        </label>
+    `}).join('');
     }
 
     
