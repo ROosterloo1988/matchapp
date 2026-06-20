@@ -751,12 +751,14 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                                     const persoonlijkPayload = JSON.stringify({ title: `📊 Poule Indeling Bekend!`, body, icon: '/icon-192x192.png', badge: '/icon-192x192.png' });
                                     await webpush.sendNotification(sub, persoonlijkPayload);
                                     db.notifiedPoules[pouleKey].push(sub.endpoint);
+                                    console.log(`[PUSH] ✅ Poule verstuurd: ${pouleKey} → ...${sub.endpoint.slice(-20)}`);
                                 } catch (err) {
+                                    console.error(`[PUSH] ❌ Fout bij poule ${pouleKey} → ...${sub.endpoint.slice(-20)}: status=${err.statusCode} msg=${err.message}`);
+                                    addSystemError('push', `poule ${pouleKey}: ${err.statusCode} ${err.message}`);
                                     if (err.statusCode === 410 || err.statusCode === 404) {
                                         deadEndpoints.push(sub.endpoint);
-                                    } else {
-                                        db.notifiedPoules[pouleKey].push(sub.endpoint);
                                     }
+                                    // Niet markeren bij fout — volgende hartslag probeert opnieuw
                                 }
                             }));
                             if (deadEndpoints.length > 0) db.subscriptions = db.subscriptions.filter(s => !deadEndpoints.includes(s.endpoint));
@@ -819,12 +821,15 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                                         });
                                         await webpush.sendNotification(sub, persoonlijkPayload);
                                         db.notifiedMatches[match.id].push(sub.endpoint);
+                                        console.log(`[PUSH] ✅ Verstuurd: ${match.id} → ...${sub.endpoint.slice(-20)}`);
+                                        systemStatus.push.lastSuccessAt = new Date().toISOString();
                                     } catch (err) {
+                                        console.error(`[PUSH] ❌ Fout bij ${match.id} → ...${sub.endpoint.slice(-20)}: status=${err.statusCode} msg=${err.message}`);
+                                        addSystemError('push', `match ${match.id}: ${err.statusCode} ${err.message}`);
                                         if (err.statusCode === 410 || err.statusCode === 404) {
                                             deadEndpoints.push(sub.endpoint);
-                                        } else {
-                                            db.notifiedMatches[match.id].push(sub.endpoint);
                                         }
+                                        // Niet markeren als gemeld bij fout — volgende hartslag probeert het opnieuw
                                     }
                                 }));
                                 if (deadEndpoints.length > 0) db.subscriptions = db.subscriptions.filter(s => !deadEndpoints.includes(s.endpoint));
