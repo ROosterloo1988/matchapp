@@ -68,6 +68,7 @@
         
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
         .match-card.mogelijk .card-header { background: #444; color: #bbb; }
+        .mogelijk-voor-banner { background: #333; color: #aaa; font-size: 0.75em; padding: 4px 12px; letter-spacing: 0.05em; }
         .match-card.gespeeld { border-left-width: 10px; opacity: 0.8; }
         .match-card.win { border-left-color: #2ecc71; }
         .match-card.verlies { border-left-color: #e74c3c; }
@@ -560,12 +561,15 @@
                     recapKnop = `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>`;
                 }
 
+                let mogelijkBanner = match.status === "mogelijk" ? `<div class="mogelijk-voor-banner">🔮 Mogelijk voor: <strong>${match.mogelijkVoor.toUpperCase()}</strong></div>` : '';
+
                 htmlString += `
                 <div class="match-card ${match.status} ${resultClass}">
                     <div class="card-header">
                         <span>${match.ronde}</span>
                         <span class="board-badge">BORD ${match.board}</span>
                     </div>
+                    ${mogelijkBanner}
                     <div class="card-subheader">
                         <span>Tijd: ${match.time} ${match.status === "mogelijk" ? '('+match.toernooi+')' : ''}</span>
                         <span style="display: flex; align-items: center; gap: 10px;">
