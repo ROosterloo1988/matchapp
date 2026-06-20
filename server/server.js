@@ -1223,6 +1223,54 @@ async function runHeartbeat() {
 runHeartbeat();
 setInterval(runHeartbeat, 60000);
 
+app.get('/api/admin/debug-matches', async (req, res) => {
+    const tName = req.query.tournament;
+    if (!tName) return res.status(400).json({ error: 'Geef ?tournament=... mee' });
+
+    const db = readDB();
+    const t = db.tournaments.find(x => x.name === tName);
+    if (!t) return res.status(404).json({ error: 'Toernooi niet gevonden' });
+
+    const allSubPlayers = db.subscriptions
+        .flatMap(sub => (sub.preferences && sub.preferences[tName]) || []);
+    const extraFromSubs = [...new Set(allSubPlayers)];
+
+    const matches = await fetchMatchesForTournament(tName, extraFromSubs);
+
+    const gepland = matches.filter(m => m.status === 'gepland');
+    const alGemeld = gepland.filter(m => db.notifiedMatches.includes(m.id));
+    const nogNietGemeld = gepland.filter(m => !db.notifiedMatches.includes(m.id));
+
+    res.json({
+        tournament: tName,
+        url: t.url,
+        extraFromSubs,
+        totalMatches: matches.length,
+        geplandCount: gepland.length,
+        alInNotifiedMatches: alGemeld.map(m => ({ id: m.id, player1: m.player1, player2: m.player2, time: m.time })),
+        nogNietGemeld: nogNietGemeld.map(m => ({ id: m.id, player1: m.player1, player2: m.player2, time: m.time, ronde: m.ronde })),
+    });
+});
+
+app.get('/api/admin/debug-subscriptions', (req, res) => {
+    const db = readDB();
+    const result = db.tournaments.map(t => {
+        const allSubPlayers = db.subscriptions
+            .flatMap(sub => (sub.preferences && sub.preferences[t.name]) || []);
+        const extraFromSubs = [...new Set(allSubPlayers)];
+        return {
+            tournament: t.name,
+            unlisted: t.unlisted || false,
+            dartersInDB: t.darters || [],
+            extraFromSubscriptions: extraFromSubs,
+            subscriptionsWithPrefs: db.subscriptions
+                .filter(sub => sub.preferences && sub.preferences[t.name] && sub.preferences[t.name].length > 0)
+                .map(sub => ({ endpoint: sub.endpoint.slice(-20), players: sub.preferences[t.name] }))
+        };
+    });
+    res.json({ subscriptionCount: db.subscriptions.length, tournaments: result });
+});
+
 app.get('/api/admin/system-status', (req, res) => {
     res.json({
         uptimeSeconds: Math.floor(process.uptime()),
