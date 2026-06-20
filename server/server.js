@@ -9,7 +9,7 @@ const app = express();
 const PORT = 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // --- ADMIN BEVEILIGING (BASIC AUTH) ---
 const ADMIN_USER = "matchapp";
@@ -129,13 +129,19 @@ app.post('/api/subscribe', (req, res) => {
     res.status(201).json({});
 });
 
-app.get('/api/settings', (req, res) => res.json(readDB()));
+app.get('/api/settings', (req, res) => {
+    const db = readDB();
+    // Stuur alleen het gedeelte dat de admin nodig heeft, niet de grote runtime-data
+    res.json({ tournaments: db.tournaments, vapidKeys: db.vapidKeys });
+});
 app.post('/api/settings', (req, res) => {
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
     if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
 
-    writeDB(req.body);
+    const db = readDB();
+    if (Array.isArray(req.body.tournaments)) db.tournaments = req.body.tournaments;
+    writeDB(db);
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
 
