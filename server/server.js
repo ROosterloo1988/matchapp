@@ -784,7 +784,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                             stuurMelding = true;
                             titel = "🎯 Over 10 minuten de volgende wedstrijd";
                         }
-                    } else if (!isPoule) {
+                    } else if (!isPoule && match.player1 !== "Onbekend" && match.player2 !== "Onbekend") {
                         stuurMelding = true;
                         titel = "🎯 Nieuwe wedstrijd gepland!";
                     }
