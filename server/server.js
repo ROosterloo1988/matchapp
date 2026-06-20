@@ -984,10 +984,10 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                 if (mogelijkeMatch) {
                     let isAlGeweest = mogelijkeMatch.isFinished === true || mogelijkeMatch.score1 !== "";
                     let uniekeVolgendeID = mogelijkeMatch._bron_url + "_" + mogelijkeMatch.id;
-                    
-                    let heeftAlEchteMatchInDezeRonde = definitieveLijst.some(m => 
-                        m.status !== "mogelijk" && 
-                        m.ronde === mogelijkeMatch.ronde && 
+
+                    let heeftAlEchteMatchInDezeRonde = definitieveLijst.some(m =>
+                        m.status !== "mogelijk" &&
+                        m.ronde === mogelijkeMatch.ronde &&
                         (m.player1.toLowerCase().includes(isSpeler.toLowerCase()) || m.player2.toLowerCase().includes(isSpeler.toLowerCase()))
                     );
 
@@ -1019,6 +1019,73 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
                         definitieveLijst.push({ ...mogelijkeMatch, isMogelijk: true, status: "mogelijk", mogelijkVoor: isSpeler, mogelijkeTegenstander, rol: "speler" });
                         toegevoegdeIds.add(uniekeVolgendeID);
+                    }
+                } else if (match._tree_round_nr !== undefined && match._tree_match_nr !== undefined) {
+                    // Volgend-ronde slot bestaat nog niet in de data — genereer een synthetische "mogelijk" kaart
+                    let volgendeRondeNr = match._tree_round_nr + 1;
+                    let volgendeMatchNrInRonde = Math.floor(match._tree_match_nr / 2);
+
+                    // Haal de naam van de volgende ronde op uit een bestaande match in die ronde, anders afleiden
+                    let matchInVolgendeRonde = rawMatches.find(rm =>
+                        rm._bron_url === match._bron_url && rm._tree_round_nr === volgendeRondeNr
+                    );
+                    let volgendeRondeNaam;
+                    if (matchInVolgendeRonde) {
+                        volgendeRondeNaam = matchInVolgendeRonde.ronde;
+                    } else {
+                        const rondeVertalingen = { "Laatste 16": "Kwartfinale", "Laatste 32": "Laatste 16", "Laatste 64": "Laatste 32", "Laatste 128": "Laatste 64", "Kwartfinale": "Halve Finale", "Halve Finale": "Finale" };
+                        let baseRonde = (match.ronde || "").replace(/\s*\(.*\)$/, "").trim();
+                        volgendeRondeNaam = rondeVertalingen[baseRonde] || match.ronde;
+                    }
+
+                    // Niet toevoegen als speler al een echte match heeft in die ronde
+                    let heeftAlEchteMatchInVolgendeRonde = definitieveLijst.some(m =>
+                        m.status !== "mogelijk" &&
+                        m.ronde === volgendeRondeNaam &&
+                        (m.player1.toLowerCase().includes(isSpeler.toLowerCase()) || m.player2.toLowerCase().includes(isSpeler.toLowerCase()))
+                    );
+
+                    let syntheticId = `${match._bron_url}_synthetic_r${volgendeRondeNr}_m${volgendeMatchNrInRonde}`;
+
+                    if (!toegevoegdeIds.has(syntheticId) && !heeftAlEchteMatchInVolgendeRonde) {
+                        // Zoek de broer-match (sibling) in dezelfde ronde — de winnaar daarvan is de mogelijke tegenstander
+                        let broerMatchNr = match._tree_match_nr ^ 1;
+                        let broerMatch = rawMatches.find(rm =>
+                            rm._bron_url === match._bron_url &&
+                            rm._tree_round_nr === match._tree_round_nr &&
+                            rm._tree_match_nr === broerMatchNr
+                        );
+
+                        let mogelijkeTegenstander = "";
+                        if (broerMatch) {
+                            if (broerMatch.isFinished) {
+                                mogelijkeTegenstander = broerMatch.resultaat === "win" ? broerMatch.player1 : broerMatch.player2;
+                            } else {
+                                let broerSpelers = [broerMatch.player1, broerMatch.player2].filter(n => n && n !== "Onbekend" && !n.toLowerCase().includes(isSpeler));
+                                if (broerSpelers.length === 1) mogelijkeTegenstander = broerSpelers[0];
+                                else if (broerSpelers.length === 2) mogelijkeTegenstander = `winnaar ${broerSpelers[0]} / ${broerSpelers[1]}`;
+                            }
+                        }
+
+                        definitieveLijst.push({
+                            id: `synthetic_r${volgendeRondeNr}_m${volgendeMatchNrInRonde}`,
+                            _bron_url: match._bron_url,
+                            _bron_label: match._bron_label,
+                            player1: isSpeler,
+                            player2: mogelijkeTegenstander || "Onbekend",
+                            ronde: volgendeRondeNaam,
+                            status: "mogelijk",
+                            isMogelijk: true,
+                            mogelijkVoor: isSpeler,
+                            mogelijkeTegenstander,
+                            score1: "", score2: "",
+                            resultaat: "",
+                            isFinished: false,
+                            _tree_round_nr: volgendeRondeNr,
+                            _tree_match_nr: volgendeMatchNrInRonde,
+                            rol: "speler"
+                        });
+                        toegevoegdeIds.add(syntheticId);
                     }
                 }
             }
