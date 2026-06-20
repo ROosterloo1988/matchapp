@@ -253,13 +253,14 @@
         saveSettings(true);
     }
     
-    function removeTournament(index) {
+    async function removeTournament(index) {
         if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
             if(editingTournamentIndex === index) cancelEdit();
             db.tournaments.splice(index, 1);
             renderTournaments();
             renderDarters();
-            saveSettings(true);
+            await saveSettings(true);
+            alert('✅ Toernooi verwijderd en opgeslagen.');
         }
     }
 
@@ -365,8 +366,18 @@
     }
 
     async function saveSettings(silent = false) {
-        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
+        const res = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(db)
+        });
+        if (!res.ok) {
+            alert(`❌ Opslaan mislukt (status ${res.status}). Ververs de pagina en probeer opnieuw.`);
+            return false;
+        }
         if (!silent) alert('Opgeslagen!');
+        return true;
     }
 
     async function sendCustomPush() {
