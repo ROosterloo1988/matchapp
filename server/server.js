@@ -1678,7 +1678,25 @@ app.get('/api/admin/debug-raw', async (req, res) => {
                 } catch(e) { matchlistSamples = [{ error: e.message }]; }
             }
 
-            resultaat.push({ url: bUrl, isStructural, rondeSamples, matchlistSamples });
+            // Bouw lokale bmiToRCode voor diagnostiek
+            let localBmiToRCode = {};
+            matchlistSamples.forEach(m => { if (m.bmi && m.r) localBmiToRCode[m.bmi.toString()] = m.r; });
+
+            // Toon hoe de rondenamen er NA verwerking uitzien
+            const eersteRondeGrootte = (isStructural && bronMap[0]) ? bronMap[0].length : 0;
+            let rondeNaamPreview = [];
+            if (isStructural) {
+                bronMap.forEach((roundArray, rIndex) => {
+                    let spelersOverig = eersteRondeGrootte * 2 / Math.pow(2, rIndex);
+                    let structuralName = spelersOverig === 2 ? "Finale" : spelersOverig === 4 ? "Halve Finale" : spelersOverig === 8 ? "Kwartfinale" : spelersOverig > 8 ? "Laatste " + Math.round(spelersOverig) : "Ronde " + (rIndex + 1);
+                    let eersteMatch = roundArray.find(m => m && typeof m === 'object' && ('p1' in m || 'd1' in m));
+                    let bracketId = eersteMatch ? (eersteMatch.id || "").toString() : "?";
+                    let tCode = localBmiToRCode[bracketId] || "(niet gevonden in matchlist samples)";
+                    rondeNaamPreview.push({ rIndex, bracketId, structuralName, tCode });
+                });
+            }
+
+            resultaat.push({ url: bUrl, isStructural, eersteRondeGrootte, rondeSamples, matchlistSamples, rondeNaamPreview });
         } catch(e) {
             resultaat.push({ url: bUrl, error: e.message });
         }
