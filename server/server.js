@@ -1034,7 +1034,8 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                     } else {
                         const rondeVertalingen = { "Laatste 16": "Kwartfinale", "Laatste 32": "Laatste 16", "Laatste 64": "Laatste 32", "Laatste 128": "Laatste 64", "Kwartfinale": "Halve Finale", "Halve Finale": "Finale" };
                         let baseRonde = (match.ronde || "").replace(/\s*\(.*\)$/, "").trim();
-                        volgendeRondeNaam = rondeVertalingen[baseRonde] || match.ronde;
+                        if (!rondeVertalingen[baseRonde]) return; // geen bekende volgende ronde (bijv. na de Finale)
+                        volgendeRondeNaam = rondeVertalingen[baseRonde];
                     }
 
                     // Niet toevoegen als speler al een echte match heeft in die ronde
@@ -1124,7 +1125,8 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                 volgendeRondeNaam2 = matchInVolgendeRonde.ronde;
             } else {
                 let baseRonde = (synthetic.ronde || "").replace(/\s*\(.*\)$/, "").trim();
-                volgendeRondeNaam2 = rondeVertalingen2[baseRonde] || synthetic.ronde;
+                if (!rondeVertalingen2[baseRonde]) return; // geen bekende volgende ronde (bijv. na de Finale)
+                volgendeRondeNaam2 = rondeVertalingen2[baseRonde];
             }
 
             definitieveLijst.push({
@@ -1208,6 +1210,24 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             } else {
                 return (timelineIdxA - timelineIdxB) || ((parseInt(a.board) || 999) - (parseInt(b.board) || 999));
             }
+        });
+
+        // Verwijder "mogelijk" kaarten als speler al uitgeschakeld is of het toernooi voorbij is
+        const alleGespeeld = definitieveLijst.every(m => m.isMogelijk || m.status === "gespeeld");
+        definitieveLijst = definitieveLijst.filter(m => {
+            if (!m.isMogelijk) return true;
+            // Toernooi helemaal afgelopen: geen "mogelijk" kaarten meer tonen
+            if (alleGespeeld) return false;
+            // Speler heeft een KO-verlies gehad: uitgeschakeld
+            const isSpeler = (m.mogelijkVoor || "").toLowerCase();
+            if (!isSpeler) return true;
+            const heeftVerloren = definitieveLijst.some(real =>
+                !real.isMogelijk &&
+                real.status === "gespeeld" &&
+                real.resultaat === "verlies" &&
+                (real.player1.toLowerCase().includes(isSpeler) || real.player2.toLowerCase().includes(isSpeler))
+            );
+            return !heeftVerloren;
         });
 
         return definitieveLijst;
