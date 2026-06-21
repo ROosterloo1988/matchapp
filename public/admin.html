@@ -71,6 +71,19 @@
 
     <h2>1. Toernooien (API Links)</h2>
     <div id="tournaments-list" class="item-list"></div>
+
+    <!-- DartConnect Zoeken -->
+    <details style="margin-bottom: 15px;">
+        <summary style="cursor: pointer; font-weight: bold; color: #FF6600; padding: 10px; background: #fff8f0; border-radius: 6px; border: 1px solid #ffd0a0;">🔍 Toernooi zoeken op DartConnect</summary>
+        <div style="padding: 12px; background: #fffaf5; border: 1px solid #ffd0a0; border-top: none; border-radius: 0 0 6px 6px;">
+            <p style="margin: 0 0 10px; font-size: 0.9rem; color: #666;">Typ de event-slug van DartConnect (bijv. <code>ndfccanadianopen26</code>) of een zoekterm.</p>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="dc-search-input" placeholder="bijv. ndfccanadianopen26" style="margin-bottom: 0; flex: 1;">
+                <button onclick="zoekOpDC()" style="background: #FF6600; color: white; border: none; padding: 12px 18px; border-radius: 4px; font-weight: bold; cursor: pointer; white-space: nowrap;">Zoeken</button>
+            </div>
+            <div id="dc-search-result" style="margin-top: 12px;"></div>
+        </div>
+    </details>
     
     <div class="tournament-box">
         <input type="text" id="t-name" placeholder="Naam toernooi (bijv. Dutch Open Single)">
@@ -143,6 +156,57 @@
             `;
         });
         container.innerHTML = html;
+    }
+
+    async function zoekOpDC() {
+        const q = document.getElementById('dc-search-input').value.trim();
+        if (!q) return;
+        const resultDiv = document.getElementById('dc-search-result');
+        resultDiv.innerHTML = '<em style="color:#888">Zoeken...</em>';
+        try {
+            const res = await fetch(`/api/admin/search-dc?q=${encodeURIComponent(q)}`);
+            const data = await res.json();
+
+            if (data.gevondenBrackets && data.gevondenBrackets.length > 0) {
+                let html = `<strong>Gevonden brackets voor "${q}":</strong><br><br>`;
+                data.gevondenBrackets.forEach((b, i) => {
+                    html += `<div style="background:#f0f0f0;padding:8px;border-radius:4px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-size:0.9rem;"><strong>${b.naam}</strong><br><code style="font-size:0.75rem;color:#555">${b.url}</code></span>
+                        <button onclick="vulBracketIn('${b.naam}','${b.url}')" style="background:#27ae60;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;white-space:nowrap;margin-left:8px;">Gebruik</button>
+                    </div>`;
+                });
+                resultDiv.innerHTML = html;
+            } else if (data.gevondenEvents && data.gevondenEvents.length > 0) {
+                let html = `<strong>Gevonden evenementen:</strong><br><br>`;
+                data.gevondenEvents.forEach(e => {
+                    let naam = e.name || e.engname || e.title || e.slug || JSON.stringify(e);
+                    html += `<div style="background:#f0f0f0;padding:8px;border-radius:4px;margin-bottom:6px;">${naam}</div>`;
+                });
+                resultDiv.innerHTML = html;
+            } else {
+                let debugInfo = data.rawResponses && data.rawResponses.length > 0
+                    ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:0.8rem;color:#888">Debug info</summary><pre style="font-size:0.7rem;overflow:auto;max-height:200px">${JSON.stringify(data.rawResponses, null, 2)}</pre></details>`
+                    : '';
+                resultDiv.innerHTML = `<span style="color:#e74c3c;">⚠️ ${data.tip || 'Geen resultaten gevonden.'}</span>${debugInfo}<br><br>
+                    <span style="font-size:0.85rem;color:#666;">Tip: kopieer de URL van DartConnect TV (bijv. <code>https://tv.dartconnect.com/event/<strong>ndfccanadianopen26</strong>/bracket/205600</code>) en plak de slug hieronder in het formulier.</span>`;
+            }
+        } catch(e) {
+            resultDiv.innerHTML = `<span style="color:red">Fout: ${e.message}</span>`;
+        }
+    }
+
+    function vulBracketIn(naam, url) {
+        document.getElementById('t-name').value = naam;
+        // Stel format in op enkelvoudig (1 link) en vul de URL in
+        document.getElementById('t-format').value = '1';
+        updateTournamentFields();
+        setTimeout(() => {
+            const firstInput = document.querySelector('#dynamic-fields input[type="text"]');
+            if (firstInput) firstInput.value = url;
+        }, 50);
+        // Sluit de zoek-details
+        document.querySelector('details').removeAttribute('open');
+        window.scrollTo({ top: document.querySelector('.tournament-box').offsetTop - 20, behavior: 'smooth' });
     }
 
     async function loadSettings() {

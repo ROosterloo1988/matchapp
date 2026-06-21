@@ -1626,6 +1626,90 @@ app.post('/api/admin/reset-notified', (req, res) => {
     }
 });
 
+// --- TOERNOOI ZOEKEN OP DARTCONNECT ---
+app.get('/api/admin/search-dc', async (req, res) => {
+    const query = (req.query.q || "").trim().toLowerCase().replace(/\s+/g, '');
+    if (!query) return res.status(400).json({ error: 'Geef ?q=... mee (bijv. canadianopen26)' });
+
+    const candidateEndpoints = [
+        `https://tv.dartconnect.com/api/events`,
+        `https://tv.dartconnect.com/api/events/active`,
+        `https://tv.dartconnect.com/api/events/live`,
+        `https://tv.dartconnect.com/api/events/upcoming`,
+    ];
+
+    // Probeer ook direct als event slug
+    const slugCandidates = [query, `ndfc${query}`, `bdo${query}`, `wdf${query}`, query.replace(/\d+$/, m => m)];
+
+    let gevondenEvents = [];
+    let rawResponses = [];
+
+    // 1. Probeer event-lijst endpoints
+    for (let url of candidateEndpoints) {
+        try {
+            let r = await axios.get(url, { timeout: 5000 });
+            let data = r.data?.payload || r.data || [];
+            let arr = Array.isArray(data) ? data : Object.values(data);
+            rawResponses.push({ url, statusCode: r.status, recordCount: arr.length, sample: arr.slice(0, 3) });
+            let matches = arr.filter(e => {
+                let naam = (e.name || e.engname || e.title || e.slug || "").toLowerCase();
+                return naam.includes(query);
+            });
+            gevondenEvents = gevondenEvents.concat(matches.slice(0, 5));
+        } catch(e) {
+            rawResponses.push({ url, error: e.message });
+        }
+    }
+
+    // 2. Probeer directe event-slug opvragen + bracket-lijst ophalen
+    let gevondenBrackets = [];
+    for (let slug of slugCandidates) {
+        try {
+            // Probeer event-info
+            let infoUrls = [
+                `https://tv.dartconnect.com/api/event/${slug}`,
+                `https://tv.dartconnect.com/api/event/${slug}/brackets`,
+                `https://tv.dartconnect.com/api/event/${slug}/info`,
+            ];
+            for (let url of infoUrls) {
+                try {
+                    let r = await axios.get(url, { timeout: 5000 });
+                    let data = r.data?.payload || r.data || {};
+                    rawResponses.push({ url, statusCode: r.status, sample: JSON.stringify(data).slice(0, 300) });
+                    // Zoek naar bracket-IDs in de response
+                    let brackets = data.brackets || data.events || data.subbrackets || [];
+                    if (Array.isArray(brackets) && brackets.length > 0) {
+                        brackets.forEach(b => {
+                            let bracketId = b.id || b.bracketId || b.ei;
+                            let bracketNaam = b.name || b.engname || b.label || `Bracket ${bracketId}`;
+                            if (bracketId) {
+                                gevondenBrackets.push({
+                                    slug,
+                                    bracketId,
+                                    naam: bracketNaam,
+                                    url: `https://tv.dartconnect.com/api/event/${slug}/bracket/${bracketId}`
+                                });
+                            }
+                        });
+                    }
+                } catch(e) {
+                    rawResponses.push({ url, error: e.message });
+                }
+            }
+        } catch(e) {}
+    }
+
+    res.json({
+        query,
+        gevondenEvents,
+        gevondenBrackets,
+        tip: gevondenBrackets.length === 0 && gevondenEvents.length === 0
+            ? "Geen resultaten. Probeer de exacte event-slug (bijv. 'ndfccanadianopen26') of controleer de DartConnect TV URL."
+            : null,
+        rawResponses
+    });
+});
+
 app.get('/api/admin/debug-raw', async (req, res) => {
     const tName = req.query.tournament;
     if (!tName) return res.status(400).json({ error: 'Geef ?tournament=... mee' });
