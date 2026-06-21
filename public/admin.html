@@ -69,18 +69,6 @@
         <div class="top-bar-side"></div>
     </div>
 
-    <h2>🚀 Toernooien uit DartConnect</h2>
-    <div class="push-section">
-        <p>Laad automatisch aankomende toernooien van DartConnect en voeg ze toe met één klik!</p>
-        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-            <button class="add-btn" style="flex:1;" onclick="loadDartConnectEvents('featured')">📌 Aanbevolen</button>
-            <button class="add-btn" style="flex:1;" onclick="loadDartConnectEvents('zmember')">👥 Leden</button>
-            <button class="add-btn" style="flex:1;" onclick="loadDartConnectEvents('league')">🏆 Liga</button>
-        </div>
-        <div id="dartconnect-events" style="max-height:400px; overflow-y:auto; border:1px solid #ddd; border-radius:5px; padding:10px; background:#fafafa; display:none;"></div>
-        <div id="dartconnect-status" style="margin-top:10px; font-size:0.9rem; color:#666;"></div>
-    </div>
-
     <h2>1. Toernooien (API Links)</h2>
     <div id="tournaments-list" class="item-list"></div>
 
@@ -482,75 +470,6 @@
         } catch (e) {
             box.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`;
         }
-    }
-
-    async function loadDartConnectEvents(category) {
-        const statusDiv = document.getElementById('dartconnect-status');
-        const eventsDiv = document.getElementById('dartconnect-events');
-
-        statusDiv.innerText = "⏳ Bezig met laden...";
-        eventsDiv.style.display = 'none';
-
-        try {
-            const res = await fetch(`/api/dartconnect-events?category=${category}&limit=50`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-            const data = await res.json();
-
-            if (!data.events || data.events.length === 0) {
-                statusDiv.innerText = "❌ Geen toernooien gevonden in deze categorie.";
-                eventsDiv.style.display = 'none';
-                return;
-            }
-
-            let html = `<div style="padding:10px 0;"><b>${data.count} toernooien gevonden:</b></div>`;
-            data.events.forEach(event => {
-                const dateStr = event.date ? new Date(event.date).toLocaleDateString('nl-NL') : 'Datum onbekend';
-                const alInLijst = db.tournaments.some(t => t.name.toLowerCase().includes(event.name.toLowerCase()));
-
-                html += `
-                    <div style="background:white; padding:10px; margin-bottom:8px; border-radius:4px; border-left:4px solid #FF6600; display:flex; justify-content:space-between; align-items:center; gap:10px;">
-                        <div style="flex:1;">
-                            <b>${event.name}</b><br>
-                            <small style="color:#666;">📅 ${dateStr}${event.venue ? ' • 📍 ' + event.venue : ''}</small>
-                        </div>
-                        <button class="add-btn" style="padding:8px 12px; font-size:0.9rem; width:auto; white-space:nowrap;" onclick="quickAddTournament('${event.name.replace(/'/g, "\\'")}', '${event.apiUrl.replace(/'/g, "\\'")}')" ${alInLijst ? 'disabled style="opacity:0.5;"' : ''}>${alInLijst ? '✅ Al toegevoegd' : '➕ Toevoegen'}</button>
-                    </div>
-                `;
-            });
-
-            eventsDiv.innerHTML = html;
-            eventsDiv.style.display = 'block';
-            statusDiv.innerText = `✅ Geladen! Klik op toernooien om toe te voegen.`;
-        } catch(e) {
-            statusDiv.innerText = `❌ Fout: ${e.message}`;
-            eventsDiv.style.display = 'none';
-        }
-    }
-
-    function quickAddTournament(name, apiUrl) {
-        // Controleer of het toernooi al bestaat
-        if (db.tournaments.some(t => t.name === name)) {
-            alert('Dit toernooi is al toegevoegd!');
-            return;
-        }
-
-        // Voeg toe aan database
-        db.tournaments.push({
-            name: name,
-            url: apiUrl,
-            matchlistUrl: "",
-            darters: [],
-            unlisted: false
-        });
-
-        renderTournaments();
-        saveSettings(true);
-        alert(`✅ "${name}" is toegevoegd! Je kunt nu spelers toevoegen in sectie 2.`);
-
-        // Scroll naar de toernooien sectie
-        document.getElementById('d-toernooi-select').value = db.tournaments.length - 1;
-        renderTournamentDropdown();
     }
 
     updateTournamentFields();
