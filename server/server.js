@@ -1521,7 +1521,7 @@ async function runHeartbeat() {
 }
 
 runHeartbeat();
-setInterval(runHeartbeat, 60000);
+setInterval(runHeartbeat, 15000);
 
 app.get('/api/admin/debug-matches', async (req, res) => {
     const tName = req.query.tournament;
