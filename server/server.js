@@ -567,10 +567,9 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             // 2. Vertaal de 'r' (T-code) naar leesbare tekst (bijv. T16 -> Laatste 16)
             if (m.r && typeof m.r === 'string' && m.r.startsWith('T')) {
                 let aantal = parseInt(m.r.substring(1), 10);
-                if (aantal === 1) rondeNaam = "Finale";
-                else if (aantal === 2) rondeNaam = "Halve Finale";
-                else if (aantal === 4) rondeNaam = "Kwartfinale";
-                else if (aantal === 8) rondeNaam = "Laatste 16";
+                if (aantal === 2) rondeNaam = "Finale";
+                else if (aantal === 4) rondeNaam = "Halve Finale";
+                else if (aantal === 8) rondeNaam = "Kwartfinale";
                 else rondeNaam = "Laatste " + aantal;
 
                 // Plak de fase erachter voor extra duidelijkheid (bijv. "Kwartfinale (Verliezersronde)")
@@ -1155,7 +1154,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
            // Haal het logische rondenummer op. Als er een T-code is (bijv. T16), rekenen we terug.
-            // Hoe kleiner het T-nummer (bijv. T2 = Halve finale), hoe verder in het toernooi, dus hoe hoger het rondenummer.
+            // Hoe kleiner het T-nummer (bijv. T2 = Finale), hoe verder in het toernooi, dus hoe hoger het rondenummer.
             let rA = a._tree_round_nr || 0;
             if (a.r && typeof a.r === 'string' && a.r.startsWith('T')) {
                 let aantal = parseInt(a.r.substring(1), 10);
