@@ -567,10 +567,9 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             // 2. Vertaal de 'r' (T-code) naar leesbare tekst (bijv. T16 -> Laatste 16)
             if (m.r && typeof m.r === 'string' && m.r.startsWith('T')) {
                 let aantal = parseInt(m.r.substring(1), 10);
-                if (aantal === 1) rondeNaam = "Finale";
-                else if (aantal === 2) rondeNaam = "Halve Finale";
-                else if (aantal === 4) rondeNaam = "Kwartfinale";
-                else if (aantal === 8) rondeNaam = "Laatste 16";
+                if (aantal === 2) rondeNaam = "Finale";
+                else if (aantal === 4) rondeNaam = "Halve Finale";
+                else if (aantal === 8) rondeNaam = "Kwartfinale";
                 else rondeNaam = "Laatste " + aantal;
 
                 // Plak de fase erachter voor extra duidelijkheid (bijv. "Kwartfinale (Verliezersronde)")
@@ -1091,13 +1090,71 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             }
         });
 
+        // Tweede synthese-pass: ook rondes die ontbreken NA een al-gesynthetiseerde "mogelijk"-kaart invullen
+        const rondeVertalingen2 = { "Laatste 16": "Kwartfinale", "Laatste 32": "Laatste 16", "Laatste 64": "Laatste 32", "Laatste 128": "Laatste 64", "Kwartfinale": "Halve Finale", "Halve Finale": "Finale" };
+        const syntheticCards = definitieveLijst.filter(m => m.isMogelijk && m._tree_round_nr !== undefined && typeof m.id === 'string' && m.id.startsWith('synthetic_'));
+        syntheticCards.forEach(synthetic => {
+            const isSpeler = synthetic.mogelijkVoor;
+            if (!isSpeler) return;
+
+            let volgendeRondeNr = synthetic._tree_round_nr + 1;
+            let volgendeMatchNrInRonde = Math.floor(synthetic._tree_match_nr / 2);
+
+            // Kijk of het volgende slot al in rawMatches bestaat
+            let bestaatInRaw = rawMatches.some(rm =>
+                rm._bron_url === synthetic._bron_url &&
+                rm._tree_round_nr === volgendeRondeNr &&
+                rm._tree_match_nr === volgendeMatchNrInRonde
+            );
+            if (bestaatInRaw) return; // echte data beschikbaar, geen synthese nodig
+
+            let syntheticId2 = `${synthetic._bron_url}_synthetic_r${volgendeRondeNr}_m${volgendeMatchNrInRonde}`;
+            if (toegevoegdeIds.has(syntheticId2)) return;
+
+            let heeftAlEchteMatch = definitieveLijst.some(m =>
+                m.status !== "mogelijk" &&
+                (m.player1.toLowerCase().includes(isSpeler.toLowerCase()) || m.player2.toLowerCase().includes(isSpeler.toLowerCase()))
+            );
+            // Niet toevoegen als speler al een echte niet-gespeelde match heeft
+            if (heeftAlEchteMatch && definitieveLijst.some(m => m.status !== "mogelijk" && m.status !== "gespeeld" && (m.player1.toLowerCase().includes(isSpeler.toLowerCase()) || m.player2.toLowerCase().includes(isSpeler.toLowerCase())))) return;
+
+            let matchInVolgendeRonde = rawMatches.find(rm => rm._bron_url === synthetic._bron_url && rm._tree_round_nr === volgendeRondeNr);
+            let volgendeRondeNaam2;
+            if (matchInVolgendeRonde) {
+                volgendeRondeNaam2 = matchInVolgendeRonde.ronde;
+            } else {
+                let baseRonde = (synthetic.ronde || "").replace(/\s*\(.*\)$/, "").trim();
+                volgendeRondeNaam2 = rondeVertalingen2[baseRonde] || synthetic.ronde;
+            }
+
+            definitieveLijst.push({
+                id: `synthetic_r${volgendeRondeNr}_m${volgendeMatchNrInRonde}`,
+                _bron_url: synthetic._bron_url,
+                _bron_label: synthetic._bron_label,
+                player1: isSpeler,
+                player2: "Onbekend",
+                ronde: volgendeRondeNaam2,
+                status: "mogelijk",
+                isMogelijk: true,
+                mogelijkVoor: isSpeler,
+                mogelijkeTegenstander: "",
+                score1: "", score2: "",
+                resultaat: "",
+                isFinished: false,
+                _tree_round_nr: volgendeRondeNr,
+                _tree_match_nr: volgendeMatchNrInRonde,
+                rol: "speler"
+            });
+            toegevoegdeIds.add(syntheticId2);
+        });
+
         // --- JOUW ORIGINELE PERFECTE TIJDLIJN SORTERING (MET SLIMME NOODREM) ---
         definitieveLijst.sort((a, b) => {
             const volgorde = { "bezig": 1, "gepland": 2, "mogelijk": 3, "gespeeld": 4 };
             if (volgorde[a.status] !== volgorde[b.status]) return volgorde[a.status] - volgorde[b.status];
             
            // Haal het logische rondenummer op. Als er een T-code is (bijv. T16), rekenen we terug.
-            // Hoe kleiner het T-nummer (bijv. T2 = Halve finale), hoe verder in het toernooi, dus hoe hoger het rondenummer.
+            // Hoe kleiner het T-nummer (bijv. T2 = Finale), hoe verder in het toernooi, dus hoe hoger het rondenummer.
             let rA = a._tree_round_nr || 0;
             if (a.r && typeof a.r === 'string' && a.r.startsWith('T')) {
                 let aantal = parseInt(a.r.substring(1), 10);
