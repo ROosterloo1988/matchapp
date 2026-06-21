@@ -1784,10 +1784,9 @@ app.get('/api/admin/system-status', (req, res) => {
     });
 });
 
-// --- DARTCONNECT API INTEGRATIE (DEBUG MODE) ---
+// --- DARTCONNECT API INTEGRATIE ---
 app.get('/api/dartconnect-events', async (req, res) => {
-    const { category = 'featured', limit = 50, debug = '0' } = req.query;
-    const isDebug = debug === '1';
+    const { category = 'featured', limit = 50 } = req.query;
 
     const validCategories = ['featured', 'zmember', 'league'];
     if (!validCategories.includes(category)) {
@@ -1796,107 +1795,42 @@ app.get('/api/dartconnect-events', async (req, res) => {
 
     try {
         const url = `https://tv.dartconnect.com/api/events/${category}/scheduled`;
-        console.log(`[DARTCONNECT] Ophalen ${category} van: ${url}`);
-
         const response = await axios.post(url, {}, { timeout: 10000 });
 
-        if (isDebug) {
-            console.log(`[DARTCONNECT-DEBUG] Raw response keys:`, Object.keys(response.data));
-            console.log(`[DARTCONNECT-DEBUG] Response (eerste 2000 chars):`, JSON.stringify(response.data).substring(0, 2000));
-        }
+        const data = response.data || {};
 
-        let events = [];
-        const data = response.data?.payload || response.data || {};
+        // Verzamel events uit alle arrays (live, scheduled, recurring)
+        let allEvents = [];
+        if (Array.isArray(data.liveEvents)) allEvents = allEvents.concat(data.liveEvents);
+        if (Array.isArray(data.scheduledEvents)) allEvents = allEvents.concat(data.scheduledEvents);
+        if (Array.isArray(data.reoccuringEvents)) allEvents = allEvents.concat(data.reoccuringEvents);
 
-        // Extraheer events uit de API response - probeer meerdere mogelijke structuren
-        if (Array.isArray(data)) {
-            events = data;
-        } else if (data.events && Array.isArray(data.events)) {
-            events = data.events;
-        } else if (data.data && Array.isArray(data.data)) {
-            events = data.data;
-        } else if (data.scheduled && Array.isArray(data.scheduled)) {
-            events = data.scheduled;
-        }
-
-        if (isDebug) {
-            console.log(`[DARTCONNECT-DEBUG] Gevonden ${events.length} events`);
-            if (events.length > 0) {
-                console.log(`[DARTCONNECT-DEBUG] Eerste event keys:`, Object.keys(events[0]));
-                console.log(`[DARTCONNECT-DEBUG] Eerste event:`, JSON.stringify(events[0]));
-            }
-        }
-
-        // Parse en filter de events
-        const parsed = events
-            .filter(e => e && (e.event_id || e.id) && (e.event_name || e.engname || e.name))
+        // Filter op huidige categorie en parse
+        const parsed = allEvents
+            .filter(e => e && e.id && e.dctv_title && e.category === category)
             .map(e => ({
-                id: e.event_id || e.id,
-                name: e.event_name || e.engname || e.name || 'Onbekend toernooi',
-                date: e.start_date || e.date || null,
-                venue: e.venue || e.location || null,
-                category: category,
-                rawObject: isDebug ? e : undefined
+                id: e.id,
+                name: e.dctv_title,
+                date: e.start_date,
+                country: e.country_code,
+                timezone: e.timezone,
+                isLive: !!data.liveEvents?.find(le => le.id === e.id),
+                apiUrl: `https://tv.dartconnect.com/api/event/${e.id}/bracket/1`,
+                eventUrl: `https://tv.dartconnect.com/event/${e.id}/bracket/1`
             }))
-            .sort((a, b) => {
-                if (a.date && b.date) {
-                    return new Date(a.date) - new Date(b.date);
-                }
-                return 0;
-            })
+            .sort((a, b) => new Date(a.date) - new Date(b.date))
             .slice(0, parseInt(limit, 10));
-
-        if (isDebug) {
-            console.log(`[DARTCONNECT-DEBUG] Parsed ${parsed.length} events`);
-        }
 
         res.json({
             category,
             count: parsed.length,
-            events: parsed,
-            debug: isDebug ? { rawDataKeys: Object.keys(data), totalEventsFound: events.length } : undefined
+            events: parsed
         });
     } catch (error) {
         console.error(`[DARTCONNECT] Fout bij ophalen ${category}:`, error.message);
-        if (isDebug) {
-            console.error(`[DARTCONNECT-DEBUG] Full error:`, error);
-        }
         res.status(500).json({
             error: 'Kon events niet ophalen van DartConnect',
-            details: error.message,
-            url: `https://tv.dartconnect.com/api/events/${category}/scheduled`
-        });
-    }
-});
-
-// --- DEBUG ENDPOINT ---
-app.get('/api/dartconnect-debug', async (req, res) => {
-    const { category = 'featured' } = req.query;
-    const validCategories = ['featured', 'zmember', 'league'];
-
-    if (!validCategories.includes(category)) {
-        return res.status(400).json({ error: 'Ongeldige categorie' });
-    }
-
-    try {
-        const url = `https://tv.dartconnect.com/api/events/${category}/scheduled`;
-        console.log(`[DEBUG] Direct API call naar: ${url}`);
-
-        const response = await axios.post(url, {}, { timeout: 10000 });
-
-        res.json({
-            category,
-            url,
-            statusCode: response.status,
-            dataKeys: Object.keys(response.data),
-            payloadKeys: response.data?.payload ? Object.keys(response.data.payload) : null,
-            fullResponse: response.data
-        });
-    } catch (error) {
-        res.status(500).json({
-            error: error.message,
-            category,
-            url: `https://tv.dartconnect.com/api/events/${category}/scheduled`
+            details: error.message
         });
     }
 });
