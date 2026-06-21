@@ -1784,4 +1784,63 @@ app.get('/api/admin/system-status', (req, res) => {
     });
 });
 
+// --- DARTCONNECT API INTEGRATIE ---
+app.get('/api/dartconnect-events', async (req, res) => {
+    const { category = 'featured', limit = 50 } = req.query;
+
+    const validCategories = ['featured', 'zmember', 'league'];
+    if (!validCategories.includes(category)) {
+        return res.status(400).json({ error: 'Ongeldige categorie. Kies uit: featured, zmember, league' });
+    }
+
+    try {
+        const url = `https://tv.dartconnect.com/api/events/${category}/scheduled`;
+        const response = await axios.post(url, {}, { timeout: 10000 });
+
+        let events = [];
+        const data = response.data?.payload || response.data || {};
+
+        // Extraheer events uit de API response
+        if (Array.isArray(data)) {
+            events = data;
+        } else if (data.events && Array.isArray(data.events)) {
+            events = data.events;
+        } else if (data.data && Array.isArray(data.data)) {
+            events = data.data;
+        }
+
+        // Parse en filter de events
+        const parsed = events
+            .filter(e => e && e.event_id && (e.event_name || e.engname))
+            .map(e => ({
+                id: e.event_id,
+                name: e.event_name || e.engname || 'Onbekend toernooi',
+                date: e.start_date || e.date || null,
+                venue: e.venue || e.location || null,
+                category: category,
+                eventUrl: `https://tv.dartconnect.com/event/${e.event_id}/bracket/1`,
+                apiUrl: `https://tv.dartconnect.com/api/event/${e.event_id}/bracket/1`
+            }))
+            .sort((a, b) => {
+                if (a.date && b.date) {
+                    return new Date(a.date) - new Date(b.date);
+                }
+                return 0;
+            })
+            .slice(0, parseInt(limit, 10));
+
+        res.json({
+            category,
+            count: parsed.length,
+            events: parsed
+        });
+    } catch (error) {
+        console.error(`Fout bij ophalen DartConnect events (${category}):`, error.message);
+        res.status(500).json({
+            error: 'Kon events niet ophalen van DartConnect',
+            details: error.message
+        });
+    }
+});
+
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
