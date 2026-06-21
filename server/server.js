@@ -446,10 +446,11 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
         }
 
         let alleRecaps = [];
-        let liveMatchDict = {}; 
+        let liveMatchDict = {};
         let liveMatchByNameDict = {};
-        let activeScores = {}; 
-        let activeStatuses = new Set(); 
+        let bmiScopedDict = {}; // keyed op "${ei}_${bmi}" om conflicten tussen disciplines te voorkomen
+        let activeScores = {};
+        let activeStatuses = new Set();
 
         function cleanNameForMatching(str) {
             if (!str) return "";
@@ -493,6 +494,11 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             mogelijkeLiveIds.forEach(id => {
                 liveMatchDict[id] = match;
             });
+
+            // Sla ook op per event+bmi zodat we bij de bracket-lookup de juiste discipline vinden
+            if (match.bmi && match.ei) {
+                bmiScopedDict[`${match.ei}_${match.bmi}`] = match;
+            }
 
             // 3. Namen-Schoonmaker: Dit is ons super-vangnet voor koppels én singles!
             if (p1Name && p2Name) {
@@ -605,6 +611,11 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             let targetP2 = cleanNameForMatching(p2Name);
 
             let actMatch = liveMatchDict[dbId];
+            // Probeer scoped lookup op event-ID + bmi om round robin vs KO conflicts te voorkomen
+            if (!actMatch && dbId) {
+                let bracketEi = (m._bron_url || "").match(/\/bracket\/(\d+)/i);
+                if (bracketEi) actMatch = bmiScopedDict[`${bracketEi[1]}_${dbId}`];
+            }
             if (!actMatch && targetP1 !== "onbekend" && targetP2 !== "onbekend" && targetP1 !== "" && targetP2 !== "") {
                 actMatch = liveMatchByNameDict[targetP1 + "_" + targetP2];
             }
