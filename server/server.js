@@ -521,7 +521,8 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
         });
 
         let rondeTellingen = {};
-        let bmiToRCode = {};  // bracket match ID → T-code uit matchlist
+        let bmiToRCode = {};       // bracket match ID → T-code (unscoped, fallback)
+        let bmiScopedToRCode = {}; // "${ei}_${bmi}" → T-code (scoped per sub-event)
         dcMatchesList.forEach(m => {
             let matchId = (m._custom_id || m.match_id || m.id || "").toString();
             let rndMatch = matchId.match(/^(\d+)[_-]/);
@@ -531,7 +532,10 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             }
         });
         matchlistData.forEach(m => {
-            if (m.bmi && m.r) bmiToRCode[m.bmi.toString()] = m.r;
+            if (m.bmi && m.r) {
+                bmiToRCode[m.bmi.toString()] = m.r;
+                if (m.ei) bmiScopedToRCode[`${m.ei}_${m.bmi}`] = m.r;
+            }
         });
 
         function getSpelerNaam(idOrArray) {
@@ -566,9 +570,13 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             else if (m.el === "Round Robin" || m._bracket_type === "Groepsfase") fase = "Poule";
             else fase = m.el || "";
 
-            // Verrijk met T-code uit matchlist als het bracket-match-ID overeenkomt met bmi
+            // Verrijk met T-code uit matchlist, scoped op sub-event om conflicten te vermijden
             let rawBracketId = (m.id || "").toString();
-            if (!m.r && bmiToRCode[rawBracketId]) m.r = bmiToRCode[rawBracketId];
+            if (!m.r) {
+                let bracketEiMatch = (m._bron_url || "").match(/\/bracket\/(\d+)/i);
+                let scopedKey = bracketEiMatch ? `${bracketEiMatch[1]}_${rawBracketId}` : null;
+                m.r = (scopedKey && bmiScopedToRCode[scopedKey]) || bmiToRCode[rawBracketId];
+            }
 
             // 2. Vertaal de 'r' (T-code) naar leesbare tekst (bijv. T16 -> Laatste 16)
             if (m.r && typeof m.r === 'string' && m.r.startsWith('T')) {
