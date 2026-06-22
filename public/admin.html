@@ -609,16 +609,7 @@
     }
 
     function dcSaveTournament(name, format, urls) {
-        const urlList = (urls || '').split(',').filter(Boolean);
-        db.tournaments.push({
-            name,
-            url: urlList[0] || '',
-            url2: urlList[1] || '',
-            url3: urlList[2] || '',
-            matchlistUrl: '',
-            darters: [],
-            unlisted: false
-        });
+        db.tournaments.push({ name, url: urls || '', matchlistUrl: '', darters: [], unlisted: false });
         renderTournaments();
         saveSettings(true);
     }
