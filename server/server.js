@@ -1786,60 +1786,48 @@ app.get('/api/admin/system-status', (req, res) => {
 
 // --- DARTCONNECT BROWSE (TEST ENDPOINT) ---
 app.get('/api/dartconnect-browse', async (req, res) => {
-    const categories = ['featured', 'zmember', 'league'];
-    const types = ['soon', 'scheduled'];
-
-    const browserHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'nl-NL,nl;q=0.9,en;q=0.8',
-        'Referer': 'https://tv.dartconnect.com/events/dartconnect',
-        'x-requested-with': 'XMLHttpRequest',
-        'x-inertia': 'true',
-        'x-inertia-version': 'e6da1fb1bd64439db32fc7ebbb2482df'
-    };
+    const endpoints = [
+        { url: 'https://tv.dartconnect.com/api/events/dartconnect/soon', type: 'soon' },
+        { url: 'https://tv.dartconnect.com/api/events/dartconnect/scheduled', type: 'scheduled' },
+    ];
 
     const seenIds = new Set();
     let allEvents = [];
+    let errors = [];
 
-    for (const category of categories) {
-        for (const type of types) {
-            try {
-                const url = `https://tv.dartconnect.com/api/events/${category}/${type}`;
-                const response = await axios.post(url, {}, { timeout: 8000, headers: browserHeaders });
-                const data = response.data || {};
+    for (const { url, type } of endpoints) {
+        try {
+            const response = await axios.post(url, {}, { timeout: 8000 });
+            const data = response.data || {};
 
-                const sources = [
-                    ...(Array.isArray(data.liveEvents) ? data.liveEvents.map(e => ({ ...e, _type: 'live' })) : []),
-                    ...(Array.isArray(data.scheduledEvents) ? data.scheduledEvents.map(e => ({ ...e, _type: type })) : []),
-                    ...(Array.isArray(data.reoccuringEvents) ? data.reoccuringEvents.map(e => ({ ...e, _type: type })) : []),
-                ];
+            const sources = [
+                ...(Array.isArray(data.liveEvents) ? data.liveEvents.map(e => ({ ...e, _type: 'live' })) : []),
+                ...(Array.isArray(data.scheduledEvents) ? data.scheduledEvents.map(e => ({ ...e, _type: type })) : []),
+                ...(Array.isArray(data.reoccuringEvents) ? data.reoccuringEvents.map(e => ({ ...e, _type: type })) : []),
+            ];
 
-                for (const e of sources) {
-                    if (!e.id || !e.dctv_title) continue;
-                    if (seenIds.has(e.id)) continue;
-                    seenIds.add(e.id);
-                    allEvents.push({
-                        id: e.id,
-                        name: e.dctv_title,
-                        date: e.start_date || null,
-                        country: e.country_code || null,
-                        timezone: e.timezone || null,
-                        category: e.category || category,
-                        type: e._type,
-                        isNL: e.country_code === 'NL',
-                        isLive: e._type === 'live',
-                        isSoon: e._type === 'soon',
-                        apiUrl: `https://tv.dartconnect.com/api/event/${e.id}/bracket/1`
-                    });
-                }
-            } catch (e) {
-                // Stille fout per endpoint, anderen worden nog geprobeerd
+            for (const e of sources) {
+                if (!e.id || !e.dctv_title) continue;
+                if (seenIds.has(e.id)) continue;
+                seenIds.add(e.id);
+                allEvents.push({
+                    id: e.id,
+                    name: e.dctv_title,
+                    date: e.start_date || null,
+                    country: e.country_code || null,
+                    category: e.category || 'dartconnect',
+                    type: e._type,
+                    isNL: e.country_code === 'NL',
+                    isLive: e._type === 'live',
+                    isSoon: e._type === 'soon',
+                    apiUrl: `https://tv.dartconnect.com/api/event/${e.id}/bracket/1`
+                });
             }
+        } catch (e) {
+            errors.push(`${type}: ${e.response?.status || e.message}`);
         }
     }
 
-    // Sortering: NL eerst, dan live, dan soon, dan op datum
     allEvents.sort((a, b) => {
         if (a.isNL !== b.isNL) return a.isNL ? -1 : 1;
         if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
@@ -1848,7 +1836,7 @@ app.get('/api/dartconnect-browse', async (req, res) => {
         return 0;
     });
 
-    res.json({ count: allEvents.length, events: allEvents });
+    res.json({ count: allEvents.length, events: allEvents, errors });
 });
 
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));

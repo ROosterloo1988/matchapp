@@ -536,7 +536,11 @@
 
             eventsDiv.innerHTML = html;
             eventsDiv.style.display = 'block';
-            statusDiv.innerText = `✅ ${data.count} toernooien geladen.`;
+            let statusMsg = `✅ ${data.count} toernooien geladen.`;
+            if (data.errors && data.errors.length > 0) {
+                statusMsg += ` (${data.errors.length} endpoints gefaald: ${data.errors.join(', ')})`;
+            }
+            statusDiv.innerText = statusMsg;
         } catch(e) {
             statusDiv.innerText = `❌ Fout: ${e.message}`;
         }
