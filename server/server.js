@@ -235,13 +235,15 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
     let dcMatchesList = [];
     let spelersDict = {};
 
+    const dcHeaders = await getDcHeaders();
+
     try {
         let bracketUrls = tournament.url.split(',').map(u => u.trim()).filter(u => u !== "");
-        
+
         for (let i = 0; i < bracketUrls.length; i++) {
             let bUrl = bracketUrls[i];
             let bracketType = "";
-            
+
             if (bracketUrls.length === 3) {
                 if (i === 0) bracketType = "Groepsfase";
                 if (i === 1) bracketType = "WR";
@@ -252,7 +254,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
             }
 
             try {
-                const response = await axios.post(bUrl, {});
+                const response = await axios.post(bUrl, {}, { headers: dcHeaders, timeout: 10000 });
                 let dataContainer = response.data.payload || response.data || {};
                 
                 let proBracketArray = dataContainer.proBracket || (dataContainer.bracketData && dataContainer.bracketData.proBracket);
@@ -381,7 +383,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
         for (let mUrl of Array.from(mUrlsToFetch)) {
             try {
-                let mlRes = await axios.get(mUrl).catch(() => axios.post(mUrl, {}));
+                let mlRes = await axios.get(mUrl, { headers: dcHeaders, timeout: 8000 }).catch(() => axios.post(mUrl, {}, { headers: dcHeaders, timeout: 8000 }));
                 if (mlRes.data) {
                     if (mlRes.data.matches_live || mlRes.data.matches_completed) {
                         if (mlRes.data.matches_completed) {
@@ -664,7 +666,45 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
         rawMatches = rawMatches.concat(dcConverted);
 
-        let pouleIndelingen = {}; 
+        // Fallback: als bracket-parse niets opleverde maar matchlist wel data heeft,
+        // bouw wedstrijden direct uit matchlistData (werkt voor round-robin events)
+        if (dcConverted.length === 0 && matchlistData.length > 0) {
+            matchlistData.forEach(match => {
+                const p1Name = match.hcf || match.hc || match.p1;
+                const p2Name = match.acf || match.ac || match.p2;
+                if (!p1Name || !p2Name) return;
+                const matchId = (match.mi || match.match_id || "").toString();
+                let rondeNaam = "Ronde ?";
+                if (match.el && match.el.toLowerCase().includes("round robin")) {
+                    rondeNaam = match.r && isNaN(match.r) ? "Poule " + match.r : "Poule";
+                } else if (match.r && typeof match.r === 'string' && match.r.startsWith('T')) {
+                    const n = parseInt(match.r.substring(1), 10);
+                    rondeNaam = n === 1 ? "Finale" : n === 2 ? "Halve Finale" : n === 4 ? "Kwartfinale" : "Laatste " + n;
+                } else if (match.rn) {
+                    rondeNaam = match.rn;
+                }
+                const fS1 = match.hs !== undefined ? match.hs : (match.s1 !== undefined ? match.s1 : "");
+                const fS2 = match.as !== undefined ? match.as : (match.s2 !== undefined ? match.s2 : "");
+                const isActive = !!match._is_active_now;
+                const isFinished = !isActive && !!(match._is_completed_now || match.sta === 'C' || match.sta === 'P' || match.sta === 'F');
+                rawMatches.push({
+                    id: matchId, db_id: matchId, n: null, p1m: null, p2m: null,
+                    raw_p1: null, raw_p2: null, _bron_url: null,
+                    ronde: rondeNaam, player1: String(p1Name), player2: String(p2Name),
+                    marker: match.m || "", score1: fS1 !== null ? fS1 : "", score2: fS2 !== null ? fS2 : "",
+                    _is_active: isActive, _detected_recap_id: matchId,
+                    watchId: match.sk || match.tk || match.tv || "",
+                    board: match.bns || match.bn || "?",
+                    time: match.tm || match.t || match.st || "Niet bekend",
+                    toernooi: tournament.name, isFinished, isBye: match.by === true,
+                    _bracket_type: "", _tree_round_nr: 0, _tree_match_nr: 0,
+                    avg1: match.hp5 || "", avg2: match.ap5 || "",
+                    writer: match.m || "", country1: match.hic || "", country2: match.aic || ""
+                });
+            });
+        }
+
+        let pouleIndelingen = {};
         rawMatches.forEach(m => {
             if (m._bracket_type && m._bracket_type !== "Groepsfase" && !m.ronde.includes('(')) m.ronde += ` (${m._bracket_type})`;
             
