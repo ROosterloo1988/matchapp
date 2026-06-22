@@ -1232,4 +1232,133 @@ app.get('/api/admin/system-status', (req, res) => {
     });
 });
 
+// --- DARTCONNECT INTEGRATIE ---
+
+const DC_HEADERS = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json, text/plain, */*',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Referer': 'https://tv.dartconnect.com/',
+    'X-Requested-With': 'XMLHttpRequest',
+};
+
+// Haal alle aankomende events op van DartConnect (dartconnect + pdc categorie)
+app.get('/api/dartconnect-browse', async (req, res) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const seenIds = new Set();
+    const allEvents = [];
+    const errors = [];
+
+    const endpoints = [
+        { url: 'https://tv.dartconnect.com/api/events/dartconnect/soon',      keys: ['comingSoonEvents'] },
+        { url: 'https://tv.dartconnect.com/api/events/dartconnect/scheduled', keys: ['liveEvents','scheduledEvents','reoccuringEvents'] },
+        { url: 'https://tv.dartconnect.com/api/events/pdc/soon',              keys: ['comingSoonEvents'] },
+        { url: 'https://tv.dartconnect.com/api/events/pdc/scheduled',        keys: ['liveEvents','scheduledEvents','reoccuringEvents'] },
+    ];
+
+    for (const { url, keys } of endpoints) {
+        try {
+            const r = await axios.post(url, {}, { timeout: 8000, headers: DC_HEADERS });
+            const data = r.data || {};
+            for (const key of keys) {
+                for (const e of (data[key] || [])) {
+                    const id = e.id || e.league_id;
+                    const name = e.dctv_title || e.league_name;
+                    if (!id || !name) continue;
+                    if (seenIds.has(String(id))) continue;
+                    const isLive = e.now_playing === 1;
+                    // Sla verleden events over (tenzij live)
+                    if (!isLive && e.start_date && e.start_date < todayStr) continue;
+                    seenIds.add(String(id));
+                    allEvents.push({
+                        id: String(id),
+                        name,
+                        date: e.start_date || null,
+                        country: e.country_code || e.league_country_iso2 || null,
+                        isNL: (e.country_code || e.league_country_iso2) === 'NL',
+                        isLive,
+                    });
+                }
+            }
+        } catch (e) {
+            errors.push(`${url.split('/').slice(-2).join('/')}: ${e.response?.status || e.message}`);
+        }
+    }
+
+    // Sortering: NL eerst, dan live, dan op datum
+    allEvents.sort((a, b) => {
+        if (a.isNL !== b.isNL) return a.isNL ? -1 : 1;
+        if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
+        if (a.date && b.date) return a.date.localeCompare(b.date);
+        return 0;
+    });
+
+    res.json({ count: allEvents.length, events: allEvents, errors });
+});
+
+// Detecteer de structuur van een event op basis van payload.events
+app.get('/api/dartconnect-detect-format', async (req, res) => {
+    const { eventId } = req.query;
+    if (!eventId) return res.status(400).json({ error: 'eventId vereist' });
+
+    const base = `https://tv.dartconnect.com/api/event/${eventId}`;
+
+    let subEvents = [];
+    try {
+        const r = await axios.post(`${base}/matches`, {}, { timeout: 8000, headers: DC_HEADERS });
+        subEvents = r.data?.payload?.events || [];
+    } catch (e) {
+        return res.status(500).json({ error: `Kon event niet ophalen: ${e.message}` });
+    }
+
+    if (subEvents.length === 0) {
+        return res.json({ eventId, format: 1, disciplines: [], urls: `${base}/bracket/1`, subEvents: [] });
+    }
+
+    // Groepeer sub-events per discipline (label zonder ' RR', ' KO', ' Cons KO' etc.)
+    const disciplineMap = {};
+    for (const se of subEvents) {
+        const label = se.event_label || '';
+        const discipline = label
+            .replace(/\s+(Winner'?s?\s+)?KO$/i, '')
+            .replace(/\s+Cons(olation)?\s+KO$/i, '')
+            .replace(/\s+RR$/i, '')
+            .replace(/\s+Round\s+Robin$/i, '')
+            .replace(/\s+Knockout$/i, '')
+            .trim();
+
+        if (!disciplineMap[discipline]) disciplineMap[discipline] = [];
+        disciplineMap[discipline].push(se);
+    }
+
+    const disciplineNames = Object.keys(disciplineMap);
+    const isMultiDiscipline = disciplineNames.length > 1;
+
+    // Bouw discipline-overzicht
+    const disciplines = disciplineNames.map(name => {
+        const parts = disciplineMap[name];
+        const rr = parts.filter(p => p.event_type === 'roundrobin');
+        const ko = parts.filter(p => p.event_type === 'elimination');
+
+        let format = 1;
+        if (rr.length > 0 && ko.length >= 2) format = 3;
+        else if (rr.length > 0 && ko.length === 1) format = 2;
+
+        const urls = [];
+        rr.forEach(p => urls.push(`${base}/round-robin/${p.id}`));
+        ko.forEach(p => urls.push(`${base}/bracket/${p.id}`));
+
+        return { name, format, urls: urls.join(','), subEvents: parts.map(p => ({ id: p.id, type: p.event_type, label: p.event_label })) };
+    });
+
+    // Enkele discipline: direct resultaat teruggeven
+    if (!isMultiDiscipline) {
+        const d = disciplines[0];
+        return res.json({ eventId, format: d.format, urls: d.urls, multiDiscipline: false, disciplines });
+    }
+
+    // Meerdere disciplines: geef de lijst terug zodat UI een keuze kan tonen
+    return res.json({ eventId, format: null, urls: null, multiDiscipline: true, disciplines });
+});
+
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
