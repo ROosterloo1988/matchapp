@@ -1784,14 +1784,6 @@ app.get('/api/admin/system-status', (req, res) => {
     });
 });
 
-// Helper: axios met browser headers
-const dcHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Referer': 'https://tv.dartconnect.com/',
-    'Accept': 'application/json',
-    'Accept-Language': 'en-US,en;q=0.9',
-};
-
 // --- DARTCONNECT BROWSE (TEST ENDPOINT) ---
 app.get('/api/dartconnect-browse', async (req, res) => {
     const endpoints = [
@@ -1810,7 +1802,7 @@ app.get('/api/dartconnect-browse', async (req, res) => {
 
     for (const { url, type } of endpoints) {
         try {
-            const response = await axios.post(url, {}, { timeout: 8000, headers: dcHeaders });
+            const response = await axios.post(url, {}, { timeout: 8000 });
             const data = response.data || {};
 
             const sources = [
@@ -1864,10 +1856,10 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
     try {
         let matchData = null;
         try {
-            const r = await axios.get(`${base}/matches`, { timeout: 6000, headers: dcHeaders });
+            const r = await axios.get(`${base}/matches`, { timeout: 6000 });
             matchData = r.data;
         } catch (e) {
-            const r = await axios.post(`${base}/matches`, {}, { timeout: 6000, headers: dcHeaders });
+            const r = await axios.post(`${base}/matches`, {}, { timeout: 6000 });
             matchData = r.data;
         }
 
@@ -1899,7 +1891,7 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
     if (eiValues.length > 0) {
         async function detectType(ei) {
             try {
-                const r = await axios.post(`${base}/round-robin/${ei}`, {}, { timeout: 4000, headers: dcHeaders });
+                const r = await axios.post(`${base}/round-robin/${ei}`, {}, { timeout: 4000 });
                 const data = r.data?.payload || r.data || {};
                 if (JSON.stringify(data).length > 100) return 'round-robin';
             } catch (e) {}
@@ -1924,7 +1916,7 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
     // Stap 3: Fallback als er nog geen matches zijn (toekomstig toernooi)
     async function checkEndpoint(url) {
         try {
-            const r = await axios.post(url, {}, { timeout: 5000, headers: dcHeaders });
+            const r = await axios.post(url, {}, { timeout: 5000 });
             if (r.status !== 200) return false;
             return JSON.stringify(r.data?.payload || r.data || {}).length > 100;
         } catch (e) { return false; }
