@@ -1234,13 +1234,50 @@ app.get('/api/admin/system-status', (req, res) => {
 
 // --- DARTCONNECT INTEGRATIE ---
 
-const DC_HEADERS = {
+const DC_BASE_HEADERS = {
     'Content-Type': 'application/json',
     'Accept': 'application/json, text/plain, */*',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Referer': 'https://tv.dartconnect.com/',
     'X-Requested-With': 'XMLHttpRequest',
 };
+
+// Haal CSRF token op van DartConnect (Laravel Sanctum)
+let dcCsrfCache = null;
+let dcCsrfFetchedAt = 0;
+
+async function getDcHeaders() {
+    // Cache CSRF token voor 30 minuten
+    if (dcCsrfCache && (Date.now() - dcCsrfFetchedAt) < 30 * 60 * 1000) {
+        return dcCsrfCache;
+    }
+    try {
+        const r = await axios.get('https://tv.dartconnect.com/sanctum/csrf-cookie', {
+            headers: DC_BASE_HEADERS,
+            timeout: 6000,
+        });
+        const cookies = r.headers['set-cookie'] || [];
+        const xsrfRaw = cookies.find(c => c.startsWith('XSRF-TOKEN='));
+        const sessionRaw = cookies.find(c => c.startsWith('tv_session_18jan='));
+
+        if (!xsrfRaw) throw new Error('Geen XSRF-TOKEN ontvangen');
+
+        const xsrfToken = decodeURIComponent(xsrfRaw.split('=')[1].split(';')[0]);
+        const cookieStr = cookies.map(c => c.split(';')[0]).join('; ');
+
+        dcCsrfCache = {
+            ...DC_BASE_HEADERS,
+            'Cookie': cookieStr,
+            'X-XSRF-TOKEN': xsrfToken,
+        };
+        dcCsrfFetchedAt = Date.now();
+        console.log('[DC] CSRF token vernieuwd');
+    } catch (e) {
+        console.log('[DC] CSRF ophalen mislukt:', e.message);
+        dcCsrfCache = DC_BASE_HEADERS; // fallback zonder CSRF
+    }
+    return dcCsrfCache;
+}
 
 // Haal alle aankomende events op van DartConnect (dartconnect + pdc categorie)
 app.get('/api/dartconnect-browse', async (req, res) => {
@@ -1256,9 +1293,10 @@ app.get('/api/dartconnect-browse', async (req, res) => {
         { url: 'https://tv.dartconnect.com/api/events/pdc/scheduled',        keys: ['liveEvents','scheduledEvents','reoccuringEvents'] },
     ];
 
+    const dcHeaders = await getDcHeaders();
     for (const { url, keys } of endpoints) {
         try {
-            const r = await axios.post(url, {}, { timeout: 8000, headers: DC_HEADERS });
+            const r = await axios.post(url, {}, { timeout: 8000, headers: dcHeaders });
             const data = r.data || {};
             for (const key of keys) {
                 for (const e of (data[key] || [])) {
@@ -1303,9 +1341,10 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
 
     const base = `https://tv.dartconnect.com/api/event/${eventId}`;
 
+    const dcHeaders = await getDcHeaders();
     let subEvents = [];
     try {
-        const r = await axios.post(`${base}/matches`, {}, { timeout: 8000, headers: DC_HEADERS });
+        const r = await axios.post(`${base}/matches`, {}, { timeout: 8000, headers: dcHeaders });
         subEvents = r.data?.payload?.events || [];
     } catch (e) {
         return res.status(500).json({ error: `Kon event niet ophalen: ${e.message}` });
