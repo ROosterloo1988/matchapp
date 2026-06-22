@@ -1354,49 +1354,51 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
         return res.json({ eventId, format: 1, disciplines: [], urls: `${base}/bracket/1`, subEvents: [] });
     }
 
-    // Groepeer sub-events per discipline (label zonder ' RR', ' KO', ' Cons KO' etc.)
+    // Helper: format + URLs berekenen voor een set sub-events
+    function buildDiscipline(name, parts) {
+        const rr = parts.filter(p => p.event_type === 'roundrobin');
+        const ko = parts.filter(p => p.event_type === 'elimination');
+        let format = 1;
+        if (rr.length > 0 && ko.length >= 2) format = 3;
+        else if (rr.length > 0 && ko.length === 1) format = 2;
+        const urls = [];
+        rr.forEach(p => urls.push(`${base}/round-robin/${p.id}`));
+        ko.forEach(p => urls.push(`${base}/bracket/${p.id}`));
+        return { name, format, urls: urls.join(','), subEvents: parts.map(p => ({ id: p.id, type: p.event_type, label: p.event_label })) };
+    }
+
+    // ≤3 sub-events → altijd 1 toernooi (format 1/2/3), geen label-parsing nodig
+    if (subEvents.length <= 3) {
+        const d = buildDiscipline('', subEvents);
+        return res.json({ eventId, format: d.format, urls: d.urls, multiDiscipline: false, disciplines: [] });
+    }
+
+    // >3 sub-events → groepeer per discipline via label-stripping
     const disciplineMap = {};
     for (const se of subEvents) {
         const label = se.event_label || '';
         const discipline = label
             .replace(/\s+(Winner'?s?\s+)?KO$/i, '')
-            .replace(/\s+Cons(olation)?\s+KO$/i, '')
+            .replace(/\s+Cons(olation)?\s+(KO|Bracket)$/i, '')
             .replace(/\s+RR$/i, '')
             .replace(/\s+Round\s+Robin$/i, '')
-            .replace(/\s+Knockout$/i, '')
-            .trim();
+            .replace(/\s+(Knock\s*out|Bracket)$/i, '')
+            .replace(/\s+Elimination\s*\d*$/i, '')
+            .trim() || label;
 
         if (!disciplineMap[discipline]) disciplineMap[discipline] = [];
         disciplineMap[discipline].push(se);
     }
 
     const disciplineNames = Object.keys(disciplineMap);
-    const isMultiDiscipline = disciplineNames.length > 1;
 
-    // Bouw discipline-overzicht
-    const disciplines = disciplineNames.map(name => {
-        const parts = disciplineMap[name];
-        const rr = parts.filter(p => p.event_type === 'roundrobin');
-        const ko = parts.filter(p => p.event_type === 'elimination');
-
-        let format = 1;
-        if (rr.length > 0 && ko.length >= 2) format = 3;
-        else if (rr.length > 0 && ko.length === 1) format = 2;
-
-        const urls = [];
-        rr.forEach(p => urls.push(`${base}/round-robin/${p.id}`));
-        ko.forEach(p => urls.push(`${base}/bracket/${p.id}`));
-
-        return { name, format, urls: urls.join(','), subEvents: parts.map(p => ({ id: p.id, type: p.event_type, label: p.event_label })) };
-    });
-
-    // Enkele discipline: direct resultaat teruggeven
-    if (!isMultiDiscipline) {
-        const d = disciplines[0];
-        return res.json({ eventId, format: d.format, urls: d.urls, multiDiscipline: false, disciplines });
+    // Als label-stripping niet hielp en alles 1 op 1 gemapt is, toch als 1 discipline behandelen
+    if (disciplineNames.length <= 1 || disciplineNames.every(n => disciplineMap[n].length === 1)) {
+        const d = buildDiscipline('', subEvents);
+        return res.json({ eventId, format: d.format, urls: d.urls, multiDiscipline: false, disciplines: [] });
     }
 
-    // Meerdere disciplines: geef de lijst terug zodat UI een keuze kan tonen
+    const disciplines = disciplineNames.map(name => buildDiscipline(name, disciplineMap[name]));
     return res.json({ eventId, format: null, urls: null, multiDiscipline: true, disciplines });
 });
 

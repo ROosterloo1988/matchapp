@@ -565,7 +565,7 @@
             }
 
             // Enkelvoudig event: direct toevoegen
-            dcSaveTournament(name, data.format, data.urls);
+            await dcSaveTournament(name, data.format, data.urls);
             btn.innerText = '✅';
             const labels = { 1: 'Alleen Knockout', 2: 'Poule + Knockout', 3: 'Poule + WR + VR' };
             alert(`✅ "${name}" toegevoegd!\nFormaat: ${labels[data.format] || 'Knockout'}`);
@@ -592,26 +592,26 @@
         document.getElementById('dc-discipline-modal').style.display = 'flex';
     }
 
-    function dcAddSelectedDisciplines() {
+    async function dcAddSelectedDisciplines() {
         const checkboxes = document.querySelectorAll('#dc-discipline-list input[type=checkbox]:checked');
         if (checkboxes.length === 0) return alert('Selecteer minimaal één discipline.');
         let added = 0;
-        checkboxes.forEach(cb => {
+        for (const cb of checkboxes) {
             const d = dcPendingDisciplines[parseInt(cb.dataset.index)];
             const tourName = dcPendingDisciplines.length > 1 ? `${dcPendingEventName} - ${d.name}` : dcPendingEventName;
-            dcSaveTournament(tourName, d.format, d.urls);
+            await dcSaveTournament(tourName, d.format, d.urls);
             added++;
-        });
+        }
         document.getElementById('dc-discipline-modal').style.display = 'none';
         const btn = document.getElementById(`dcbtn-${dcPendingEventId}`);
         if (btn) btn.innerText = '✅';
         alert(`✅ ${added} discipline(s) toegevoegd!`);
     }
 
-    function dcSaveTournament(name, format, urls) {
+    async function dcSaveTournament(name, format, urls) {
         db.tournaments.push({ name, url: urls || '', matchlistUrl: '', darters: [], unlisted: false });
         renderTournaments();
-        saveSettings(true);
+        await saveSettings(true);
     }
 </script>
 </body>
