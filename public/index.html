@@ -68,7 +68,6 @@
         
         .match-card.mogelijk { border-left-color: #666; opacity: 0.7; filter: grayscale(80%); }
         .match-card.mogelijk .card-header { background: #444; color: #bbb; }
-        .mogelijk-voor-banner { background: #333; color: #aaa; font-size: 0.75em; padding: 4px 12px; letter-spacing: 0.05em; }
         .match-card.gespeeld { border-left-width: 10px; opacity: 0.8; }
         .match-card.win { border-left-color: #2ecc71; }
         .match-card.verlies { border-left-color: #e74c3c; }
@@ -244,7 +243,6 @@
 <script>
     let activeTournament = null;
     let refreshInterval = null;
-    let liveScoreInterval = null;
     let pouleRefreshInterval = null;
     let pouleRefreshDelayMs = 25000;
     let pushPlayersFullSet = new Set();
@@ -449,13 +447,11 @@
         updatePouleButtonVisibility();
         loadMatches();
         refreshInterval = setInterval(loadMatches, 10000);
-        liveScoreInterval = setInterval(updateLiveScores, 60000);
     }
 
     function showMenu() {
         activeTournament = null;
         clearInterval(refreshInterval);
-        clearInterval(liveScoreInterval);
         const url = new URL(window.location);
         url.searchParams.delete('t');
         window.history.pushState({}, '', url);
@@ -478,26 +474,6 @@
         document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`filter-${status}`).classList.add('active');
         loadMatches();
-    }
-
-    async function updateLiveScores() {
-        if (!activeTournament) return;
-        const bezigCards = document.querySelectorAll('.match-card.bezig');
-        if (bezigCards.length === 0) return;
-        try {
-            const res = await fetch(`/api/live-scores?tournament=${encodeURIComponent(activeTournament)}`);
-            if (!res.ok) return;
-            const scores = await res.json();
-            bezigCards.forEach(card => {
-                const matchId = card.dataset.matchId;
-                if (!matchId || !scores[matchId]) return;
-                const { hs, as: as2 } = scores[matchId];
-                const scoreBox = card.querySelector('.score-box');
-                if (scoreBox && hs !== undefined && as2 !== undefined) {
-                    scoreBox.textContent = `${hs} - ${as2}`;
-                }
-            });
-        } catch(e) {}
     }
 
     async function loadMatches() {
@@ -584,19 +560,12 @@
                     recapKnop = `<a href="https://recap.dartconnect.com/matches/${match.recapId}" target="_blank" class="${btnClass}">${btnText}</a>`;
                 }
 
-                let mogelijkBanner = "";
-                if (match.status === "mogelijk") {
-                    let tgStr = match.mogelijkeTegenstander ? ` vs <strong>${match.mogelijkeTegenstander}</strong>` : " vs Onbekend";
-                    mogelijkBanner = `<div class="mogelijk-voor-banner">🔮 Mogelijk voor: <strong>${match.mogelijkVoor.toUpperCase()}</strong>${tgStr}</div>`;
-                }
-
                 htmlString += `
-                <div class="match-card ${match.status} ${resultClass}" data-match-id="${match.id || ''}">
+                <div class="match-card ${match.status} ${resultClass}">
                     <div class="card-header">
                         <span>${match.ronde}</span>
                         <span class="board-badge">BORD ${match.board}</span>
                     </div>
-                    ${mogelijkBanner}
                     <div class="card-subheader">
                         <span>Tijd: ${match.time} ${match.status === "mogelijk" ? '('+match.toernooi+')' : ''}</span>
                         <span style="display: flex; align-items: center; gap: 10px;">
@@ -754,21 +723,20 @@
     }
 
     function renderPushPlayerList(darters, savedPrefs) {
-    const listDiv = document.getElementById('push-players-list');
-    if (darters.length === 0) {
-        listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
-        return;
-    }
+        const listDiv = document.getElementById('push-players-list');
+        if (darters.length === 0) {
+            listDiv.innerHTML = "<div style='color: #888; text-align: center;'>Geen spelers geconfigureerd. Voeg ze toe of vink ze aan via 'Zelf Toevoegen'.</div>";
+            return;
+        }
 
-    const savedPrefsLower = savedPrefs.map(p => p.toLowerCase());
-    listDiv.innerHTML = darters.map(d => {
-        const isChecked = savedPrefsLower.includes(d.toLowerCase()) ? 'checked' : '';
-        return `
-        <label class="checkbox-label push-player-row">
-            <input type="checkbox" value="${d}" class="darter-checkbox" ${isChecked}>
-            ${d}
-        </label>
-    `}).join('');
+        listDiv.innerHTML = darters.map(d => {
+            const isChecked = savedPrefs.includes(d) ? 'checked' : '';
+            return `
+            <label class="checkbox-label push-player-row">
+                <input type="checkbox" value="${d}" class="darter-checkbox" ${isChecked}>
+                ${d}
+            </label>
+        `}).join('');
     }
 
     

@@ -69,17 +69,9 @@
         <div class="top-bar-side"></div>
     </div>
 
-    <h2>🎯 DartConnect Toernooien</h2>
-    <div class="push-section">
-        <p>Laad alle aankomende toernooien van DartConnect. Nederlandse toernooien staan bovenaan.</p>
-        <button class="add-btn" id="dc-load-btn" onclick="loadAllDartConnectEvents()">📡 Laad Alle Toernooien</button>
-        <div id="dc-status" style="margin-top:8px; font-size:0.9rem; color:#666;"></div>
-        <div id="dc-events" style="margin-top:10px; max-height:450px; overflow-y:auto; display:none;"></div>
-    </div>
-
     <h2>1. Toernooien (API Links)</h2>
     <div id="tournaments-list" class="item-list"></div>
-
+    
     <div class="tournament-box">
         <input type="text" id="t-name" placeholder="Naam toernooi (bijv. Dutch Open Single)">
         
@@ -152,7 +144,6 @@
         });
         container.innerHTML = html;
     }
-
 
     async function loadSettings() {
         try {
@@ -262,14 +253,13 @@
         saveSettings(true);
     }
     
-    async function removeTournament(index) {
+    function removeTournament(index) {
         if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
             if(editingTournamentIndex === index) cancelEdit();
             db.tournaments.splice(index, 1);
             renderTournaments();
             renderDarters();
-            await saveSettings(true);
-            alert('✅ Toernooi verwijderd en opgeslagen.');
+            saveSettings(true);
         }
     }
 
@@ -375,18 +365,8 @@
     }
 
     async function saveSettings(silent = false) {
-        const res = await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(db)
-        });
-        if (!res.ok) {
-            alert(`❌ Opslaan mislukt (status ${res.status}). Ververs de pagina en probeer opnieuw.`);
-            return false;
-        }
+        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
         if (!silent) alert('Opgeslagen!');
-        return true;
     }
 
     async function sendCustomPush() {
@@ -477,99 +457,6 @@
             `;
         } catch (e) {
             box.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`;
-        }
-    }
-
-    async function loadAllDartConnectEvents() {
-        const btn = document.getElementById('dc-load-btn');
-        const statusDiv = document.getElementById('dc-status');
-        const eventsDiv = document.getElementById('dc-events');
-
-        btn.disabled = true;
-        btn.innerText = '⏳ Bezig...';
-        statusDiv.innerText = 'Events ophalen van DartConnect...';
-        eventsDiv.style.display = 'none';
-
-        try {
-            const res = await fetch('/api/dartconnect-browse');
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-
-            if (!data.events || data.events.length === 0) {
-                statusDiv.innerText = '❌ Geen toernooien gevonden.';
-                btn.disabled = false;
-                btn.innerText = '📡 Laad Alle Toernooien';
-                return;
-            }
-
-            let html = '';
-            let lastWasNL = null;
-
-            data.events.forEach(evt => {
-                const dateStr = evt.date ? new Date(evt.date).toLocaleDateString('nl-NL') : '?';
-                const alInLijst = db.tournaments.some(t => t.name === evt.name);
-
-                if (lastWasNL === true && !evt.isNL) {
-                    html += `<div style="border-top:2px solid #FF6600; margin:8px 0;"></div>`;
-                }
-                lastWasNL = evt.isNL;
-
-                let badges = '';
-                if (evt.isNL) badges += `<span style="background:#FF6600;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🇳🇱 NL</span>`;
-                if (evt.isLive) badges += `<span style="background:#e74c3c;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🔴 LIVE</span>`;
-                else if (evt.isSoon) badges += `<span style="background:#f39c12;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">⏰ BINNENKORT</span>`;
-
-                const safeName = evt.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-                html += `
-                <div style="background:white;padding:10px;margin-bottom:6px;border-radius:4px;border-left:4px solid ${evt.isNL ? '#FF6600' : '#ddd'};display:flex;justify-content:space-between;align-items:center;gap:10px;">
-                    <div style="flex:1;min-width:0;">
-                        <div>${badges}<b style="font-size:0.95rem;">${evt.name}</b></div>
-                        <small style="color:#888;">📅 ${dateStr}</small>
-                    </div>
-                    <button class="add-btn" style="padding:7px 11px;font-size:0.85rem;width:auto;white-space:nowrap;flex-shrink:0;"
-                        id="dc-btn-${evt.id}"
-                        onclick="dcQuickAdd('${evt.id}','${safeName}',this)"
-                        ${alInLijst ? 'disabled' : ''}>
-                        ${alInLijst ? '✅' : '➕'}
-                    </button>
-                </div>`;
-            });
-
-            eventsDiv.innerHTML = html;
-            eventsDiv.style.display = 'block';
-            let statusMsg = `✅ ${data.count} toernooien geladen.`;
-            if (data.errors && data.errors.length > 0) {
-                statusMsg += ` (${data.errors.length} endpoints gefaald: ${data.errors.join(', ')})`;
-            }
-            statusDiv.innerText = statusMsg;
-        } catch(e) {
-            statusDiv.innerText = `❌ Fout: ${e.message}`;
-        }
-
-        btn.disabled = false;
-        btn.innerText = '📡 Laad Alle Toernooien';
-    }
-
-    async function dcQuickAdd(eventId, name, btn) {
-        if (db.tournaments.some(t => t.name === name)) return;
-        btn.disabled = true;
-        btn.innerText = '⏳';
-
-        try {
-            const res = await fetch(`/api/dartconnect-detect-format?eventId=${encodeURIComponent(eventId)}`);
-            const data = await res.json();
-
-            db.tournaments.push({ name, url: data.urls, matchlistUrl: '', darters: [], unlisted: false });
-            renderTournaments();
-            saveSettings(true);
-
-            const formatLabels = { 1: 'Alleen Knockout', 2: 'Poule + Knockout', 3: 'Poule + WR + VR' };
-            btn.innerText = '✅';
-            alert(`✅ "${name}" toegevoegd!\nFormaat gedetecteerd: ${formatLabels[data.format] || 'Knockout'}`);
-        } catch(e) {
-            btn.disabled = false;
-            btn.innerText = '➕';
-            alert('❌ Fout bij toevoegen: ' + e.message);
         }
     }
 
