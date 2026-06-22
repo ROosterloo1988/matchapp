@@ -385,8 +385,34 @@
         saveSettings(true);
     }
 
+    let _adminAuth = sessionStorage.getItem('_adminAuth') || null;
+
     async function saveSettings(silent = false) {
-        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
+        const doSave = (auth) => {
+            const headers = { 'Content-Type': 'application/json' };
+            if (auth) headers['Authorization'] = auth;
+            return fetch('/api/settings', { method: 'POST', headers, body: JSON.stringify(db) });
+        };
+
+        let res = await doSave(_adminAuth);
+
+        if (res.status === 401) {
+            _adminAuth = null;
+            sessionStorage.removeItem('_adminAuth');
+            const user = prompt('Admin gebruikersnaam:');
+            if (!user) { if (!silent) alert('❌ Opslaan geannuleerd.'); return; }
+            const pass = prompt('Admin wachtwoord:');
+            if (!pass) { if (!silent) alert('❌ Opslaan geannuleerd.'); return; }
+            _adminAuth = 'Basic ' + btoa(user + ':' + pass);
+            sessionStorage.setItem('_adminAuth', _adminAuth);
+            res = await doSave(_adminAuth);
+        }
+
+        if (!res.ok) {
+            if (res.status === 401) { sessionStorage.removeItem('_adminAuth'); _adminAuth = null; }
+            if (!silent) alert('❌ Opslaan mislukt: HTTP ' + res.status);
+            return;
+        }
         if (!silent) alert('Opgeslagen!');
     }
 
