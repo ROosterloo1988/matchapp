@@ -69,14 +69,6 @@
         <div class="top-bar-side"></div>
     </div>
 
-    <h2>🎯 DartConnect Toernooien</h2>
-    <div class="push-section">
-        <p>Laad alle aankomende toernooien van DartConnect. Nederlandse toernooien staan bovenaan.</p>
-        <button class="add-btn" id="dc-load-btn" onclick="loadAllDartConnectEvents()">📡 Laad Alle Toernooien</button>
-        <div id="dc-status" style="margin-top:8px; font-size:0.9rem; color:#666;"></div>
-        <div id="dc-events" style="margin-top:10px; max-height:450px; overflow-y:auto; display:none;"></div>
-    </div>
-
     <h2>1. Toernooien (API Links)</h2>
     <div id="tournaments-list" class="item-list"></div>
 
@@ -478,79 +470,6 @@
         } catch (e) {
             box.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`;
         }
-    }
-
-    async function loadAllDartConnectEvents() {
-        const btn = document.getElementById('dc-load-btn');
-        const statusDiv = document.getElementById('dc-status');
-        const eventsDiv = document.getElementById('dc-events');
-
-        btn.disabled = true;
-        btn.innerText = '⏳ Bezig...';
-        statusDiv.innerText = 'Events ophalen van DartConnect...';
-        eventsDiv.style.display = 'none';
-
-        try {
-            const res = await fetch('/api/dartconnect-browse');
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-
-            if (!data.events || data.events.length === 0) {
-                statusDiv.innerText = '❌ Geen toernooien gevonden.';
-                btn.disabled = false;
-                btn.innerText = '📡 Laad Alle Toernooien';
-                return;
-            }
-
-            let html = '';
-            let lastWasNL = null;
-
-            data.events.forEach(event => {
-                const dateStr = event.date ? new Date(event.date).toLocaleDateString('nl-NL') : '?';
-                const alInLijst = db.tournaments.some(t => t.name === event.name);
-
-                // Scheidingslijn tussen NL en rest
-                if (lastWasNL === true && !event.isNL) {
-                    html += `<div style="border-top:2px solid #FF6600; margin:8px 0;"></div>`;
-                }
-                lastWasNL = event.isNL;
-
-                let badges = '';
-                if (event.isNL) badges += `<span style="background:#FF6600;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🇳🇱 NL</span>`;
-                if (event.isLive) badges += `<span style="background:#e74c3c;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🔴 LIVE</span>`;
-                else if (event.isSoon) badges += `<span style="background:#f39c12;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">⏰ BINNENKORT</span>`;
-
-                html += `
-                <div style="background:white;padding:10px;margin-bottom:6px;border-radius:4px;border-left:4px solid ${event.isNL ? '#FF6600' : '#ddd'};display:flex;justify-content:space-between;align-items:center;gap:10px;">
-                    <div style="flex:1;min-width:0;">
-                        <div>${badges}<b style="font-size:0.95rem;">${event.name}</b></div>
-                        <small style="color:#888;">📅 ${dateStr} · ${event.category}</small>
-                    </div>
-                    <button class="add-btn" style="padding:7px 11px;font-size:0.85rem;width:auto;white-space:nowrap;flex-shrink:0;"
-                        onclick="dcQuickAdd('${event.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}','${event.apiUrl}')"
-                        ${alInLijst ? 'disabled style="opacity:0.4;"' : ''}>
-                        ${alInLijst ? '✅' : '➕'}
-                    </button>
-                </div>`;
-            });
-
-            eventsDiv.innerHTML = html;
-            eventsDiv.style.display = 'block';
-            statusDiv.innerText = `✅ ${data.count} toernooien geladen.`;
-        } catch(e) {
-            statusDiv.innerText = `❌ Fout: ${e.message}`;
-        }
-
-        btn.disabled = false;
-        btn.innerText = '📡 Laad Alle Toernooien';
-    }
-
-    function dcQuickAdd(name, apiUrl) {
-        if (db.tournaments.some(t => t.name === name)) return;
-        db.tournaments.push({ name, url: apiUrl, matchlistUrl: '', darters: [], unlisted: false });
-        renderTournaments();
-        saveSettings(true);
-        loadAllDartConnectEvents(); // refresh zodat knop op ✅ springt
     }
 
     updateTournamentFields();
