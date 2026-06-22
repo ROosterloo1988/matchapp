@@ -1812,14 +1812,8 @@ app.get('/api/dartconnect-browse', async (req, res) => {
             for (const e of sources) {
                 if (!e.id || !e.dctv_title) continue;
                 if (seenIds.has(e.id)) continue;
-
                 // Verleden toernooien overslaan
-                // expiration_timestamp is in milliseconden, dus vergelijken met Date.now()
-                if (e.expiration_timestamp && e.expiration_timestamp < now) {
-                    console.log(`[BROWSE] Skip verleden: ${e.dctv_title} (exp: ${new Date(e.expiration_timestamp)})`);
-                    continue;
-                }
-
+                if (e.expiration_timestamp && e.expiration_timestamp < now) continue;
                 seenIds.add(e.id);
                 allEvents.push({
                     id: e.id,
@@ -1836,9 +1830,6 @@ app.get('/api/dartconnect-browse', async (req, res) => {
             errors.push(`${type}: ${e.response?.status || e.message}`);
         }
     }
-
-    // Debug output
-    console.log(`[BROWSE] ${allEvents.length} events na filter, nu=${new Date(now).toISOString()}`);
 
     allEvents.sort((a, b) => {
         if (a.isNL !== b.isNL) return a.isNL ? -1 : 1;
@@ -1857,25 +1848,15 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
     if (!eventId) return res.status(400).json({ error: 'eventId vereist' });
 
     const base = `https://tv.dartconnect.com/api/event/${eventId}`;
-    console.log(`[FORMAT-DETECT] Checking ${eventId}...`);
 
     async function checkEndpoint(url) {
         try {
-            console.log(`[FORMAT-DETECT] POST ${url}`);
             const r = await axios.post(url, {}, { timeout: 5000 });
-            if (r.status !== 200) {
-                console.log(`[FORMAT-DETECT] ${url} → ${r.status} FAIL`);
-                return false;
-            }
+            if (r.status !== 200) return false;
             const data = r.data?.payload || r.data || {};
             const str = JSON.stringify(data);
-            const hasData = str.length > 100;
-            console.log(`[FORMAT-DETECT] ${url} → OK (${str.length} bytes, has=${hasData})`);
-            return hasData;
-        } catch (e) {
-            console.log(`[FORMAT-DETECT] ${url} → ERROR: ${e.message}`);
-            return false;
-        }
+            return str.length > 100; // Meer dan lege/minimale response
+        } catch (e) { return false; }
     }
 
     const [hasRR, hasBracket2] = await Promise.all([
@@ -1885,17 +1866,16 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
 
     let format, urls;
     if (hasRR && hasBracket2) {
-        format = 3;
+        format = 3; // Poule + WR + VR
         urls = `${base}/round-robin/1,${base}/bracket/1,${base}/bracket/2`;
     } else if (hasRR) {
-        format = 2;
+        format = 2; // Poule + Knockout
         urls = `${base}/round-robin/1,${base}/bracket/1`;
     } else {
-        format = 1;
+        format = 1; // Alleen Knockout
         urls = `${base}/bracket/1`;
     }
 
-    console.log(`[FORMAT-DETECT] ${eventId} → format=${format}, rr=${hasRR}, b2=${hasBracket2}`);
     res.json({ eventId, format, urls, hasRR, hasBracket2 });
 });
 
