@@ -1213,7 +1213,7 @@ async function runHeartbeat() {
 }
 
 runHeartbeat();
-setInterval(runHeartbeat, 60000);
+setInterval(runHeartbeat, 15000);
 
 app.get('/api/admin/system-status', (req, res) => {
     res.json({
