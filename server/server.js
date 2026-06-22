@@ -1793,9 +1793,7 @@ app.get('/api/dartconnect-browse', async (req, res) => {
         { url: 'https://tv.dartconnect.com/api/events/pdc/scheduled', type: 'scheduled' },
     ];
 
-    // Vandaag als YYYY-MM-DD string (goed voor directe vergelijking met start_date)
-    const todayStr = new Date().toISOString().slice(0, 10);
-
+    const now = Date.now();
     const seenIds = new Set();
     let allEvents = [];
     let errors = [];
@@ -1814,8 +1812,14 @@ app.get('/api/dartconnect-browse', async (req, res) => {
             for (const e of sources) {
                 if (!e.id || !e.dctv_title) continue;
                 if (seenIds.has(e.id)) continue;
-                // Sla verleden events over tenzij ze nu live zijn
-                if (e.now_playing !== 1 && e.start_date && e.start_date < todayStr) continue;
+
+                // Verleden toernooien overslaan
+                // expiration_timestamp is in milliseconden, dus vergelijken met Date.now()
+                if (e.expiration_timestamp && e.expiration_timestamp < now) {
+                    console.log(`[BROWSE] Skip verleden: ${e.dctv_title} (exp: ${new Date(e.expiration_timestamp)})`);
+                    continue;
+                }
+
                 seenIds.add(e.id);
                 allEvents.push({
                     id: e.id,
@@ -1824,7 +1828,7 @@ app.get('/api/dartconnect-browse', async (req, res) => {
                     country: e.country_code || null,
                     type: e._type,
                     isNL: e.country_code === 'NL',
-                    isLive: e._type === 'live' || e.now_playing === 1,
+                    isLive: e._type === 'live',
                     isSoon: e._type === 'soon',
                 });
             }
@@ -1832,6 +1836,9 @@ app.get('/api/dartconnect-browse', async (req, res) => {
             errors.push(`${type}: ${e.response?.status || e.message}`);
         }
     }
+
+    // Debug output
+    console.log(`[BROWSE] ${allEvents.length} events na filter, nu=${new Date(now).toISOString()}`);
 
     allEvents.sort((a, b) => {
         if (a.isNL !== b.isNL) return a.isNL ? -1 : 1;
@@ -1850,76 +1857,25 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
     if (!eventId) return res.status(400).json({ error: 'eventId vereist' });
 
     const base = `https://tv.dartconnect.com/api/event/${eventId}`;
-    let eiValues = [];
+    console.log(`[FORMAT-DETECT] Checking ${eventId}...`);
 
-    // Stap 1: Haal matches op om echte sub-event IDs (ei) te ontdekken
-    try {
-        let matchData = null;
-        try {
-            const r = await axios.get(`${base}/matches`, { timeout: 6000 });
-            matchData = r.data;
-        } catch (e) {
-            const r = await axios.post(`${base}/matches`, {}, { timeout: 6000 });
-            matchData = r.data;
-        }
-
-        if (matchData) {
-            const payload = matchData.payload || matchData;
-            const allMatches = [];
-
-            const extract = (src) => {
-                if (!src) return;
-                const arr = Array.isArray(src) ? src : Object.values(src);
-                allMatches.push(...arr);
-            };
-
-            extract(payload.completed);
-            extract(payload.active);
-            extract(matchData.matches_completed);
-            extract(matchData.matches_live);
-
-            const eiSet = new Set();
-            allMatches.forEach(m => { if (m.ei) eiSet.add(m.ei.toString()); });
-            eiValues = Array.from(eiSet).sort((a, b) => Number(a) - Number(b));
-            console.log(`[FORMAT-DETECT] ${eventId} → ei waarden uit matches:`, eiValues);
-        }
-    } catch (e) {
-        console.log(`[FORMAT-DETECT] Matches ophalen mislukt: ${e.message}`);
-    }
-
-    // Stap 2: Bepaal per ei of het round-robin of bracket is
-    if (eiValues.length > 0) {
-        async function detectType(ei) {
-            try {
-                const r = await axios.post(`${base}/round-robin/${ei}`, {}, { timeout: 4000 });
-                const data = r.data?.payload || r.data || {};
-                if (JSON.stringify(data).length > 100) return 'round-robin';
-            } catch (e) {}
-            return 'bracket';
-        }
-
-        const types = await Promise.all(eiValues.map(ei => detectType(ei)));
-        console.log(`[FORMAT-DETECT] ${eventId} → types:`, eiValues.map((ei, i) => `${ei}=${types[i]}`));
-
-        const rrEis = eiValues.filter((ei, i) => types[i] === 'round-robin');
-        const bracketEis = eiValues.filter((ei, i) => types[i] === 'bracket');
-
-        const urls = [];
-        if (rrEis.length > 0) urls.push(`${base}/round-robin/${rrEis[0]}`);
-        bracketEis.forEach(ei => urls.push(`${base}/bracket/${ei}`));
-        if (urls.length === 0) urls.push(`${base}/bracket/1`);
-
-        const format = urls.length >= 3 ? 3 : urls.length === 2 ? 2 : 1;
-        return res.json({ eventId, format, urls: urls.join(','), hasRR: rrEis.length > 0, eiValues, source: 'matches' });
-    }
-
-    // Stap 3: Fallback als er nog geen matches zijn (toekomstig toernooi)
     async function checkEndpoint(url) {
         try {
+            console.log(`[FORMAT-DETECT] POST ${url}`);
             const r = await axios.post(url, {}, { timeout: 5000 });
-            if (r.status !== 200) return false;
-            return JSON.stringify(r.data?.payload || r.data || {}).length > 100;
-        } catch (e) { return false; }
+            if (r.status !== 200) {
+                console.log(`[FORMAT-DETECT] ${url} → ${r.status} FAIL`);
+                return false;
+            }
+            const data = r.data?.payload || r.data || {};
+            const str = JSON.stringify(data);
+            const hasData = str.length > 100;
+            console.log(`[FORMAT-DETECT] ${url} → OK (${str.length} bytes, has=${hasData})`);
+            return hasData;
+        } catch (e) {
+            console.log(`[FORMAT-DETECT] ${url} → ERROR: ${e.message}`);
+            return false;
+        }
     }
 
     const [hasRR, hasBracket2] = await Promise.all([
@@ -1928,12 +1884,19 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
     ]);
 
     let format, urls;
-    if (hasRR && hasBracket2) { format = 3; urls = `${base}/round-robin/1,${base}/bracket/1,${base}/bracket/2`; }
-    else if (hasRR) { format = 2; urls = `${base}/round-robin/1,${base}/bracket/1`; }
-    else { format = 1; urls = `${base}/bracket/1`; }
+    if (hasRR && hasBracket2) {
+        format = 3;
+        urls = `${base}/round-robin/1,${base}/bracket/1,${base}/bracket/2`;
+    } else if (hasRR) {
+        format = 2;
+        urls = `${base}/round-robin/1,${base}/bracket/1`;
+    } else {
+        format = 1;
+        urls = `${base}/bracket/1`;
+    }
 
-    console.log(`[FORMAT-DETECT] ${eventId} → fallback: format=${format}`);
-    res.json({ eventId, format, urls, hasRR, hasBracket2, source: 'fallback', eiValues });
+    console.log(`[FORMAT-DETECT] ${eventId} → format=${format}, rr=${hasRR}, b2=${hasBracket2}`);
+    res.json({ eventId, format, urls, hasRR, hasBracket2 });
 });
 
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
