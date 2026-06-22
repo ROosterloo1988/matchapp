@@ -72,6 +72,13 @@
     <h2>🎯 DartConnect Toernooien</h2>
     <div class="push-section">
         <p>Laad alle aankomende toernooien van DartConnect. Nederlandse toernooien staan bovenaan.</p>
+        <details style="margin-bottom:10px;">
+            <summary style="cursor:pointer; font-size:0.9rem; color:#555; font-weight:bold;">🔑 Cloudflare Cookie (klik als je "geen toernooien" ziet)</summary>
+            <div style="margin-top:8px; background:#fff3cd; padding:10px; border-radius:4px; font-size:0.85rem; color:#555; margin-bottom:8px;">
+                Open <b>tv.dartconnect.com</b> in je browser → DevTools (F12) → Application → Cookies → kopieer de waarde van <b>cf_clearance</b>
+            </div>
+            <input type="text" id="dc-cf-clearance" placeholder="Plak hier de cf_clearance cookie waarde..." style="font-size:0.85rem; margin-bottom:0;">
+        </details>
         <button class="add-btn" id="dc-load-btn" onclick="loadAllDartConnectEvents()">📡 Laad Alle Toernooien</button>
         <div id="dc-status" style="margin-top:8px; font-size:0.9rem; color:#666;"></div>
         <div id="dc-events" style="margin-top:10px; max-height:450px; overflow-y:auto; display:none;"></div>
@@ -491,7 +498,9 @@
         eventsDiv.style.display = 'none';
 
         try {
-            const res = await fetch('/api/dartconnect-browse');
+            const cfClearance = document.getElementById('dc-cf-clearance').value.trim();
+            const url = '/api/dartconnect-browse' + (cfClearance ? `?cfClearance=${encodeURIComponent(cfClearance)}` : '');
+            const res = await fetch(url);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
 
@@ -536,7 +545,11 @@
 
             eventsDiv.innerHTML = html;
             eventsDiv.style.display = 'block';
-            statusDiv.innerText = `✅ ${data.count} toernooien geladen.`;
+            let statusMsg = `✅ ${data.count} toernooien geladen.`;
+            if (data.errors && data.errors.length > 0) {
+                statusMsg += ` (${data.errors.length} endpoints gefaald: ${data.errors.join(', ')})`;
+            }
+            statusDiv.innerText = statusMsg;
         } catch(e) {
             statusDiv.innerText = `❌ Fout: ${e.message}`;
         }

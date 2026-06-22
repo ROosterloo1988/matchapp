@@ -1786,8 +1786,9 @@ app.get('/api/admin/system-status', (req, res) => {
 
 // --- DARTCONNECT BROWSE (TEST ENDPOINT) ---
 app.get('/api/dartconnect-browse', async (req, res) => {
-    const categories = ['featured', 'zmember', 'league'];
+    const categories = ['featured', 'zmember', 'league', 'dartconnect'];
     const types = ['soon', 'scheduled'];
+    const cfClearance = req.query.cfClearance || '';
 
     const browserHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0',
@@ -1796,11 +1797,16 @@ app.get('/api/dartconnect-browse', async (req, res) => {
         'Referer': 'https://tv.dartconnect.com/events/dartconnect',
         'x-requested-with': 'XMLHttpRequest',
         'x-inertia': 'true',
-        'x-inertia-version': 'e6da1fb1bd64439db32fc7ebbb2482df'
+        'x-inertia-version': 'e6da1fb1bd64439db32fc7ebbb2482df',
     };
+
+    if (cfClearance) {
+        browserHeaders['Cookie'] = `cf_clearance=${cfClearance}`;
+    }
 
     const seenIds = new Set();
     let allEvents = [];
+    let errors = [];
 
     for (const category of categories) {
         for (const type of types) {
@@ -1824,7 +1830,6 @@ app.get('/api/dartconnect-browse', async (req, res) => {
                         name: e.dctv_title,
                         date: e.start_date || null,
                         country: e.country_code || null,
-                        timezone: e.timezone || null,
                         category: e.category || category,
                         type: e._type,
                         isNL: e.country_code === 'NL',
@@ -1834,12 +1839,11 @@ app.get('/api/dartconnect-browse', async (req, res) => {
                     });
                 }
             } catch (e) {
-                // Stille fout per endpoint, anderen worden nog geprobeerd
+                errors.push(`${category}/${type}: ${e.response?.status || e.message}`);
             }
         }
     }
 
-    // Sortering: NL eerst, dan live, dan soon, dan op datum
     allEvents.sort((a, b) => {
         if (a.isNL !== b.isNL) return a.isNL ? -1 : 1;
         if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
@@ -1848,7 +1852,7 @@ app.get('/api/dartconnect-browse', async (req, res) => {
         return 0;
     });
 
-    res.json({ count: allEvents.length, events: allEvents });
+    res.json({ count: allEvents.length, events: allEvents, errors });
 });
 
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
