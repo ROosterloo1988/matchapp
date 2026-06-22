@@ -1789,8 +1789,11 @@ app.get('/api/dartconnect-browse', async (req, res) => {
     const endpoints = [
         { url: 'https://tv.dartconnect.com/api/events/dartconnect/soon', type: 'soon' },
         { url: 'https://tv.dartconnect.com/api/events/dartconnect/scheduled', type: 'scheduled' },
+        { url: 'https://tv.dartconnect.com/api/events/pdc/soon', type: 'soon' },
+        { url: 'https://tv.dartconnect.com/api/events/pdc/scheduled', type: 'scheduled' },
     ];
 
+    const now = Date.now();
     const seenIds = new Set();
     let allEvents = [];
     let errors = [];
@@ -1809,18 +1812,18 @@ app.get('/api/dartconnect-browse', async (req, res) => {
             for (const e of sources) {
                 if (!e.id || !e.dctv_title) continue;
                 if (seenIds.has(e.id)) continue;
+                // Verleden toernooien overslaan
+                if (e.expiration_timestamp && e.expiration_timestamp < now) continue;
                 seenIds.add(e.id);
                 allEvents.push({
                     id: e.id,
                     name: e.dctv_title,
                     date: e.start_date || null,
                     country: e.country_code || null,
-                    category: e.category || 'dartconnect',
                     type: e._type,
                     isNL: e.country_code === 'NL',
                     isLive: e._type === 'live',
                     isSoon: e._type === 'soon',
-                    apiUrl: `https://tv.dartconnect.com/api/event/${e.id}/bracket/1`
                 });
             }
         } catch (e) {
@@ -1837,6 +1840,43 @@ app.get('/api/dartconnect-browse', async (req, res) => {
     });
 
     res.json({ count: allEvents.length, events: allEvents, errors });
+});
+
+// --- DARTCONNECT FORMAT DETECTIE ---
+app.get('/api/dartconnect-detect-format', async (req, res) => {
+    const { eventId } = req.query;
+    if (!eventId) return res.status(400).json({ error: 'eventId vereist' });
+
+    const base = `https://tv.dartconnect.com/api/event/${eventId}`;
+
+    async function checkEndpoint(url) {
+        try {
+            const r = await axios.post(url, {}, { timeout: 5000 });
+            if (r.status !== 200) return false;
+            const data = r.data?.payload || r.data || {};
+            const str = JSON.stringify(data);
+            return str.length > 100; // Meer dan lege/minimale response
+        } catch (e) { return false; }
+    }
+
+    const [hasRR, hasBracket2] = await Promise.all([
+        checkEndpoint(`${base}/round-robin/1`),
+        checkEndpoint(`${base}/bracket/2`),
+    ]);
+
+    let format, urls;
+    if (hasRR && hasBracket2) {
+        format = 3; // Poule + WR + VR
+        urls = `${base}/round-robin/1,${base}/bracket/1,${base}/bracket/2`;
+    } else if (hasRR) {
+        format = 2; // Poule + Knockout
+        urls = `${base}/round-robin/1,${base}/bracket/1`;
+    } else {
+        format = 1; // Alleen Knockout
+        urls = `${base}/bracket/1`;
+    }
+
+    res.json({ eventId, format, urls, hasRR, hasBracket2 });
 });
 
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));

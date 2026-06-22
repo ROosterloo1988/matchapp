@@ -505,30 +505,31 @@
             let html = '';
             let lastWasNL = null;
 
-            data.events.forEach(event => {
-                const dateStr = event.date ? new Date(event.date).toLocaleDateString('nl-NL') : '?';
-                const alInLijst = db.tournaments.some(t => t.name === event.name);
+            data.events.forEach(evt => {
+                const dateStr = evt.date ? new Date(evt.date).toLocaleDateString('nl-NL') : '?';
+                const alInLijst = db.tournaments.some(t => t.name === evt.name);
 
-                // Scheidingslijn tussen NL en rest
-                if (lastWasNL === true && !event.isNL) {
+                if (lastWasNL === true && !evt.isNL) {
                     html += `<div style="border-top:2px solid #FF6600; margin:8px 0;"></div>`;
                 }
-                lastWasNL = event.isNL;
+                lastWasNL = evt.isNL;
 
                 let badges = '';
-                if (event.isNL) badges += `<span style="background:#FF6600;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🇳🇱 NL</span>`;
-                if (event.isLive) badges += `<span style="background:#e74c3c;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🔴 LIVE</span>`;
-                else if (event.isSoon) badges += `<span style="background:#f39c12;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">⏰ BINNENKORT</span>`;
+                if (evt.isNL) badges += `<span style="background:#FF6600;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🇳🇱 NL</span>`;
+                if (evt.isLive) badges += `<span style="background:#e74c3c;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🔴 LIVE</span>`;
+                else if (evt.isSoon) badges += `<span style="background:#f39c12;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;margin-right:4px;">⏰ BINNENKORT</span>`;
 
+                const safeName = evt.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
                 html += `
-                <div style="background:white;padding:10px;margin-bottom:6px;border-radius:4px;border-left:4px solid ${event.isNL ? '#FF6600' : '#ddd'};display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <div style="background:white;padding:10px;margin-bottom:6px;border-radius:4px;border-left:4px solid ${evt.isNL ? '#FF6600' : '#ddd'};display:flex;justify-content:space-between;align-items:center;gap:10px;">
                     <div style="flex:1;min-width:0;">
-                        <div>${badges}<b style="font-size:0.95rem;">${event.name}</b></div>
-                        <small style="color:#888;">📅 ${dateStr} · ${event.category}</small>
+                        <div>${badges}<b style="font-size:0.95rem;">${evt.name}</b></div>
+                        <small style="color:#888;">📅 ${dateStr}</small>
                     </div>
                     <button class="add-btn" style="padding:7px 11px;font-size:0.85rem;width:auto;white-space:nowrap;flex-shrink:0;"
-                        onclick="dcQuickAdd('${event.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}','${event.apiUrl}')"
-                        ${alInLijst ? 'disabled style="opacity:0.4;"' : ''}>
+                        id="dc-btn-${evt.id}"
+                        onclick="dcQuickAdd('${evt.id}','${safeName}',this)"
+                        ${alInLijst ? 'disabled' : ''}>
                         ${alInLijst ? '✅' : '➕'}
                     </button>
                 </div>`;
@@ -549,12 +550,27 @@
         btn.innerText = '📡 Laad Alle Toernooien';
     }
 
-    function dcQuickAdd(name, apiUrl) {
+    async function dcQuickAdd(eventId, name, btn) {
         if (db.tournaments.some(t => t.name === name)) return;
-        db.tournaments.push({ name, url: apiUrl, matchlistUrl: '', darters: [], unlisted: false });
-        renderTournaments();
-        saveSettings(true);
-        loadAllDartConnectEvents(); // refresh zodat knop op ✅ springt
+        btn.disabled = true;
+        btn.innerText = '⏳';
+
+        try {
+            const res = await fetch(`/api/dartconnect-detect-format?eventId=${encodeURIComponent(eventId)}`);
+            const data = await res.json();
+
+            db.tournaments.push({ name, url: data.urls, matchlistUrl: '', darters: [], unlisted: false });
+            renderTournaments();
+            saveSettings(true);
+
+            const formatLabels = { 1: 'Alleen Knockout', 2: 'Poule + Knockout', 3: 'Poule + WR + VR' };
+            btn.innerText = '✅';
+            alert(`✅ "${name}" toegevoegd!\nFormaat gedetecteerd: ${formatLabels[data.format] || 'Knockout'}`);
+        } catch(e) {
+            btn.disabled = false;
+            btn.innerText = '➕';
+            alert('❌ Fout bij toevoegen: ' + e.message);
+        }
     }
 
     updateTournamentFields();
