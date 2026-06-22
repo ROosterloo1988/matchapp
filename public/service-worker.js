@@ -12,7 +12,6 @@ self.addEventListener('install', (event) => {
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  self.skipWaiting();
 });
 
 // Zorg dat de nieuwste Service Worker direct actief wordt

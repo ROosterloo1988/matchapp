@@ -1,21 +1,19 @@
 #!/bin/bash
-set -e
+echo "⬇️ Start: Nieuwste versie ophalen van GitHub..."
 
 cd ~/workspace/matchapp || { echo "❌ Fout: Map niet gevonden."; exit 1; }
 
-echo "⬇️ Nieuwste versie ophalen van GitHub..."
+# Haal nieuwste code op
 git fetch origin main
 git reset --hard origin/main
 
 echo "📦 Node modules updaten..."
-cd server
-npm install --audit=false
-
-echo "🔧 Beveiligingsproblemen automatisch oplossen..."
-npm audit fix --force 2>/dev/null || true
+# Duik DIRECT de server map in voordat we npm installeren
+cd server || { echo "❌ Fout: Map 'server' niet gevonden!"; exit 1; }
+npm install
 
 echo "🔄 Applicatie herstarten via PM2..."
-cd ..
-pm2 restart dart-proxy || pm2 start server/server.js --name "dart-proxy"
+pm2 restart dart-proxy || pm2 start server.js --name "dart-proxy"
 
-echo "✅ Update succesvol afgerond!"
+cd ..
+echo "✅ Update succesvol afgerond! Je app draait op de nieuwste versie."

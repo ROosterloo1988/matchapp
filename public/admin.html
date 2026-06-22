@@ -71,7 +71,7 @@
 
     <h2>1. Toernooien (API Links)</h2>
     <div id="tournaments-list" class="item-list"></div>
-
+    
     <div class="tournament-box">
         <input type="text" id="t-name" placeholder="Naam toernooi (bijv. Dutch Open Single)">
         
@@ -113,7 +113,28 @@
         <div id="push-status"></div>
     </div>
 
-    <h2>4. 📟 Systeemstatus</h2>
+    <h2>4. 🎯 DartConnect Toernooien</h2>
+    <div class="push-section">
+        <p>Laad aankomende toernooien van DartConnect en voeg ze direct toe.</p>
+        <button class="add-btn" id="dc-load-btn" onclick="dcBrowse()">📡 Laad Toernooien</button>
+        <div id="dc-status" style="margin-top:8px;color:#888;font-size:0.9rem;"></div>
+        <div id="dc-events" style="margin-top:10px;display:none;"></div>
+    </div>
+
+    <!-- Discipline keuze modal voor grote events -->
+    <div id="dc-discipline-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;justify-content:center;align-items:center;padding:15px;">
+        <div style="background:white;padding:20px;border-radius:8px;width:100%;max-width:550px;max-height:85vh;overflow-y:auto;">
+            <h3 style="margin-top:0;">🎯 Kies discipline(s) om toe te voegen</h3>
+            <p style="color:#888;font-size:0.9rem;margin-top:-5px;">Dit is een groot event met meerdere disciplines. Vink aan wat je wil toevoegen.</p>
+            <div id="dc-discipline-list"></div>
+            <div style="display:flex;gap:8px;margin-top:15px;">
+                <button class="add-btn" onclick="dcAddSelectedDisciplines()" style="flex:1;">➕ Geselecteerde toevoegen</button>
+                <button onclick="document.getElementById('dc-discipline-modal').style.display='none'" style="padding:10px 16px;background:#ccc;border:none;border-radius:4px;cursor:pointer;">Annuleren</button>
+            </div>
+        </div>
+    </div>
+
+    <h2>5. 📟 Systeemstatus</h2>
     <div class="push-section">
         <p>Live status van backend onderdelen en recente fouten.</p>
         <button class="add-btn" onclick="loadSystemStatus()">🔄 Vernieuw status</button>
@@ -144,7 +165,6 @@
         });
         container.innerHTML = html;
     }
-
 
     async function loadSettings() {
         try {
@@ -254,14 +274,13 @@
         saveSettings(true);
     }
     
-    async function removeTournament(index) {
+    function removeTournament(index) {
         if(confirm("Weet je zeker dat je dit toernooi (en alle spelers daarin) wilt verwijderen?")) {
             if(editingTournamentIndex === index) cancelEdit();
             db.tournaments.splice(index, 1);
             renderTournaments();
             renderDarters();
-            await saveSettings(true);
-            alert('✅ Toernooi verwijderd en opgeslagen.');
+            saveSettings(true);
         }
     }
 
@@ -367,18 +386,8 @@
     }
 
     async function saveSettings(silent = false) {
-        const res = await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(db)
-        });
-        if (!res.ok) {
-            alert(`❌ Opslaan mislukt (status ${res.status}). Ververs de pagina en probeer opnieuw.`);
-            return false;
-        }
+        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
         if (!silent) alert('Opgeslagen!');
-        return true;
     }
 
     async function sendCustomPush() {
@@ -475,6 +484,144 @@
     updateTournamentFields();
     loadSettings();
     loadSystemStatus();
+
+    // --- DARTCONNECT INTEGRATIE ---
+    let dcPendingEventId = null;
+    let dcPendingEventName = null;
+    let dcPendingDisciplines = [];
+
+    async function dcBrowse() {
+        const btn = document.getElementById('dc-load-btn');
+        const statusDiv = document.getElementById('dc-status');
+        const eventsDiv = document.getElementById('dc-events');
+        btn.disabled = true;
+        btn.innerText = '⏳ Bezig...';
+        statusDiv.innerText = 'Toernooien ophalen van DartConnect...';
+        eventsDiv.style.display = 'none';
+
+        try {
+            const res = await fetch('/api/dartconnect-browse', {});
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            if (!data.events || data.events.length === 0) {
+                statusDiv.innerText = `❌ Geen toernooien gevonden.${data.errors?.length ? ' Fouten: ' + data.errors.join(', ') : ''}`;
+                return;
+            }
+
+            let html = '';
+            let pastNL = false;
+            data.events.forEach(evt => {
+                const alInLijst = db.tournaments.some(t => t.name === evt.name);
+                const dateStr = evt.date ? new Date(evt.date + 'T12:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : '';
+                if (pastNL && !evt.isNL) {
+                    html += `<div style="border-top:2px solid #FF6600;margin:6px 0;"></div>`;
+                    pastNL = false;
+                }
+                if (evt.isNL) pastNL = true;
+                const badge = evt.isNL ? `<span style="background:#FF6600;color:white;padding:1px 5px;border-radius:3px;font-size:0.7rem;margin-right:4px;">🇳🇱</span>` : '';
+                const liveBadge = evt.isLive ? `<span style="background:#e74c3c;color:white;padding:1px 5px;border-radius:3px;font-size:0.7rem;margin-right:4px;">LIVE</span>` : '';
+                const safeName = evt.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+                html += `<div style="background:white;padding:9px 12px;margin-bottom:5px;border-radius:4px;border-left:4px solid ${evt.isNL?'#FF6600':'#ddd'};display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                    <div style="flex:1;min-width:0;">
+                        <div>${badge}${liveBadge}<b style="font-size:0.9rem;">${evt.name}</b></div>
+                        ${dateStr ? `<small style="color:#999;">📅 ${dateStr}</small>` : ''}
+                    </div>
+                    <button class="add-btn" id="dcbtn-${evt.id}" style="padding:6px 10px;font-size:0.8rem;width:auto;white-space:nowrap;flex-shrink:0;"
+                        onclick="dcQuickAdd('${evt.id}','${safeName}',this)"
+                        ${alInLijst ? 'disabled' : ''}>
+                        ${alInLijst ? '✅' : '➕'}
+                    </button>
+                </div>`;
+            });
+
+            eventsDiv.innerHTML = html;
+            eventsDiv.style.display = 'block';
+            statusDiv.innerText = `✅ ${data.count} toernooien geladen.${data.errors?.length ? ' (' + data.errors.join(', ') + ')' : ''}`;
+        } catch(e) {
+            statusDiv.innerText = `❌ ${e.message}`;
+        }
+        btn.disabled = false;
+        btn.innerText = '📡 Laad Toernooien';
+    }
+
+    async function dcQuickAdd(eventId, name, btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳';
+        try {
+            const res = await fetch(`/api/dartconnect-detect-format?eventId=${encodeURIComponent(eventId)}`, {});
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            if (data.multiDiscipline) {
+                // Groot event: toon discipline keuze
+                dcPendingEventId = eventId;
+                dcPendingEventName = name;
+                dcPendingDisciplines = data.disciplines;
+                dcShowDisciplineModal(data.disciplines);
+                btn.disabled = false;
+                btn.innerText = '➕';
+                return;
+            }
+
+            // Enkelvoudig event: direct toevoegen
+            dcSaveTournament(name, data.format, data.urls);
+            btn.innerText = '✅';
+            const labels = { 1: 'Alleen Knockout', 2: 'Poule + Knockout', 3: 'Poule + WR + VR' };
+            alert(`✅ "${name}" toegevoegd!\nFormaat: ${labels[data.format] || 'Knockout'}`);
+        } catch(e) {
+            btn.disabled = false;
+            btn.innerText = '➕';
+            alert('❌ Fout: ' + e.message);
+        }
+    }
+
+    function dcShowDisciplineModal(disciplines) {
+        const formatLabels = { 1: 'KO', 2: 'Poule + KO', 3: 'Poule + WR + VR' };
+        let html = disciplines.map((d, i) => `
+            <label style="display:flex;align-items:center;gap:10px;padding:10px;background:#f9f9f9;border-radius:4px;margin-bottom:6px;cursor:pointer;">
+                <input type="checkbox" data-index="${i}" style="width:auto;transform:scale(1.3);">
+                <div>
+                    <b>${d.name}</b>
+                    <span style="background:#3498db;color:white;padding:1px 6px;border-radius:3px;font-size:0.75rem;margin-left:6px;">${formatLabels[d.format] || 'KO'}</span>
+                    <div style="font-size:0.8rem;color:#888;">${d.subEvents.map(s => s.label).join(' · ')}</div>
+                </div>
+            </label>
+        `).join('');
+        document.getElementById('dc-discipline-list').innerHTML = html;
+        document.getElementById('dc-discipline-modal').style.display = 'flex';
+    }
+
+    function dcAddSelectedDisciplines() {
+        const checkboxes = document.querySelectorAll('#dc-discipline-list input[type=checkbox]:checked');
+        if (checkboxes.length === 0) return alert('Selecteer minimaal één discipline.');
+        let added = 0;
+        checkboxes.forEach(cb => {
+            const d = dcPendingDisciplines[parseInt(cb.dataset.index)];
+            const tourName = dcPendingDisciplines.length > 1 ? `${dcPendingEventName} - ${d.name}` : dcPendingEventName;
+            dcSaveTournament(tourName, d.format, d.urls);
+            added++;
+        });
+        document.getElementById('dc-discipline-modal').style.display = 'none';
+        const btn = document.getElementById(`dcbtn-${dcPendingEventId}`);
+        if (btn) btn.innerText = '✅';
+        alert(`✅ ${added} discipline(s) toegevoegd!`);
+    }
+
+    function dcSaveTournament(name, format, urls) {
+        const urlList = (urls || '').split(',').filter(Boolean);
+        db.tournaments.push({
+            name,
+            url: urlList[0] || '',
+            url2: urlList[1] || '',
+            url3: urlList[2] || '',
+            matchlistUrl: '',
+            darters: [],
+            unlisted: false
+        });
+        renderTournaments();
+        saveSettings(true);
+    }
 </script>
 </body>
 </html>
