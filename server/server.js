@@ -196,7 +196,15 @@ app.post('/api/fetch-players-preview', async (req, res) => {
             let dataContainer = response.data.payload || response.data || {};
             zoekNamen(dataContainer);
         } catch (e) {
-            console.error(`Fout bij ophalen spelers via URL: ${singleUrl} → ${e.response?.status || ''} ${e.message}`);
+            console.error(`Fout bij POST spelers: ${singleUrl} → ${e.response?.status || ''} ${e.message}`);
+            // Probeer GET als POST faalt
+            try {
+                const response = await axios.get(singleUrl, { headers: dcHeaders, timeout: 8000 });
+                let dataContainer = response.data.payload || response.data || {};
+                zoekNamen(dataContainer);
+            } catch (e2) {
+                console.error(`Fout bij GET spelers: ${singleUrl} → ${e2.response?.status || ''} ${e2.message}`);
+            }
         }
     }
 
@@ -208,36 +216,48 @@ app.post('/api/fetch-players-preview', async (req, res) => {
             let tName = match[1];
             let eId = match[2];
 
-            // Probeer alle sub-events van het event ophalen en spelers eruit halen
+            // Probeer /participants endpoint
             try {
-                const matchesUrl = `https://tv.dartconnect.com/api/event/${tName}/matches`;
-                const matchesResp = await axios.post(matchesUrl, {}, { headers: dcHeaders, timeout: 8000 });
-                const subEvents = matchesResp.data?.payload?.events || [];
-
-                // Fetch each sub-event to find players
-                for (const se of subEvents) {
-                    const seUrl = `https://tv.dartconnect.com/api/event/${tName}/bracket/${se.id}`;
-                    try {
-                        const seResp = await axios.post(seUrl, {}, { headers: dcHeaders, timeout: 8000 });
-                        zoekNamen(seResp.data.payload || seResp.data || {});
-                    } catch (e) {
-                        // continue
-                    }
-                }
-            } catch (err) {
-                console.error("Fout bij fallback sub-events fetch:", err.message);
+                const partUrl = `https://tv.dartconnect.com/api/event/${tName}/participants`;
+                console.log("Probeer participants endpoint:", partUrl);
+                const partResp = await axios.post(partUrl, {}, { headers: dcHeaders, timeout: 8000 });
+                zoekNamen(partResp.data.payload || partResp.data || {});
+            } catch (e) {
+                console.error("Fout bij participants endpoint:", e.message);
             }
 
-            // Laatste fallback: confirmation endpoint
+            // Probeer alle sub-events van het event ophalen en spelers eruit halen
             if (spelers.size === 0) {
-                let fallbackUrl = `https://tv.dartconnect.com/api/event/${tName}/confirmation/${eId}/players`;
                 try {
-                    console.log("Geen spelers gevonden. Fallback inschakelen:", fallbackUrl);
-                    const fallbackResponse = await axios.post(fallbackUrl, {}, { headers: dcHeaders, timeout: 8000 });
-                    let fallbackData = fallbackResponse.data.payload || fallbackResponse.data || {};
-                    zoekNamen(fallbackData);
+                    const matchesUrl = `https://tv.dartconnect.com/api/event/${tName}/matches`;
+                    const matchesResp = await axios.post(matchesUrl, {}, { headers: dcHeaders, timeout: 8000 });
+                    const subEvents = matchesResp.data?.payload?.events || [];
+
+                    for (const se of subEvents) {
+                        const seUrl = `https://tv.dartconnect.com/api/event/${tName}/bracket/${se.id}`;
+                        try {
+                            const seResp = await axios.post(seUrl, {}, { headers: dcHeaders, timeout: 8000 });
+                            zoekNamen(seResp.data.payload || seResp.data || {});
+                        } catch (e) { /* continue */ }
+                    }
                 } catch (err) {
-                    console.error("Fout bij ophalen spelers via fallback URL:", fallbackUrl);
+                    console.error("Fout bij fallback sub-events fetch:", err.message);
+                }
+            }
+
+            // Laatste fallback: confirmation endpoint (alle bracket-IDs proberen)
+            if (spelers.size === 0) {
+                for (const u of urls) {
+                    const m = u.match(/\/bracket\/(\d+)/);
+                    if (!m) continue;
+                    const fallbackUrl = `https://tv.dartconnect.com/api/event/${tName}/confirmation/${m[1]}/players`;
+                    try {
+                        console.log("Confirmation fallback:", fallbackUrl);
+                        const fallbackResponse = await axios.post(fallbackUrl, {}, { headers: dcHeaders, timeout: 8000 });
+                        zoekNamen(fallbackResponse.data.payload || fallbackResponse.data || {});
+                    } catch (err) {
+                        console.error("Fout bij confirmation fallback:", fallbackUrl, err.message);
+                    }
                 }
             }
         }
@@ -246,8 +266,8 @@ app.post('/api/fetch-players-preview', async (req, res) => {
     if (spelers.size > 0) {
         res.json(Array.from(spelers));
     } else {
-        console.error(`[fetch-players-preview] Geen spelers gevonden voor URLs: ${urls.join(', ')}`);
-        res.status(500).json({ error: `Geen spelers gevonden.\nGebruikte URLs:\n${urls.join('\n')}` });
+        console.warn(`[fetch-players-preview] Geen spelers gevonden voor URLs: ${urls.join(', ')} (mogelijk nog geen draw)`);
+        res.json([]);
     }
 });
 
