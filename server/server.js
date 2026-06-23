@@ -401,7 +401,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                         else { 
                             Object.keys(obj).forEach(key => {
                                 let nextRound = currentRound;
-                                if (typeof key === 'string' && isNaN(key) && key !== "proBracket" && key !== "bracketData" && key !== "matches" && key !== "payload") {
+                                if (typeof key === 'string' && isNaN(key) && key !== "proBracket" && key !== "bracketData" && key !== "payload") {
                                     nextRound = key;
                                 }
                                 zoekWedstrijden(obj[key], nextRound); 
@@ -714,9 +714,13 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
         rawMatches = rawMatches.concat(dcConverted);
 
-        // Fallback: als bracket-parse niets opleverde maar matchlist wel data heeft,
-        // bouw wedstrijden direct uit matchlistData (werkt voor round-robin events)
-        if (dcConverted.length === 0 && matchlistData.length > 0) {
+        // Fallback: als bracket-parse niets opleverde, of alleen TBD/lege spelers vond,
+        // maar matchlist wel data heeft (werkt voor round-robin events)
+        const heeftEchteSpelers = dcConverted.some(m =>
+            m.player1 && !m.player1.startsWith('Speler ') && m.player1 !== 'Onbekend' &&
+            !m.player1.startsWith('Winnaar') && !m.player1.startsWith('Verliezer')
+        );
+        if (!heeftEchteSpelers && matchlistData.length > 0) {
             matchlistData.forEach(match => {
                 const p1Name = match.hcf || match.hc || match.p1;
                 const p2Name = match.acf || match.ac || match.p2;
