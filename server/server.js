@@ -266,8 +266,8 @@ app.post('/api/fetch-players-preview', async (req, res) => {
     if (spelers.size > 0) {
         res.json(Array.from(spelers));
     } else {
-        console.error(`[fetch-players-preview] Geen spelers gevonden voor URLs: ${urls.join(', ')}`);
-        res.status(500).json({ error: `Geen spelers gevonden.\nGebruikte URLs:\n${urls.join('\n')}` });
+        console.warn(`[fetch-players-preview] Geen spelers gevonden voor URLs: ${urls.join(', ')} (mogelijk nog geen draw)`);
+        res.json([]);
     }
 });
 

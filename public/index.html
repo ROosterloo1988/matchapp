@@ -817,8 +817,11 @@
                 body: JSON.stringify({ url: translatedUrls.join(',') })
             });
             const allNames = await res.json();
-            if (!res.ok) {
-                throw new Error(`Server: ${allNames.error || res.status}\n\nGebruikte URL(s):\n${translatedUrls.join('\n')}`);
+
+            if (!res.ok || allNames.length === 0) {
+                // Geen spelers gevonden (nog geen draw) → direct opslaan zonder spelerskeuze
+                await finalizeUserAdd([]);
+                return;
             }
 
             let singlePlayers = new Set();
@@ -855,7 +858,7 @@
         });
     }
 
-    async function finalizeUserAdd() {
+    async function finalizeUserAdd(forcedSelected) {
         try {
             document.getElementById('add-step-title').innerText = "Opslaan & Verwerken...";
             const name = document.getElementById('user-t-name').value.trim();
@@ -879,7 +882,9 @@
                 });
                 finalUrl = translatedUrls.join(',');
             }
-            const selected = Array.from(document.querySelectorAll('.user-darter-cb:checked')).map(cb => cb.value);
+            const selected = forcedSelected !== undefined
+                ? forcedSelected
+                : Array.from(document.querySelectorAll('.user-darter-cb:checked')).map(cb => cb.value);
 
             await fetch('/api/user-add-tournament', {
                 method: 'POST',
@@ -917,8 +922,12 @@
             }
 
             closeUserAddModal();
-            alert("Toernooi toegevoegd! Je ontvangt meldingen voor de gekozen spelers.");
-            location.reload(); 
+            if (selected.length === 0) {
+                alert("✅ Toernooi toegevoegd!\n\nEr zijn nog geen spelers beschikbaar (draw nog niet gemaakt). Je kunt later spelers selecteren via het toernooi.");
+            } else {
+                alert("✅ Toernooi toegevoegd! Je ontvangt meldingen voor de gekozen spelers.");
+            }
+            location.reload();
 
         } catch(error) {
             console.error("Fout bij toevoegen toernooi:", error);
