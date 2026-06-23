@@ -1056,6 +1056,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
 
 let pouleStandingsCache = {};
+let pouleStandingsCacheTTL = 30000; // 30 seconds
 
 app.get('/api/poule-standings', async (req, res) => {
     const tName = req.query.tournament;
@@ -1073,6 +1074,13 @@ app.get('/api/poule-standings', async (req, res) => {
     const pouleUrl = urls[0];
     if (!pouleUrl || !pouleUrl.includes('/bracket/')) {
         return res.status(400).json({ error: 'Geen poule (bracket) link gevonden voor dit toernooi.' });
+    }
+
+    // Check cache freshness
+    const cached = pouleStandingsCache[tName];
+    if (cached && cached.cachedAt && (Date.now() - cached.cachedAt) < pouleStandingsCacheTTL) {
+        if (debugParse) console.log(`[poule-standings][${tName}] cache hit (${Date.now() - cached.cachedAt}ms fresh)`);
+        return res.json({ ...cached, stale: false, cached: true });
     }
 
     const dcHeaders = await getDcHeaders();
@@ -1123,7 +1131,8 @@ app.get('/api/poule-standings', async (req, res) => {
             tournament: tName,
             groups: grouped,
             stale: false,
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            cachedAt: Date.now()
         };
 
         pouleStandingsCache[tName] = payload;
