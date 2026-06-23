@@ -1331,6 +1331,7 @@ app.get('/api/dartconnect-browse', async (req, res) => {
         try {
             const r = await axios.post(url, {}, { timeout: 8000, headers: dcHeaders });
             const data = r.data || {};
+            const isSoonEndpoint = url.includes('/soon');
             for (const key of keys) {
                 for (const e of (data[key] || [])) {
                     const id = e.id || e.league_id;
@@ -1338,8 +1339,9 @@ app.get('/api/dartconnect-browse', async (req, res) => {
                     if (!id || !name) continue;
                     if (seenIds.has(String(id))) continue;
                     const isLive = e.now_playing === 1;
-                    // Sla verleden events over (tenzij live)
-                    if (!isLive && e.start_date && e.start_date < todayStr) continue;
+                    // Voor /soon endpoint: alleen toekomst (vandaag of later)
+                    // Voor /scheduled endpoint: niet filteren op datum (al lopend of binnenkort)
+                    if (isSoonEndpoint && e.start_date && e.start_date < todayStr) continue;
                     seenIds.add(String(id));
                     allEvents.push({
                         id: String(id),
