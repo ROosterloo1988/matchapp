@@ -196,7 +196,7 @@ app.post('/api/fetch-players-preview', async (req, res) => {
             let dataContainer = response.data.payload || response.data || {};
             zoekNamen(dataContainer);
         } catch (e) {
-            console.error("Fout bij ophalen spelers via URL:", singleUrl);
+            console.error(`Fout bij ophalen spelers via URL: ${singleUrl} → ${e.response?.status || ''} ${e.message}`);
         }
     }
 
@@ -246,7 +246,8 @@ app.post('/api/fetch-players-preview', async (req, res) => {
     if (spelers.size > 0) {
         res.json(Array.from(spelers));
     } else {
-        res.status(500).json({ error: "Geen spelers gevonden. Controleer de URL of de status van het toernooi." });
+        console.error(`[fetch-players-preview] Geen spelers gevonden voor URLs: ${urls.join(', ')}`);
+        res.status(500).json({ error: `Geen spelers gevonden.\nGebruikte URLs:\n${urls.join('\n')}` });
     }
 });
 
