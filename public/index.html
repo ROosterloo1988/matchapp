@@ -792,10 +792,18 @@
             if(!name || urlInputs.some(url => url === "")) return alert("Vul een naam in en alle gevraagde links!");
             translatedUrls = urlInputs.map(u => {
                 if (u.includes('/event/') && !u.includes('/api/event/')) {
-                    return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
+                    return u
+                        .replace('/event/', '/api/event/')
+                        .replace('/brackets/', '/bracket/')
+                        .replace('/groups/', '/bracket/')
+                        .replace('/round-robin/', '/bracket/');
                 }
                 return u;
             });
+            const invalidUrls = translatedUrls.filter(u => !u.toLowerCase().includes('bracket'));
+            if (invalidUrls.length > 0) {
+                return alert("❌ De ingevoerde link klopt niet.\n\nKopieer de link van de Poule of het Schema — niet de algemene 'matches' link.");
+            }
         }
 
         if(!name) return alert("Vul een naam in!");
@@ -858,7 +866,11 @@
                 let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
                 let translatedUrls = urlInputs.map(u => {
                     if (u.includes('/event/') && !u.includes('/api/event/')) {
-                        return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
+                        return u
+                            .replace('/event/', '/api/event/')
+                            .replace('/brackets/', '/bracket/')
+                            .replace('/groups/', '/bracket/')
+                            .replace('/round-robin/', '/bracket/');
                     }
                     return u;
                 });
