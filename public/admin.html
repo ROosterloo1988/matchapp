@@ -66,7 +66,21 @@
             <a href="/" class="btn-back">⬅ TERUG</a>
         </div>
         <h1>⚙️ Beheer</h1>
-        <div class="top-bar-side"></div>
+        <div class="top-bar-side" id="master-badge" style="display:none; color:#2ecc71; font-size:0.8rem; font-weight:bold;">👑 MASTER</div>
+    </div>
+
+    <div id="tenants-section" style="display:none; margin-bottom:30px; background:#f0f0f0; padding:20px; border-radius:8px; border-left:4px solid #FF6600;">
+        <h2 style="margin-top:0;">👑 Tenant Beheer (Master Admin)</h2>
+        <button class="add-btn" onclick="showCreateTenantForm()">➕ Nieuwe Tenant Toevoegen</button>
+        <div id="tenants-list" style="margin-top:15px;"></div>
+        <div id="create-tenant-form" style="display:none; background:white; padding:15px; border-radius:5px; margin-top:15px;">
+            <h3>Nieuwe Tenant</h3>
+            <input type="text" id="new-tenant-id" placeholder="Tenant ID (bijv: org1)" style="width:100%; padding:10px; margin-bottom:10px; border:1px solid #ddd; border-radius:5px;">
+            <input type="text" id="new-tenant-user" placeholder="Admin gebruiker" style="width:100%; padding:10px; margin-bottom:10px; border:1px solid #ddd; border-radius:5px;">
+            <input type="password" id="new-tenant-pass" placeholder="Admin wachtwoord" style="width:100%; padding:10px; margin-bottom:10px; border:1px solid #ddd; border-radius:5px;">
+            <button class="add-btn" onclick="createTenant()" style="margin-right:5px;">Aanmaken</button>
+            <button class="cancel-btn" onclick="document.getElementById('create-tenant-form').style.display='none'">Annuleren</button>
+        </div>
     </div>
 
     <h2>1. Toernooien (API Links)</h2>
@@ -166,6 +180,8 @@
         container.innerHTML = html;
     }
 
+    let _isMasterAdmin = false;
+
     async function loadSettings() {
         try {
             const res = await fetch('/api/settings');
@@ -176,6 +192,113 @@
             renderTournamentDropdown();
         } catch(e) {
             console.error("Kon instellingen niet laden", e);
+        }
+    }
+
+    async function checkMasterAdmin() {
+        const masterUser = sessionStorage.getItem('_adminAuth');
+        if (!masterUser) return;
+
+        try {
+            const res = await fetch('/api/tenants', {
+                headers: { 'Authorization': masterUser }
+            });
+            if (res.ok) {
+                _isMasterAdmin = true;
+                document.getElementById('master-badge').style.display = 'block';
+                document.getElementById('tenants-section').style.display = 'block';
+                await loadTenants();
+            }
+        } catch(e) {
+            // Niet master admin
+        }
+    }
+
+    async function loadTenants() {
+        const masterUser = sessionStorage.getItem('_adminAuth');
+        if (!masterUser) return;
+
+        try {
+            const res = await fetch('/api/tenants', {
+                headers: { 'Authorization': masterUser }
+            });
+            const tenants = await res.json();
+            const list = document.getElementById('tenants-list');
+            list.innerHTML = tenants.map(t => `
+                <div style="background:white; padding:10px; margin-bottom:10px; border-radius:5px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <b>${t.id}</b> (${t.adminUser})<br>
+                        <small style="color:#888;">${t.createdAt ? new Date(t.createdAt).toLocaleDateString('nl-NL') : ''}</small>
+                    </div>
+                    ${t.id !== '__master__' ? `<button class="delete-btn" onclick="deleteTenant('${t.id}')">🗑️</button>` : ''}
+                </div>
+            `).join('');
+        } catch(e) {
+            console.error('Kon tenants niet laden', e);
+        }
+    }
+
+    function showCreateTenantForm() {
+        document.getElementById('create-tenant-form').style.display = 'block';
+    }
+
+    async function createTenant() {
+        const masterUser = sessionStorage.getItem('_adminAuth');
+        const tenantId = document.getElementById('new-tenant-id').value.trim();
+        const adminUser = document.getElementById('new-tenant-user').value.trim();
+        const adminPass = document.getElementById('new-tenant-pass').value.trim();
+
+        if (!tenantId || !adminUser || !adminPass) {
+            alert('Vul alle velden in!');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/tenants', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': masterUser
+                },
+                body: JSON.stringify({ tenantId, adminUser, adminPass })
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                alert('❌ ' + (err.error || 'Fout'));
+                return;
+            }
+
+            alert('✅ Tenant aangemaakt!');
+            document.getElementById('create-tenant-form').style.display = 'none';
+            document.getElementById('new-tenant-id').value = '';
+            document.getElementById('new-tenant-user').value = '';
+            document.getElementById('new-tenant-pass').value = '';
+            await loadTenants();
+        } catch(e) {
+            alert('Fout: ' + e.message);
+        }
+    }
+
+    async function deleteTenant(tenantId) {
+        if (!confirm(`Weet je zeker dat je tenant ${tenantId} wilt verwijderen? Dit verwijdert ALLES voor deze tenant!`)) return;
+
+        const masterUser = sessionStorage.getItem('_adminAuth');
+        try {
+            const res = await fetch(`/api/tenants/${tenantId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': masterUser }
+            });
+
+            if (!res.ok) {
+                alert('❌ Fout bij verwijderen');
+                return;
+            }
+
+            alert('✅ Tenant verwijderd!');
+            await loadTenants();
+        } catch(e) {
+            alert('Fout: ' + e.message);
         }
     }
 
@@ -509,6 +632,7 @@
 
     updateTournamentFields();
     loadSettings();
+    checkMasterAdmin();
     loadSystemStatus();
 
     // --- DARTCONNECT INTEGRATIE ---
