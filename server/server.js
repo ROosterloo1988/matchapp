@@ -11,20 +11,52 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// --- ADMIN BEVEILIGING (BASIC AUTH) ---
-const ADMIN_USER = "matchapp";
-const ADMIN_PASS = "dutchopen2026"; 
+// --- TENANT IDENTIFICATION (subdomain-based) ---
+app.use((req, res, next) => {
+    const hostname = req.hostname || 'localhost';
+    const parts = hostname.split('.');
+    let tenantId = '__master__';
+
+    // Extract subdomain as tenant ID (e.g., org1.dartapp.nl → org1)
+    if (parts.length > 2 && parts[0] !== 'localhost' && parts[0] !== 'www') {
+        tenantId = parts[0].toLowerCase();
+    }
+
+    req.tenant = tenantId;
+    next();
+});
+
+// --- ADMIN BEVEILIGING (MULTI-TENANT BASIC AUTH) ---
+const DEFAULT_MASTER_USER = "admin";
+const DEFAULT_MASTER_PASS = "dutchopen2026";
 
 app.use('/admin.html', (req, res, next) => {
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
 
-    if (login && password && login === ADMIN_USER && password === ADMIN_PASS) {
-        return next(); 
+    if (!login || !password) {
+        res.set('WWW-Authenticate', 'Basic realm="Admin Area"');
+        return res.status(401).send('Inloggen vereist voor beheer.');
+    }
+
+    const db = readDB();
+    const tenant = db.tenants.find(t => t.id === req.tenant);
+
+    if (!tenant) {
+        res.set('WWW-Authenticate', 'Basic realm="Admin Area"');
+        return res.status(401).send('Tenant niet gevonden.');
+    }
+
+    // Check tenant credentials
+    const credMatch = login === tenant.adminUser && password === (tenant.adminPass || DEFAULT_MASTER_PASS);
+
+    if (credMatch) {
+        req.tenantData = tenant;
+        return next();
     }
 
     res.set('WWW-Authenticate', 'Basic realm="Admin Area"');
-    res.status(401).send('Inloggen verest voor beheer.');
+    res.status(401).send('Ongeldig inloggegevens.');
 });
 
 app.use(express.static(path.join(__dirname, '../public')));
@@ -49,26 +81,37 @@ const DB_FILE = path.join(__dirname, 'database.json');
 let memDB = null;
 
 function readDB() {
-    if (memDB) return memDB; 
+    if (memDB) return memDB;
 
     if (!fs.existsSync(DB_FILE)) {
-        memDB = { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
+        memDB = {
+            tenants: [{ id: '__master__', adminUser: 'admin', adminPassHash: null, createdAt: new Date().toISOString() }],
+            tournaments: [],
+            subscriptions: [],
+            notifiedMatches: [],
+            notifiedPoules: [],
+            vapidKeys: null
+        };
         return memDB;
     }
-    
+
     let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     if (!db.tournaments) db.tournaments = [];
     if (!db.subscriptions) db.subscriptions = [];
     if (!db.notifiedMatches) db.notifiedMatches = [];
     if (!db.notifiedPoules) db.notifiedPoules = [];
-    db.tournaments.forEach(t => { if (!t.darters) t.darters = []; });
-    
+    if (!db.tenants) db.tenants = [{ id: '__master__', adminUser: 'admin', adminPassHash: null, createdAt: new Date().toISOString() }];
+    db.tournaments.forEach(t => { if (!t.darters) t.darters = []; if (!t.tenant) t.tenant = '__master__'; });
+    db.subscriptions.forEach(s => { if (!s.tenant) s.tenant = '__master__'; });
+    db.notifiedMatches.forEach(m => { if (!m.tenant) m.tenant = '__master__'; });
+    db.notifiedPoules.forEach(p => { if (!p.tenant) p.tenant = '__master__'; });
+
     if (!db.vapidKeys) {
         db.vapidKeys = webpush.generateVAPIDKeys();
         fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
     }
-    
-    memDB = db; 
+
+    memDB = db;
     return memDB;
 }
 
@@ -88,19 +131,20 @@ app.get('/api/vapidPublicKey', (req, res) => res.send(readDB().vapidKeys.publicK
 
 app.get('/api/darters', (req, res) => {
     const db = readDB();
-    const tournament = db.tournaments.find(t => t.name === req.query.tournament);
+    const tournament = db.tournaments.find(t => t.name === req.query.tournament && t.tenant === req.tenant);
     res.json(tournament && tournament.darters ? tournament.darters : []);
 });
 
 app.post('/api/subscribe', (req, res) => {
     const { subscription, tournament, players } = req.body;
     const db = readDB();
-    
-    let existingSub = db.subscriptions.find(sub => sub.endpoint === subscription.endpoint);
-    
+
+    let existingSub = db.subscriptions.find(sub => sub.endpoint === subscription.endpoint && sub.tenant === req.tenant);
+
     if (!existingSub) {
         existingSub = subscription;
-        existingSub.preferences = {}; 
+        existingSub.preferences = {};
+        existingSub.tenant = req.tenant;
         db.subscriptions.push(existingSub);
     } else {
         if (!existingSub.preferences) existingSub.preferences = {};
@@ -109,34 +153,80 @@ app.post('/api/subscribe', (req, res) => {
     if (tournament && Array.isArray(players)) {
         existingSub.preferences[tournament] = players.map(p => p.toLowerCase());
     }
-    
+
     writeDB(db);
     res.status(201).json({});
 });
 
-app.get('/api/settings', (req, res) => res.json(readDB()));
+app.get('/api/settings', (req, res) => {
+    const db = readDB();
+    const tenantId = req.tenant;
+    return res.json({
+        tournaments: db.tournaments.filter(t => t.tenant === tenantId),
+        subscriptions: db.subscriptions.filter(s => s.tenant === tenantId),
+        notifiedMatches: db.notifiedMatches.filter(m => m.tenant === tenantId),
+        notifiedPoules: db.notifiedPoules.filter(p => p.tenant === tenantId),
+        vapidKeys: db.vapidKeys
+    });
+});
+
 app.post('/api/settings', (req, res) => {
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
 
-    writeDB(req.body);
+    if (!login || !password) return res.status(401).send("Onbevoegd");
+
+    const db = readDB();
+    const tenant = db.tenants.find(t => t.id === req.tenant);
+
+    if (!tenant || (login !== tenant.adminUser || password !== (tenant.adminPass || DEFAULT_MASTER_PASS))) {
+        return res.status(401).send("Onbevoegd");
+    }
+
+    // Update only tenant-specific data
+    const tenantId = req.tenant;
+    const body = req.body;
+
+    if (body.tournaments) {
+        db.tournaments = db.tournaments.filter(t => t.tenant !== tenantId).concat(
+            body.tournaments.map(t => ({ ...t, tenant: tenantId }))
+        );
+    }
+    if (body.subscriptions) {
+        db.subscriptions = db.subscriptions.filter(s => s.tenant !== tenantId).concat(
+            body.subscriptions.map(s => ({ ...s, tenant: tenantId }))
+        );
+    }
+    if (body.notifiedMatches) {
+        db.notifiedMatches = db.notifiedMatches.filter(m => m.tenant !== tenantId).concat(
+            body.notifiedMatches.map(m => ({ ...m, tenant: tenantId }))
+        );
+    }
+    if (body.notifiedPoules) {
+        db.notifiedPoules = db.notifiedPoules.filter(p => p.tenant !== tenantId).concat(
+            body.notifiedPoules.map(p => ({ ...p, tenant: tenantId }))
+        );
+    }
+
+    writeDB(db);
     res.json({ success: true, message: "Instellingen opgeslagen!" });
 });
 
 app.get('/api/tournaments', (req, res) => {
-    const publicTournaments = readDB().tournaments.filter(t => !t.unlisted);
+    const db = readDB();
+    const publicTournaments = db.tournaments.filter(t => !t.unlisted && t.tenant === req.tenant);
     res.json(publicTournaments.map(t => t.name));
 });
 
 app.get('/api/tournaments/valid', (req, res) => {
-    res.json(readDB().tournaments.map(t => t.name));
+    const db = readDB();
+    res.json(db.tournaments.filter(t => t.tenant === req.tenant).map(t => t.name));
 });
 
 
 app.get('/api/tournament-config', (req, res) => {
     const db = readDB();
-    const tournament = db.tournaments.find(t => t.name === req.query.tournament);
+    const tournament = db.tournaments.find(t => t.name === req.query.tournament && t.tenant === req.tenant);
 
     if (!tournament) {
         return res.status(404).json({ error: 'Toernooi niet gevonden.' });
@@ -158,14 +248,14 @@ app.post('/api/user-add-tournament', async (req, res) => {
     const { name, url, darters } = req.body;
     const db = readDB();
 
-    if (!db.tournaments.find(t => t.name === name)) {
-        db.tournaments.push({ 
-            name, url, matchlistUrl: "", darters, 
-            unlisted: true 
+    if (!db.tournaments.find(t => t.name === name && t.tenant === req.tenant)) {
+        db.tournaments.push({
+            name, url, matchlistUrl: "", darters,
+            unlisted: true, tenant: req.tenant
         });
         writeDB(db);
     } else {
-        let existingT = db.tournaments.find(t => t.name === name);
+        let existingT = db.tournaments.find(t => t.name === name && t.tenant === req.tenant);
         if(existingT && existingT.unlisted) {
             darters.forEach(d => { if(!existingT.darters.includes(d)) existingT.darters.push(d); });
             writeDB(db);
@@ -253,9 +343,9 @@ app.post('/api/fetch-players-preview', async (req, res) => {
 let isFirstRun = true;
 
 // --- DE CENTRALE DATA MOTOR ---
-async function fetchMatchesForTournament(requestedTournament, extraDarters = []) {
+async function fetchMatchesForTournament(requestedTournament, extraDarters = [], tenantId = '__master__') {
     const db = readDB();
-    const tournament = db.tournaments.find(t => t.name === requestedTournament);
+    const tournament = db.tournaments.find(t => t.name === requestedTournament && t.tenant === tenantId);
     if (!tournament) return [];
 
     let rawMatches = [];
@@ -1187,7 +1277,7 @@ app.get('/api/matches', async (req, res) => {
 
     systemStatus.matches.cacheMisses += 1;
     const startedAt = Date.now();
-    const list = await fetchMatchesForTournament(tName, extraPlayers);
+    const list = await fetchMatchesForTournament(tName, extraPlayers, req.tenant);
     matchCache[cacheKey] = list;
     cacheTimestamps[cacheKey] = Date.now();
     systemStatus.matches.lastFetchAt = new Date().toISOString();
