@@ -143,15 +143,14 @@ app.get('/api/tournament-config', (req, res) => {
     }
 
     const urls = (tournament.url || '').split(',').map(u => u.trim()).filter(Boolean);
-    const hasRoundRobin = urls.some(u => u.includes('/round-robin/'));
-    const likelyPouleAsFirstBracket = urls.length >= 2 && urls[0].includes('/bracket/');
+    const hasPoulePhase = urls.length >= 2;
 
     res.json({
         name: tournament.name,
         url: tournament.url || '',
         darters: Array.isArray(tournament.darters) ? tournament.darters : [],
         unlisted: !!tournament.unlisted,
-        hasPoulePhase: hasRoundRobin || likelyPouleAsFirstBracket
+        hasPoulePhase
     });
 });
 
@@ -1043,21 +1042,15 @@ app.get('/api/poule-standings', async (req, res) => {
     const debugParse = req.query.debug === '1';
     const urls = tournament.url.split(',').map(u => u.trim()).filter(Boolean);
 
-    let rrUrl = urls.find(u => u.includes('/round-robin/'));
-    if (!rrUrl) {
-        const bracketUrl = urls.find(u => u.includes('/bracket/'));
-        if (bracketUrl) {
-            rrUrl = bracketUrl.replace('/bracket/', '/round-robin/');
-        }
+    const pouleUrl = urls[0];
+    if (!pouleUrl || !pouleUrl.includes('/bracket/')) {
+        return res.status(400).json({ error: 'Geen poule (bracket) link gevonden voor dit toernooi.' });
     }
 
-    if (!rrUrl) {
-        return res.status(400).json({ error: 'Geen poule (round-robin of bracket) link gevonden voor dit toernooi.' });
-    }
-
+    const dcHeaders = await getDcHeaders();
     try {
         const startedAt = Date.now();
-        const response = await axios.post(rrUrl, {}, { timeout: 8000 });
+        const response = await axios.post(pouleUrl, {}, { timeout: 8000, headers: dcHeaders });
         const dataContainer = response.data.payload || response.data || {};
 
         const found = [];
@@ -1402,7 +1395,7 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
         if (rr.length > 0 && ko.length >= 2) format = 3;
         else if (rr.length > 0 && ko.length === 1) format = 2;
         const urls = [];
-        rr.forEach(p => urls.push(`${base}/round-robin/${p.id}`));
+        rr.forEach(p => urls.push(`${base}/bracket/${p.id}`));
         ko.forEach(p => urls.push(`${base}/bracket/${p.id}`));
         return { name, format, urls: urls.join(','), subEvents: parts.map(p => ({ id: p.id, type: p.event_type, label: p.event_label })) };
     }
