@@ -205,11 +205,18 @@
     <div id="user-add-modal" class="push-modal">
         <div class="push-box" style="max-width: 500px;">
             <h2 id="add-step-title" style="color: #FF6600;">Toernooi Toevoegen</h2>
-            
-            <div id="add-step-1">
+
+            <div id="add-step-0">
+                <p style="font-size: 0.95rem; margin-bottom: 15px;">🎯 <b>Kies een toernooi:</b></p>
+                <input type="text" id="browse-search" placeholder="Zoek toernooi..." style="width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #444; background: #222; color: white;" oninput="filterBrowseTournaments()">
+                <div id="browse-tournaments-list" class="checkbox-container" style="max-height: 350px; overflow-y: auto;"></div>
+                <button class="btn-yes" style="background: #FF6600; margin-top: 10px;" onclick="addManualTournamentFallback()">➕ Handmatig Toevoegen</button>
+            </div>
+
+            <div id="add-step-1" style="display:none;">
                 <p>Kies de opzet en plak de <b>Schema/Poule</b> links.<br> <span style="font-size:0.8rem; color:#888;">(Gebruik NIET de algemene 'matches' link!)</span> <span class="info-icon" onclick="alert('Omdat DartConnect willekeurige nummers aan schema\\'s geeft, kunnen we deze niet raden uit een algemene matches-link. Kopieer dus echt de link van de poule of de knockout!')">i</span></p>
                 <input type="text" id="user-t-name" placeholder="Naam (bijv: Ranking Jan)">
-                
+
                 <select id="user-t-format" onchange="updateUserTournamentFields()" style="width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 5px; border: 1px solid #444; background: #222; color: white; font-weight: bold;">
                     <option value="1">👉 Enkel Schema (Alleen Knockout of Poule)</option>
                     <option value="2">👉 Poules + Hoofdschema (2 Links)</option>
@@ -219,6 +226,7 @@
                 <div id="user-dynamic-fields"></div>
 
                 <button class="btn-yes" style="background: #FF6600;" onclick="fetchPlayersForNewTournament()">Volgende: Spelers Kiezen ➔</button>
+                <button class="btn-no" style="color: #888; text-decoration: underline; margin-top: 5px;" onclick="goBackToTournamentBrowse()">⬅ Terug naar automatische lijst</button>
             </div>
 
             <div id="add-step-2" style="display:none;">
@@ -226,8 +234,8 @@
                 <div id="user-players-list" class="checkbox-container" style="max-height: 250px;"></div>
                 <button class="btn-yes" style="background: #FF6600;" onclick="finalizeUserAdd()">Opslaan & Volgen ✅</button>
             </div>
-            
-            <button class="btn-no" onclick="closeUserAddModal()">Annuleren</button>
+
+            <button class="btn-no" onclick="closeUserAddModal()" style="margin-top: 10px;">Annuleren</button>
         </div>
     </div>
 
@@ -369,20 +377,106 @@
     }
 
     function renderAddButton() {
-        if(document.querySelector('.btn-user-add')) return; 
-        
+        if(document.querySelector('.btn-user-add')) return;
+
         const container = document.getElementById('menu-container');
         const btn = document.createElement('div');
         btn.className = 'btn-user-add';
-        btn.innerHTML = '➕ ZELF TOERNOOI TOEVOEGEN';
-        btn.onclick = () => { 
-            updateUserTournamentFields();
-            document.getElementById('add-step-1').style.display = 'block';
+        btn.innerHTML = '➕ TOERNOOI TOEVOEGEN';
+        btn.onclick = () => {
+            document.getElementById('add-step-0').style.display = 'block';
+            document.getElementById('add-step-1').style.display = 'none';
             document.getElementById('add-step-2').style.display = 'none';
             document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
-            document.getElementById('user-add-modal').style.display = 'flex'; 
+            document.getElementById('user-add-modal').style.display = 'flex';
+            loadBrowseTournaments();
         };
         container.after(btn);
+    }
+
+    let browseTournamentsData = [];
+
+    async function loadBrowseTournaments() {
+        const list = document.getElementById('browse-tournaments-list');
+        list.innerHTML = '<div style="color:#888; text-align:center;">Laden...</div>';
+        try {
+            const res = await fetch('/api/dartconnect-browse?_t=' + Date.now());
+            const data = await res.json();
+            browseTournamentsData = data.events || [];
+            displayBrowseTournaments(browseTournamentsData);
+        } catch(e) {
+            list.innerHTML = '<div style="color:#e74c3c;">Fout: kan toernooien niet laden</div>';
+        }
+    }
+
+    function displayBrowseTournaments(events) {
+        const list = document.getElementById('browse-tournaments-list');
+        if(events.length === 0) {
+            list.innerHTML = '<div style="color:#888;">Geen toernooien gevonden.</div>';
+            return;
+        }
+        list.innerHTML = events.map((e, idx) => `
+            <div style="padding:10px; border-bottom:1px solid #333; cursor:pointer; transition:0.2s;"
+                 onmouseover="this.style.background='#222'" onmouseout="this.style.background=''"
+                 onclick="selectBrowseTournament('${e.id}', '${e.name.replace(/'/g, "\\'")}')">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="color:white; font-weight:bold;">${e.name}</div>
+                        <div style="color:#888; font-size:0.8rem; margin-top:3px;">
+                            ${e.isNL ? '🇳🇱 ' : ''}${e.date ? e.date : 'Geen datum'}
+                        </div>
+                    </div>
+                    ${e.isLive ? '<span style="background:#e74c3c; color:white; padding:3px 8px; border-radius:3px; font-size:0.75rem; font-weight:bold;">LIVE</span>' : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function filterBrowseTournaments() {
+        const search = document.getElementById('browse-search').value.toLowerCase();
+        const filtered = browseTournamentsData.filter(e =>
+            e.name.toLowerCase().includes(search)
+        );
+        displayBrowseTournaments(filtered);
+    }
+
+    async function selectBrowseTournament(eventId, name) {
+        const list = document.getElementById('browse-tournaments-list');
+        list.style.opacity = '0.5';
+        try {
+            const res = await fetch(`/api/dartconnect-detect-format?eventId=${encodeURIComponent(eventId)}`);
+            if(!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            // Zet de tournament info
+            document.getElementById('user-t-name').value = name;
+            document.getElementById('user-t-format').value = data.format || 1;
+
+            // Sla URLs op voor later
+            window._dcUrls = data.urls || '';
+
+            // Go to player selection (skip manual fields)
+            await fetchPlayersForNewTournament();
+        } catch(e) {
+            alert('Fout bij laden toernooi: ' + e.message);
+            list.style.opacity = '1';
+        }
+    }
+
+    function goBackToTournamentBrowse() {
+        document.getElementById('add-step-0').style.display = 'block';
+        document.getElementById('add-step-1').style.display = 'none';
+        document.getElementById('add-step-2').style.display = 'none';
+        document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
+    }
+
+    function addManualTournamentFallback() {
+        window._dcUrls = null;
+        updateUserTournamentFields();
+        document.getElementById('add-step-0').style.display = 'none';
+        document.getElementById('add-step-1').style.display = 'block';
+        document.getElementById('add-step-2').style.display = 'none';
+        document.getElementById('add-step-title').innerText = "Toernooi Handmatig Toevoegen";
     }
 
     function updateUserTournamentFields() {
@@ -607,24 +701,32 @@
 
     async function fetchPlayersForNewTournament() {
         const name = document.getElementById('user-t-name').value.trim();
-        let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
+        let translatedUrls;
 
-        if(!name || urlInputs.some(url => url === "")) return alert("Vul een naam in en alle gevraagde links!");
+        // Check if from DartConnect browse (automatic)
+        if(window._dcUrls) {
+            translatedUrls = window._dcUrls.split(',').map(u => u.trim()).filter(Boolean);
+        } else {
+            // Manual input
+            let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
+            if(!name || urlInputs.some(url => url === "")) return alert("Vul een naam in en alle gevraagde links!");
+            translatedUrls = urlInputs.map(u => {
+                if (u.includes('/event/') && !u.includes('/api/event/')) {
+                    return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
+                }
+                return u;
+            });
+        }
 
-        let translatedUrls = urlInputs.map(u => {
-            if (u.includes('/event/') && !u.includes('/api/event/')) {
-                return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
-            }
-            return u;
-        });
-        
+        if(!name) return alert("Vul een naam in!");
+
         document.getElementById('add-step-title').innerText = "Spelers Laden...";
-        
+
         try {
             const res = await fetch('/api/fetch-players-preview', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ url: translatedUrls[0] })
+                body: JSON.stringify({ url: translatedUrls.join(',') })
             });
             const allNames = await res.json();
 
@@ -664,16 +766,22 @@
         try {
             document.getElementById('add-step-title').innerText = "Opslaan & Verwerken...";
             const name = document.getElementById('user-t-name').value.trim();
-            let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
-            
-            let translatedUrls = urlInputs.map(u => {
-                if (u.includes('/event/') && !u.includes('/api/event/')) {
-                    return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
-                }
-                return u;
-            });
-            
-            let finalUrl = translatedUrls.join(',');
+            let finalUrl;
+
+            // Check if from DartConnect browse (automatic)
+            if(window._dcUrls) {
+                finalUrl = window._dcUrls;
+            } else {
+                // Manual input
+                let urlInputs = Array.from(document.querySelectorAll('.user-t-url-input')).map(i => i.value.trim());
+                let translatedUrls = urlInputs.map(u => {
+                    if (u.includes('/event/') && !u.includes('/api/event/')) {
+                        return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
+                    }
+                    return u;
+                });
+                finalUrl = translatedUrls.join(',');
+            }
             const selected = Array.from(document.querySelectorAll('.user-darter-cb:checked')).map(cb => cb.value);
 
             await fetch('/api/user-add-tournament', {
