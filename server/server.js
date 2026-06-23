@@ -452,13 +452,22 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
                     else if (mlRes.data.payload) {
                         if (mlRes.data.payload.completed) {
                             let compArr = mlRes.data.payload.completed;
-                            compArr.forEach(c => c._is_completed_now = true); 
+                            compArr.forEach(c => c._is_completed_now = true);
                             matchlistData = matchlistData.concat(compArr);
                         }
                         if (mlRes.data.payload.active) {
                             let activeArr = mlRes.data.payload.active;
-                            activeArr.forEach(a => a._is_active_now = true); 
+                            activeArr.forEach(a => a._is_active_now = true);
                             matchlistData = matchlistData.concat(activeArr);
+                        }
+                    }
+                    // Direct completed/active op root (geen payload wrapper)
+                    else if (mlRes.data.completed || mlRes.data.active) {
+                        if (Array.isArray(mlRes.data.completed)) {
+                            mlRes.data.completed.forEach(c => { c._is_completed_now = true; matchlistData.push(c); });
+                        }
+                        if (Array.isArray(mlRes.data.active)) {
+                            mlRes.data.active.forEach(a => { a._is_active_now = true; matchlistData.push(a); });
                         }
                     } 
                     else if (Array.isArray(mlRes.data)) {
