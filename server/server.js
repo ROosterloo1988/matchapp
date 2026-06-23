@@ -782,22 +782,37 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
         let toegevoegdeIds = new Set();
         let nieuwGeplandCount = 0;
 
+        // Als er geen spelers gevolgd worden, toon alle wedstrijden
+        const geenSpelers = dartersLower.length === 0;
+
         let eigenWedstrijden = rawMatches.filter(match => {
             if (match.isBye) return false;
+            if (geenSpelers) return true;
             return dartersLower.some(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d) || (match.marker && match.marker.toLowerCase().includes(d)));
         });
 
         for (let match of eigenWedstrijden) {
             let hasScores = (match.score1 !== "" && match.score2 !== "");
-            let isReallyActive = match._is_active || (!match.isFinished && hasScores); 
-            
+            let isReallyActive = match._is_active || (!match.isFinished && hasScores);
+
             match.status = match.isFinished ? "gespeeld" : (isReallyActive ? "bezig" : "gepland");
             match.isMogelijk = false;
-            
+
+            // Geen spelers gevolgd: toon alles zonder filteren op speler/marker
+            if (geenSpelers) {
+                match.rol = "speler";
+                let uniekeMatchID = match._bron_url + "_" + match.id;
+                if (!toegevoegdeIds.has(uniekeMatchID)) {
+                    definitieveLijst.push(match);
+                    toegevoegdeIds.add(uniekeMatchID);
+                }
+                continue;
+            }
+
             let isSpeler = dartersLower.find(d => match.player1.toLowerCase().includes(d) || match.player2.toLowerCase().includes(d));
             let isMarker = dartersLower.find(d => match.marker && match.marker.toLowerCase().includes(d));
 
-            if (!isSpeler && isMarker && match.status === "gespeeld") continue; 
+            if (!isSpeler && isMarker && match.status === "gespeeld") continue;
             match.rol = (!isSpeler && isMarker) ? "marker" : "speler";
 
             let isBetrokken = isSpeler || isMarker;
@@ -1542,10 +1557,11 @@ app.get('/api/debug-tournament', async (req, res) => {
             entry.status = r.status;
             const raw = r.data || {};
             entry.rootKeys = Object.keys(raw);
-            const bd = raw.bracketData || raw.payload?.bracketData || null;
+            const bd = raw.payload?.bracketData || raw.bracketData || null;
             if (bd) {
                 entry.bracketDataKeys = Object.keys(bd);
                 entry.engname = bd.engname;
+                if (bd.proPlayers) entry.sampleProPlayers = JSON.stringify(Array.isArray(bd.proPlayers) ? bd.proPlayers[0] : Object.values(bd.proPlayers)[0]).substring(0, 400);
                 const pb = bd.proBracket;
                 if (pb) {
                     entry.proBracketType = Array.isArray(pb) ? (Array.isArray(pb[0]) ? '2D-array' : '1D-array') : typeof pb;
