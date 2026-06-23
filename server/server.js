@@ -1289,12 +1289,20 @@ app.get('/api/matches', async (req, res) => {
 app.post('/api/admin/send-push', async (req, res) => {
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-    if (login !== ADMIN_USER || password !== ADMIN_PASS) return res.status(401).send("Onbevoegd");
+
+    if (!login || !password) return res.status(401).send("Onbevoegd");
+
+    const db = readDB();
+    const tenant = db.tenants.find(t => t.id === req.tenant);
+
+    if (!tenant || (login !== tenant.adminUser || password !== (tenant.adminPass || DEFAULT_MASTER_PASS))) {
+        return res.status(401).send("Onbevoegd");
+    }
 
     const { title, body } = req.body;
-    const db = readDB();
+    const tenantSubs = db.subscriptions.filter(s => s.tenant === req.tenant);
 
-    if (!db.subscriptions || db.subscriptions.length === 0) {
+    if (!tenantSubs || tenantSubs.length === 0) {
         return res.status(400).json({ error: "Niemand heeft nog meldingen aan staan!" });
     }
 
@@ -1306,13 +1314,13 @@ app.post('/api/admin/send-push', async (req, res) => {
     });
 
     let successCount = 0;
-    let actieveAbonnees = []; 
+    let actieveAbonnees = [];
 
-    for (let sub of db.subscriptions) {
+    for (let sub of tenantSubs) {
         try {
             await webpush.sendNotification(sub, payload);
             successCount++;
-            actieveAbonnees.push(sub); 
+            actieveAbonnees.push(sub);
         } catch (err) {
             if (err.statusCode === 410 || err.statusCode === 404) {
                 console.log('App verwerkt door een gebruiker.');
@@ -1322,10 +1330,9 @@ app.post('/api/admin/send-push', async (req, res) => {
         }
     }
 
-    if (db.subscriptions.length !== actieveAbonnees.length) {
-        db.subscriptions = actieveAbonnees;
-        writeDB(db);
-    }
+    // Update only tenant subscriptions
+    db.subscriptions = db.subscriptions.filter(s => s.tenant !== req.tenant).concat(actieveAbonnees);
+    writeDB(db);
 
     res.json({ success: true, message: `✅ Succes! Melding verstuurd naar ${successCount} actieve apparaten.` });
 });
@@ -1359,13 +1366,13 @@ app.get('/api/test-push', async (req, res) => {
 async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
-    
+
     for (let t of db.tournaments) {
-        const nieuwLijstje = await fetchMatchesForTournament(t.name);
+        const nieuwLijstje = await fetchMatchesForTournament(t.name, [], t.tenant || '__master__');
         matchCache[t.name] = nieuwLijstje;
         cacheTimestamps[t.name] = Date.now();
     }
-    
+
     if (isFirstRun) {
         isFirstRun = false;
         console.log("[HARTSLAG] Eerste run voltooid. Geheugen is vol, app is nu supersnel.");
@@ -1565,6 +1572,109 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
 
     const disciplines = disciplineNames.map(name => buildDiscipline(name, disciplineMap[name]));
     return res.json({ eventId, format: null, urls: null, multiDiscipline: true, disciplines });
+});
+
+// --- TENANT MANAGEMENT API ---
+
+// List all tenants (master admin only)
+app.get('/api/tenants', (req, res) => {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+
+    if (login !== DEFAULT_MASTER_USER || password !== DEFAULT_MASTER_PASS) {
+        return res.status(401).send("Onbevoegd");
+    }
+
+    const db = readDB();
+    res.json(db.tenants.map(t => ({
+        id: t.id,
+        adminUser: t.adminUser,
+        createdAt: t.createdAt
+    })));
+});
+
+// Create new tenant
+app.post('/api/tenants', (req, res) => {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+
+    if (login !== DEFAULT_MASTER_USER || password !== DEFAULT_MASTER_PASS) {
+        return res.status(401).send("Onbevoegd");
+    }
+
+    const { tenantId, adminUser, adminPass } = req.body;
+
+    if (!tenantId || !adminUser || !adminPass) {
+        return res.status(400).json({ error: 'tenantId, adminUser, adminPass required' });
+    }
+
+    const db = readDB();
+
+    if (db.tenants.find(t => t.id === tenantId)) {
+        return res.status(400).json({ error: 'Tenant already exists' });
+    }
+
+    db.tenants.push({
+        id: tenantId,
+        adminUser,
+        adminPass,
+        createdAt: new Date().toISOString()
+    });
+
+    writeDB(db);
+    res.json({ success: true, message: `Tenant ${tenantId} created` });
+});
+
+// Update tenant credentials
+app.put('/api/tenants/:tenantId', (req, res) => {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+
+    if (login !== DEFAULT_MASTER_USER || password !== DEFAULT_MASTER_PASS) {
+        return res.status(401).send("Onbevoegd");
+    }
+
+    const { tenantId } = req.params;
+    const { adminUser, adminPass } = req.body;
+
+    const db = readDB();
+    const tenant = db.tenants.find(t => t.id === tenantId);
+
+    if (!tenant) {
+        return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    if (adminUser) tenant.adminUser = adminUser;
+    if (adminPass) tenant.adminPass = adminPass;
+
+    writeDB(db);
+    res.json({ success: true, message: `Tenant ${tenantId} updated` });
+});
+
+// Delete tenant and all their data
+app.delete('/api/tenants/:tenantId', (req, res) => {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+
+    if (login !== DEFAULT_MASTER_USER || password !== DEFAULT_MASTER_PASS) {
+        return res.status(401).send("Onbevoegd");
+    }
+
+    const { tenantId } = req.params;
+
+    if (tenantId === '__master__') {
+        return res.status(400).json({ error: 'Cannot delete master tenant' });
+    }
+
+    const db = readDB();
+    db.tenants = db.tenants.filter(t => t.id !== tenantId);
+    db.tournaments = db.tournaments.filter(t => t.tenant !== tenantId);
+    db.subscriptions = db.subscriptions.filter(s => s.tenant !== tenantId);
+    db.notifiedMatches = db.notifiedMatches.filter(m => m.tenant !== tenantId);
+    db.notifiedPoules = db.notifiedPoules.filter(p => p.tenant !== tenantId);
+
+    writeDB(db);
+    res.json({ success: true, message: `Tenant ${tenantId} deleted` });
 });
 
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
