@@ -178,6 +178,7 @@ app.post('/api/user-add-tournament', async (req, res) => {
 app.post('/api/fetch-players-preview', async (req, res) => {
     const { url } = req.body;
     let spelers = new Set();
+    const dcHeaders = await getDcHeaders();
 
     function zoekNamen(obj) {
         if (obj && typeof obj === 'object') {
@@ -187,30 +188,57 @@ app.post('/api/fetch-players-preview', async (req, res) => {
         }
     }
 
-    try {
-        const response = await axios.post(url, {});
-        let dataContainer = response.data.payload || response.data || {};
-        zoekNamen(dataContainer);
-    } catch (e) {
-        console.error("Fout bij ophalen spelers via standaard URL:", url);
+    // Probeer alle URLs (voor multi-discipline toernooien)
+    const urls = (url || '').split(',').map(u => u.trim()).filter(Boolean);
+    for (const singleUrl of urls) {
+        try {
+            const response = await axios.post(singleUrl, {}, { headers: dcHeaders, timeout: 8000 });
+            let dataContainer = response.data.payload || response.data || {};
+            zoekNamen(dataContainer);
+        } catch (e) {
+            console.error("Fout bij ophalen spelers via URL:", singleUrl);
+        }
     }
 
-    // SLIM REDMIDDEL: Als er nog geen loting is (0 spelers gevonden)
+    // SLIM REDMIDDEL: Als er nog geen spelers zijn gevonden
     if (spelers.size === 0 && url) {
-        // Haal het tournament id en event id uit de standaard bracket link
-        let match = url.match(/\/api\/event\/([^\/]+)\/(?:bracket|round-robin)\/(\d+)/i);
+        const firstUrl = urls[0];
+        let match = firstUrl.match(/\/api\/event\/([^\/]+)\/(?:bracket|round-robin)\/(\d+)/i);
         if (match) {
             let tName = match[1];
             let eId = match[2];
-            let fallbackUrl = `https://tv.dartconnect.com/api/event/${tName}/confirmation/${eId}/players`;
-            
+
+            // Probeer alle sub-events van het event ophalen en spelers eruit halen
             try {
-                console.log("Geen loting gevonden. Fallback inschakelen:", fallbackUrl);
-                const fallbackResponse = await axios.post(fallbackUrl, {});
-                let fallbackData = fallbackResponse.data.payload || fallbackResponse.data || {};
-                zoekNamen(fallbackData);
+                const matchesUrl = `https://tv.dartconnect.com/api/event/${tName}/matches`;
+                const matchesResp = await axios.post(matchesUrl, {}, { headers: dcHeaders, timeout: 8000 });
+                const subEvents = matchesResp.data?.payload?.events || [];
+
+                // Fetch each sub-event to find players
+                for (const se of subEvents) {
+                    const seUrl = `https://tv.dartconnect.com/api/event/${tName}/bracket/${se.id}`;
+                    try {
+                        const seResp = await axios.post(seUrl, {}, { headers: dcHeaders, timeout: 8000 });
+                        zoekNamen(seResp.data.payload || seResp.data || {});
+                    } catch (e) {
+                        // continue
+                    }
+                }
             } catch (err) {
-                console.error("Fout bij ophalen spelers via fallback URL:", fallbackUrl);
+                console.error("Fout bij fallback sub-events fetch:", err.message);
+            }
+
+            // Laatste fallback: confirmation endpoint
+            if (spelers.size === 0) {
+                let fallbackUrl = `https://tv.dartconnect.com/api/event/${tName}/confirmation/${eId}/players`;
+                try {
+                    console.log("Geen spelers gevonden. Fallback inschakelen:", fallbackUrl);
+                    const fallbackResponse = await axios.post(fallbackUrl, {}, { headers: dcHeaders, timeout: 8000 });
+                    let fallbackData = fallbackResponse.data.payload || fallbackResponse.data || {};
+                    zoekNamen(fallbackData);
+                } catch (err) {
+                    console.error("Fout bij ophalen spelers via fallback URL:", fallbackUrl);
+                }
             }
         }
     }
@@ -1314,7 +1342,9 @@ async function getDcHeaders() {
 
 // Haal alle aankomende events op van DartConnect (dartconnect + pdc categorie)
 app.get('/api/dartconnect-browse', async (req, res) => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const seenIds = new Set();
     const allEvents = [];
     const errors = [];
@@ -1339,9 +1369,10 @@ app.get('/api/dartconnect-browse', async (req, res) => {
                     if (!id || !name) continue;
                     if (seenIds.has(String(id))) continue;
                     const isLive = e.now_playing === 1;
-                    // Voor /soon endpoint: alleen toekomst (vandaag of later)
-                    // Voor /scheduled endpoint: niet filteren op datum (al lopend of binnenkort)
+                    // Voor /soon: alleen vandaag en later
+                    // Voor /scheduled: alleen vorige week tot vandaag
                     if (isSoonEndpoint && e.start_date && e.start_date < todayStr) continue;
+                    if (!isSoonEndpoint && e.start_date && e.start_date < oneWeekAgo) continue;
                     seenIds.add(String(id));
                     allEvents.push({
                         id: String(id),
