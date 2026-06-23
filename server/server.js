@@ -1230,7 +1230,7 @@ app.get('/api/matches', async (req, res) => {
         .join('|');
     const cacheKey = `${tName}::${extrasKey}`;
 
-    if (matchCache[cacheKey] && cacheTimestamps[cacheKey] && (Date.now() - cacheTimestamps[cacheKey] < 10000)) {
+    if (matchCache[cacheKey] && cacheTimestamps[cacheKey] && (Date.now() - cacheTimestamps[cacheKey] < 55000)) {
         systemStatus.matches.cacheHits += 1;
         return res.json(matchCache[cacheKey]);
     }
@@ -1333,7 +1333,7 @@ async function runHeartbeat() {
 }
 
 runHeartbeat();
-setInterval(runHeartbeat, 15000);
+setInterval(runHeartbeat, 60000);
 
 app.get('/api/admin/system-status', (req, res) => {
     res.json({
