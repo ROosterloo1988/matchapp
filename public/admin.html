@@ -372,7 +372,7 @@
         // Auto-vertaler
         let translatedUrls = urlInputs.map(u => {
             if (u.includes('/event/') && !u.includes('/api/event/')) {
-                return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/');
+                return u.replace('/event/', '/api/event/').replace('/brackets/', '/bracket/').replace('/groups/', '/bracket/').replace('/round-robin/', '/bracket/');
             }
             return u;
         });
