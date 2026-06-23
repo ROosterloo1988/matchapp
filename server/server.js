@@ -1136,65 +1136,50 @@ app.get('/api/poule-standings', async (req, res) => {
     const dcHeaders = await getDcHeaders();
     try {
         const startedAt = Date.now();
+        const response = await axios.post(pouleUrl, {}, { timeout: 8000 });
+        const dataContainer = response.data.payload || response.data || {};
 
-        // Haal matchlist op (bevat gespeelde/live wedstrijden met spelernamen en groepen)
-        const eventMatch = pouleUrl.match(/\/event\/([^\/]+)/i);
-        if (!eventMatch) return res.status(400).json({ error: 'Kon event-ID niet bepalen uit URL.' });
-        const eventId = eventMatch[1];
-
-        const matchesUrl = `https://tv.dartconnect.com/api/event/${eventId}/matches`;
-        const matchesResp = await axios.post(matchesUrl, {}, { timeout: 8000 });
-        const matchesData = matchesResp.data?.payload || matchesResp.data || {};
-        const allMatches = [...(matchesData.completed || []), ...(matchesData.active || [])];
-
-        // Bereken standings uit wedstrijdresultaten
-        const grouped = {};
-        allMatches.forEach(m => {
-            if (!m.el || !m.el.toLowerCase().includes('round robin')) return;
-            const group = (m.rg || m.r || '?').toString().toUpperCase();
-            const p1 = m.hcf || m.hc;
-            const p2 = m.acf || m.ac;
-            if (!p1 || !p2) return;
-            const s1 = parseInt(m.hs) || 0;
-            const s2 = parseInt(m.as) || 0;
-            const played = m.sta === 'P' || m.sta === 'C' || m.sta === 'F';
-
-            [p1, p2].forEach(player => {
-                if (!grouped[group]) grouped[group] = {};
-                if (!grouped[group][player]) grouped[group][player] = { player, mp: 0, mw: 0, gld: 0, gl: 0 };
-            });
-
-            if (played) {
-                grouped[group][p1].mp++;
-                grouped[group][p2].mp++;
-                grouped[group][p1].gld += s1;
-                grouped[group][p1].gl += s2;
-                grouped[group][p2].gld += s2;
-                grouped[group][p2].gl += s1;
-                if (s1 > s2) grouped[group][p1].mw++;
-                else if (s2 > s1) grouped[group][p2].mw++;
+        const found = [];
+        function zoekStanden(obj) {
+            if (!obj || typeof obj !== 'object') return;
+            if (obj.opponent && obj.rr_group !== undefined && obj.mp !== undefined && obj.mw !== undefined) {
+                found.push(obj);
             }
-        });
+            Object.values(obj).forEach(v => zoekStanden(v));
+        }
+        zoekStanden(dataContainer);
 
-        // Converteer naar array en sorteer op gewonnen wedstrijden, daarna legs
-        const groupedFinal = {};
-        Object.keys(grouped).sort().forEach(group => {
-            groupedFinal[group] = Object.values(grouped[group])
-                .sort((a, b) => b.mw - a.mw || b.gld - a.gld || a.gl - b.gl);
-        });
-
-        if (Object.keys(groupedFinal).length === 0) {
-            return res.status(404).json({ error: 'Geen poulestand gevonden — mogelijk zijn er nog geen wedstrijden gespeeld.' });
+        if (found.length === 0) {
+            return res.status(404).json({ error: 'Geen poulestand gevonden in de API-respons.' });
         }
 
+        const grouped = {};
+        found.forEach(row => {
+            const group = (row.rr_group || '?').toString();
+            if (!grouped[group]) grouped[group] = [];
+            grouped[group].push({
+                rank: row.init_rank || row.final_rank || null,
+                player: row.opponent || 'Onbekend',
+                mp: row.mp ?? 0,
+                mw: row.mw ?? 0,
+                gld: row.gld ?? 0,
+                lw: row.lw ?? 0,
+                ppr: row.ppr ?? null
+            });
+        });
+
+        Object.values(grouped).forEach(rows => {
+            rows.sort((a, b) => (a.rank || 999) - (b.rank || 999));
+        });
+
         if (debugParse) {
-            const rowCount = Object.values(groupedFinal).reduce((acc, rows) => acc + rows.length, 0);
-            console.log(`[poule-standings][${tName}] groups=${Object.keys(groupedFinal).length} rows=${rowCount}`);
+            const rowCount = Object.values(grouped).reduce((acc, rows) => acc + rows.length, 0);
+            console.log(`[poule-standings][${tName}] groups=${Object.keys(grouped).length} rows=${rowCount}`);
         }
 
         const payload = {
             tournament: tName,
-            groups: groupedFinal,
+            groups: grouped,
             stale: false,
             updatedAt: new Date().toISOString(),
             cachedAt: Date.now()
