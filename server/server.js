@@ -1533,38 +1533,68 @@ app.get('/api/debug-tournament', async (req, res) => {
 
     const dcHeaders = await getDcHeaders();
     const bracketUrls = (tournament.url || '').split(',').map(u => u.trim()).filter(Boolean);
-    const result = { tournament: { name: tournament.name, url: tournament.url, darters: tournament.darters }, brackets: [], matchlist: null };
+    const result = { tournament: { name: tournament.name, url: tournament.url, darters: tournament.darters }, brackets: [], matchlist: null, stateMatches: null };
 
     for (const bUrl of bracketUrls) {
-        const entry = { url: bUrl, status: null, keys: [], sampleData: null, error: null };
+        const entry = { url: bUrl, status: null, rootKeys: [], bracketDataKeys: [], engname: null, proBracketType: null, proBracketLength: null, sampleMatch: null, error: null };
         try {
             const r = await axios.post(bUrl, {}, { headers: dcHeaders, timeout: 10000 });
             entry.status = r.status;
-            const data = r.data?.payload || r.data || {};
-            entry.keys = Object.keys(data);
-            entry.sampleData = JSON.stringify(data).substring(0, 1000);
+            const raw = r.data || {};
+            entry.rootKeys = Object.keys(raw);
+            const bd = raw.bracketData || raw.payload?.bracketData || null;
+            if (bd) {
+                entry.bracketDataKeys = Object.keys(bd);
+                entry.engname = bd.engname;
+                const pb = bd.proBracket;
+                if (pb) {
+                    entry.proBracketType = Array.isArray(pb) ? (Array.isArray(pb[0]) ? '2D-array' : '1D-array') : typeof pb;
+                    entry.proBracketLength = Array.isArray(pb) ? pb.length : null;
+                    const firstMatch = Array.isArray(pb[0]) ? pb[0][0] : pb[0];
+                    entry.sampleMatch = firstMatch ? JSON.stringify(firstMatch).substring(0, 300) : null;
+                }
+            }
         } catch (e) {
             entry.error = `${e.response?.status || ''} ${e.message}`;
         }
         result.brackets.push(entry);
     }
 
-    // Matchlist
+    // Matchlist API
     try {
         const eventMatch = bracketUrls[0]?.match(/\/event\/([^\/]+)/i);
         if (eventMatch) {
             const matchesUrl = `https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`;
             const r = await axios.post(matchesUrl, {}, { headers: dcHeaders, timeout: 8000 });
-            const payload = r.data?.payload || r.data || {};
+            const data = r.data || {};
+            const payload = data.payload || data;
             result.matchlist = {
                 url: matchesUrl,
-                keys: Object.keys(payload),
+                rootKeys: Object.keys(data),
+                hasPayload: !!data.payload,
                 activeCount: (payload.active || []).length,
                 completedCount: (payload.completed || []).length,
                 eventsCount: (payload.events || []).length,
-                sampleActive: JSON.stringify(payload.active?.[0] || {}).substring(0, 500),
-                sampleCompleted: JSON.stringify(payload.completed?.[0] || {}).substring(0, 500),
+                sampleCompleted: JSON.stringify((payload.completed || [])[0] || {}).substring(0, 600),
+                sampleActive: JSON.stringify((payload.active || [])[0] || {}).substring(0, 600),
             };
+
+            // State/matches endpoint (ander formaat)
+            const stateUrl = `https://tv.dartconnect.com/event/${eventMatch[1]}/state/matches?fetch_type=initial`;
+            try {
+                const sr = await axios.get(stateUrl, { headers: dcHeaders, timeout: 8000 });
+                const sd = sr.data || {};
+                result.stateMatches = {
+                    url: stateUrl,
+                    rootKeys: Object.keys(sd),
+                    liveCount: Object.keys(sd.matches_live || {}).length,
+                    completedCount: Object.keys(sd.matches_completed || {}).length,
+                    sampleLive: JSON.stringify(Object.values(sd.matches_live || {})[0] || {}).substring(0, 400),
+                    sampleCompleted: JSON.stringify(Object.values(sd.matches_completed || {})[0] || {}).substring(0, 400),
+                };
+            } catch(e) {
+                result.stateMatches = { error: e.message };
+            }
         }
     } catch (e) {
         result.matchlist = { error: e.message };
