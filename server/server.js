@@ -1512,4 +1512,56 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
     return res.json({ eventId, format: null, urls: null, multiDiscipline: true, disciplines });
 });
 
+
+// DEBUG: Toon ruwe DartConnect data voor een toernooi
+app.get('/api/debug-tournament', async (req, res) => {
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: 'name parameter vereist' });
+
+    const db = readDB();
+    const tournament = db.tournaments.find(t => t.name === name);
+    if (!tournament) return res.status(404).json({ error: `Toernooi '${name}' niet gevonden` });
+
+    const dcHeaders = await getDcHeaders();
+    const bracketUrls = (tournament.url || '').split(',').map(u => u.trim()).filter(Boolean);
+    const result = { tournament: { name: tournament.name, url: tournament.url, darters: tournament.darters }, brackets: [], matchlist: null };
+
+    for (const bUrl of bracketUrls) {
+        const entry = { url: bUrl, status: null, keys: [], sampleData: null, error: null };
+        try {
+            const r = await axios.post(bUrl, {}, { headers: dcHeaders, timeout: 10000 });
+            entry.status = r.status;
+            const data = r.data?.payload || r.data || {};
+            entry.keys = Object.keys(data);
+            entry.sampleData = JSON.stringify(data).substring(0, 1000);
+        } catch (e) {
+            entry.error = `${e.response?.status || ''} ${e.message}`;
+        }
+        result.brackets.push(entry);
+    }
+
+    // Matchlist
+    try {
+        const eventMatch = bracketUrls[0]?.match(/\/event\/([^\/]+)/i);
+        if (eventMatch) {
+            const matchesUrl = `https://tv.dartconnect.com/api/event/${eventMatch[1]}/matches`;
+            const r = await axios.post(matchesUrl, {}, { headers: dcHeaders, timeout: 8000 });
+            const payload = r.data?.payload || r.data || {};
+            result.matchlist = {
+                url: matchesUrl,
+                keys: Object.keys(payload),
+                activeCount: (payload.active || []).length,
+                completedCount: (payload.completed || []).length,
+                eventsCount: (payload.events || []).length,
+                sampleActive: JSON.stringify(payload.active?.[0] || {}).substring(0, 500),
+                sampleCompleted: JSON.stringify(payload.completed?.[0] || {}).substring(0, 500),
+            };
+        }
+    } catch (e) {
+        result.matchlist = { error: e.message };
+    }
+
+    res.json(result);
+});
+
 app.listen(PORT, () => console.log(`🎯 Server draait op http://localhost:${PORT}`));
