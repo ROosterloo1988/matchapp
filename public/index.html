@@ -497,7 +497,7 @@
             // Go to player selection (skip manual fields)
             await fetchPlayersForNewTournament();
         } catch(e) {
-            alert('Fout bij laden toernooi: ' + e.message);
+            alert(`❌ Fout bij laden toernooi.\n\neventId: ${eventId}\n\n${e.message}`);
             list.style.opacity = '1';
             list.style.pointerEvents = '';
         } finally {
@@ -817,6 +817,9 @@
                 body: JSON.stringify({ url: translatedUrls.join(',') })
             });
             const allNames = await res.json();
+            if (!res.ok) {
+                throw new Error(`Server: ${allNames.error || res.status}\n\nGebruikte URL(s):\n${translatedUrls.join('\n')}`);
+            }
 
             let singlePlayers = new Set();
             allNames.forEach(n => {
@@ -840,7 +843,7 @@
             document.getElementById('add-step-2').style.display = 'block';
             document.getElementById('add-step-title').innerText = "Wie wil je volgen?";
         } catch(e) {
-            alert("Fout bij inladen van het toernooi. Klopt de link?");
+            alert("❌ Fout bij inladen van het toernooi.\n\n" + e.message);
             document.getElementById('add-step-title').innerText = "Toernooi Toevoegen";
         }
     }
