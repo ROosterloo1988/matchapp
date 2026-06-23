@@ -1416,13 +1416,23 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
 
     const base = `https://tv.dartconnect.com/api/event/${eventId}`;
 
-    const dcHeaders = await getDcHeaders();
     let subEvents = [];
-    try {
-        const r = await axios.post(`${base}/matches`, {}, { timeout: 8000, headers: dcHeaders });
-        subEvents = r.data?.payload?.events || [];
-    } catch (e) {
-        return res.status(500).json({ error: `Kon event niet ophalen: ${e.message}` });
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) dcCsrfCache = null; // forceer verse CSRF token bij retry
+        try {
+            const dcHeaders = await getDcHeaders();
+            const r = await axios.post(`${base}/matches`, {}, { timeout: 8000, headers: dcHeaders });
+            subEvents = r.data?.payload?.events || [];
+            lastError = null;
+            break;
+        } catch (e) {
+            lastError = e;
+            if (e.response?.status !== 419 && e.response?.status !== 403) break;
+        }
+    }
+    if (lastError) {
+        return res.status(500).json({ error: `Kon event niet ophalen: ${lastError.message}` });
     }
 
     if (subEvents.length === 0) {

@@ -450,9 +450,14 @@
     let _dcPendingDisciplines = [];
     let _dcPendingName = '';
 
+    let _selectBrowseLocked = false;
     async function selectBrowseTournament(eventId, name) {
+        if (_selectBrowseLocked) return;
+        _selectBrowseLocked = true;
+        window._dcUrls = null;
         const list = document.getElementById('browse-tournaments-list');
         list.style.opacity = '0.5';
+        list.style.pointerEvents = 'none';
         try {
             const res = await fetch(`/api/dartconnect-detect-format?eventId=${encodeURIComponent(eventId)}`);
             if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -494,6 +499,9 @@
         } catch(e) {
             alert('Fout bij laden toernooi: ' + e.message);
             list.style.opacity = '1';
+            list.style.pointerEvents = '';
+        } finally {
+            _selectBrowseLocked = false;
         }
     }
 
@@ -529,6 +537,12 @@
     }
 
     function goBackToTournamentBrowse() {
+        window._dcUrls = null;
+        window._dcPendingDisciplines = [];
+        window._dcPendingName = '';
+        _selectBrowseLocked = false;
+        const list = document.getElementById('browse-tournaments-list');
+        if (list) { list.style.opacity = '1'; list.style.pointerEvents = ''; }
         document.getElementById('add-step-0').style.display = 'block';
         document.getElementById('add-step-1').style.display = 'none';
         document.getElementById('add-step-2').style.display = 'none';
