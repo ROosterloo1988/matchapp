@@ -216,7 +216,8 @@ app.post('/api/fetch-players-preview', async (req, res) => {
 
                 // Fetch each sub-event to find players
                 for (const se of subEvents) {
-                    const seUrl = `https://tv.dartconnect.com/api/event/${tName}/bracket/${se.id}`;
+                    const path = se.event_type === 'roundrobin' ? 'round-robin' : 'bracket';
+                    const seUrl = `https://tv.dartconnect.com/api/event/${tName}/${path}/${se.id}`;
                     try {
                         const seResp = await axios.post(seUrl, {}, { headers: dcHeaders, timeout: 8000 });
                         zoekNamen(seResp.data.payload || seResp.data || {});
@@ -1447,7 +1448,7 @@ app.get('/api/dartconnect-detect-format', async (req, res) => {
         if (rr.length > 0 && ko.length >= 2) format = 3;
         else if (rr.length > 0 && ko.length === 1) format = 2;
         const urls = [];
-        rr.forEach(p => urls.push(`${base}/bracket/${p.id}`));
+        rr.forEach(p => urls.push(`${base}/round-robin/${p.id}`));
         ko.forEach(p => urls.push(`${base}/bracket/${p.id}`));
         return { name, format, urls: urls.join(','), subEvents: parts.map(p => ({ id: p.id, type: p.event_type, label: p.event_label })) };
     }
