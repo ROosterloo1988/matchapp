@@ -11,6 +11,45 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+// --- INKOMEND VERKEER TRACKER ---
+const incomingTraffic = {
+    startedAt: new Date().toISOString(),
+    totalRequests: 0,
+    totalResponseBytes: 0,
+    byPath: {},
+    recentIps: []
+};
+
+app.use((req, res, next) => {
+    const startAt = Date.now();
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'onbekend';
+    const originalJson = res.json.bind(res);
+    const originalSend = res.send.bind(res);
+
+    function trackResponse(body) {
+        const bytes = Buffer.byteLength(typeof body === 'string' ? body : JSON.stringify(body) || '', 'utf8');
+        const path = req.path.replace(/\/[a-f0-9\-]{20,}/gi, '/{id}').replace(/\/\d+/g, '/{n}');
+        incomingTraffic.totalRequests += 1;
+        incomingTraffic.totalResponseBytes += bytes;
+        if (!incomingTraffic.byPath[path]) incomingTraffic.byPath[path] = { requests: 0, responseBytes: 0, lastIp: null, lastAt: null };
+        incomingTraffic.byPath[path].requests += 1;
+        incomingTraffic.byPath[path].responseBytes += bytes;
+        incomingTraffic.byPath[path].lastIp = ip;
+        incomingTraffic.byPath[path].lastAt = new Date().toISOString();
+        // Log snelle herhalende requests (mogelijke polling/bot)
+        if (bytes > 50000) {
+            if (!incomingTraffic.recentIps.find(e => e.ip === ip && e.path === path)) {
+                incomingTraffic.recentIps.unshift({ ip, path, bytes, at: new Date().toISOString() });
+                if (incomingTraffic.recentIps.length > 50) incomingTraffic.recentIps.length = 50;
+            }
+        }
+    }
+
+    res.json = (body) => { trackResponse(body); return originalJson(body); };
+    res.send = (body) => { trackResponse(body); return originalSend(body); };
+    next();
+});
+
 // --- ADMIN BEVEILIGING (BASIC AUTH) ---
 const ADMIN_USER = "matchapp";
 const ADMIN_PASS = "dutchopen2026"; 
@@ -1426,7 +1465,17 @@ app.get('/api/admin/data-usage', (req, res) => {
         totalMB: Math.round(dataUsage.totalBytes / 1024 / 1024 * 100) / 100,
         projectedGB_per_day: uptimeHours > 0 ? Math.round(dataUsage.totalBytes / 1024 / 1024 / 1024 / uptimeHours * 24 * 100) / 100 : null,
         urlCacheEntries: Object.keys(urlResponseCache).length,
-        byEndpoint: sorted
+        byEndpoint: sorted,
+        inkomendVerkeer: {
+            totalRequests: incomingTraffic.totalRequests,
+            totalResponseMB: Math.round(incomingTraffic.totalResponseBytes / 1024 / 1024 * 100) / 100,
+            projectedGB_per_day: uptimeHours > 0 ? Math.round(incomingTraffic.totalResponseBytes / 1024 / 1024 / 1024 / uptimeHours * 24 * 100) / 100 : null,
+            byPath: Object.entries(incomingTraffic.byPath)
+                .map(([p, v]) => ({ path: p, ...v, kbPerRequest: v.requests ? Math.round(v.responseBytes / v.requests / 1024 * 10) / 10 : 0 }))
+                .sort((a, b) => b.responseBytes - a.responseBytes)
+                .slice(0, 20),
+            recentHeavyIps: incomingTraffic.recentIps.slice(0, 20)
+        }
     });
 });
 
