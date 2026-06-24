@@ -37,6 +37,40 @@ const systemStatus = {
     recentErrors: []
 };
 
+// --- DATA USAGE TRACKER ---
+const dataUsage = {
+    startedAt: new Date().toISOString(),
+    totalBytes: 0,
+    totalCalls: 0,
+    byEndpoint: {}
+};
+
+function trackAxiosCall(url, responseData) {
+    const bytes = JSON.stringify(responseData || '').length;
+    // Groepeer op herkenbaar patroon
+    let label = url
+        .replace(/https?:\/\/[^/]+/, '')          // verwijder host
+        .replace(/\/[a-z0-9_]{10,40}\//gi, '/{id}/')  // vervang event-IDs
+        .replace(/\/\d+\b/g, '/{n}');              // vervang getallen
+    if (!dataUsage.byEndpoint[label]) {
+        dataUsage.byEndpoint[label] = { calls: 0, bytes: 0, lastCalledAt: null, exampleUrl: url };
+    }
+    dataUsage.byEndpoint[label].calls += 1;
+    dataUsage.byEndpoint[label].bytes += bytes;
+    dataUsage.byEndpoint[label].lastCalledAt = new Date().toISOString();
+    dataUsage.totalBytes += bytes;
+    dataUsage.totalCalls += 1;
+}
+
+// Axios interceptor: log elke uitgaande request
+axios.interceptors.response.use(
+    res => { trackAxiosCall(res.config.url, res.data); return res; },
+    err => {
+        if (err.config?.url) trackAxiosCall(err.config.url, null);
+        return Promise.reject(err);
+    }
+);
+
 function addSystemError(scope, message) {
     const entry = { at: new Date().toISOString(), scope, message: String(message || 'onbekende fout') };
     systemStatus.recentErrors.unshift(entry);
@@ -1349,6 +1383,23 @@ app.get('/api/admin/system-status', (req, res) => {
         },
         push: systemStatus.push,
         recentErrors: systemStatus.recentErrors
+    });
+});
+
+app.get('/api/admin/data-usage', (req, res) => {
+    const sorted = Object.entries(dataUsage.byEndpoint)
+        .map(([label, v]) => ({ label, ...v, kbPerCall: v.calls ? Math.round(v.bytes / v.calls / 1024 * 10) / 10 : 0 }))
+        .sort((a, b) => b.bytes - a.bytes);
+
+    const uptimeSec = Math.floor(process.uptime());
+    const uptimeHours = uptimeSec / 3600;
+    res.json({
+        startedAt: dataUsage.startedAt,
+        uptimeSeconds: uptimeSec,
+        totalCalls: dataUsage.totalCalls,
+        totalMB: Math.round(dataUsage.totalBytes / 1024 / 1024 * 100) / 100,
+        projectedGB_per_day: uptimeHours > 0 ? Math.round(dataUsage.totalBytes / 1024 / 1024 / 1024 / uptimeHours * 24 * 100) / 100 : null,
+        byEndpoint: sorted
     });
 });
 
