@@ -307,6 +307,26 @@ app.post('/api/fetch-players-preview', async (req, res) => {
 
 let isFirstRun = true;
 
+// URL-level cache voor zware DartConnect endpoints (bracket, matchlist, state/matches)
+const urlResponseCache = {};
+const URL_CACHE_TTL = 120000; // 2 minuten per URL
+
+async function cachedAxios(method, url, options = {}) {
+    const now = Date.now();
+    const hit = urlResponseCache[url];
+    if (hit && (now - hit.fetchedAt) < URL_CACHE_TTL) {
+        return hit.data;
+    }
+    let res;
+    if (method === 'get') {
+        res = await axios.get(url, options);
+    } else {
+        res = await axios.post(url, {}, options);
+    }
+    urlResponseCache[url] = { data: res, fetchedAt: now };
+    return res;
+}
+
 // --- DE CENTRALE DATA MOTOR ---
 async function fetchMatchesForTournament(requestedTournament, extraDarters = []) {
     const db = readDB();
@@ -337,7 +357,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
             try {
                 // Bracket-endpoints werken zonder CSRF headers (zoals in originele code)
-                const response = await axios.post(bUrl, {}, { timeout: 10000 });
+                const response = await cachedAxios('post', bUrl, { timeout: 10000 });
                 let dataContainer = response.data.payload || response.data || {};
                 
                 let proBracketArray = dataContainer.proBracket || (dataContainer.bracketData && dataContainer.bracketData.proBracket);
@@ -466,7 +486,7 @@ async function fetchMatchesForTournament(requestedTournament, extraDarters = [])
 
         for (let mUrl of Array.from(mUrlsToFetch)) {
             try {
-                let mlRes = await axios.get(mUrl, { timeout: 8000 }).catch(() => axios.post(mUrl, {}, { timeout: 8000 }));
+                let mlRes = await cachedAxios('get', mUrl, { timeout: 8000 }).catch(() => cachedAxios('post', mUrl, { timeout: 8000 }));
                 if (mlRes.data) {
                     if (mlRes.data.matches_live || mlRes.data.matches_completed) {
                         if (mlRes.data.matches_completed) {
@@ -1353,8 +1373,14 @@ app.get('/api/test-push', async (req, res) => {
 async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
-    
+
+    const HEARTBEAT_CACHE_TTL = 55000; // heartbeat elke 60s, cache 55s = 1 fetch per toernooi per minuut
     for (let t of db.tournaments) {
+        const lastFetch = cacheTimestamps[t.name] || 0;
+        if (Date.now() - lastFetch < HEARTBEAT_CACHE_TTL) {
+            // Cache is nog vers, sla dit toernooi over
+            continue;
+        }
         const nieuwLijstje = await fetchMatchesForTournament(t.name);
         matchCache[t.name] = nieuwLijstje;
         cacheTimestamps[t.name] = Date.now();
@@ -1399,6 +1425,7 @@ app.get('/api/admin/data-usage', (req, res) => {
         totalCalls: dataUsage.totalCalls,
         totalMB: Math.round(dataUsage.totalBytes / 1024 / 1024 * 100) / 100,
         projectedGB_per_day: uptimeHours > 0 ? Math.round(dataUsage.totalBytes / 1024 / 1024 / 1024 / uptimeHours * 24 * 100) / 100 : null,
+        urlCacheEntries: Object.keys(urlResponseCache).length,
         byEndpoint: sorted
     });
 });
