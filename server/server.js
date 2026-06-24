@@ -309,7 +309,7 @@ let isFirstRun = true;
 
 // URL-level cache voor zware DartConnect endpoints (bracket, matchlist, state/matches)
 const urlResponseCache = {};
-const URL_CACHE_TTL = 120000; // 2 minuten per URL
+const URL_CACHE_TTL = 300000; // 5 minuten per URL (was 2 min)
 
 async function cachedAxios(method, url, options = {}) {
     const now = Date.now();
@@ -1284,7 +1284,7 @@ app.get('/api/matches', async (req, res) => {
         .join('|');
     const cacheKey = `${tName}::${extrasKey}`;
 
-    if (matchCache[cacheKey] && cacheTimestamps[cacheKey] && (Date.now() - cacheTimestamps[cacheKey] < 55000)) {
+    if (matchCache[cacheKey] && cacheTimestamps[cacheKey] && (Date.now() - cacheTimestamps[cacheKey] < 270000)) {
         systemStatus.matches.cacheHits += 1;
         return res.json(matchCache[cacheKey]);
     }
@@ -1374,7 +1374,7 @@ async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
 
-    const HEARTBEAT_CACHE_TTL = 55000; // heartbeat elke 60s, cache 55s = 1 fetch per toernooi per minuut
+    const HEARTBEAT_CACHE_TTL = 270000; // heartbeat elke 5 min, cache 4.5 min
     for (let t of db.tournaments) {
         const lastFetch = cacheTimestamps[t.name] || 0;
         if (Date.now() - lastFetch < HEARTBEAT_CACHE_TTL) {
@@ -1393,7 +1393,7 @@ async function runHeartbeat() {
 }
 
 runHeartbeat();
-setInterval(runHeartbeat, 60000);
+setInterval(runHeartbeat, 300000); // elke 5 minuten (URL-cache is ook 5 min)
 
 app.get('/api/admin/system-status', (req, res) => {
     res.json({
