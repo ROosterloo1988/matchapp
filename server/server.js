@@ -1305,7 +1305,12 @@ app.get('/api/poule-standings', async (req, res) => {
 let matchCache = {};
 let cacheTimestamps = {};
 
+// Bijhouden wanneer er voor het last een gebruiker actief was
+let lastUserActivityAt = Date.now();
+const USER_ACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minuten geen gebruik = heartbeat stopt
+
 app.get('/api/matches', async (req, res) => {
+    lastUserActivityAt = Date.now();
     const tName = req.query.tournament;
 
     let extraPlayers = [];
@@ -1413,6 +1418,13 @@ async function runHeartbeat() {
     const db = readDB();
     if (db.tournaments.length === 0) return;
 
+    // Sla heartbeat over als niemand de app de laatste 15 minuten heeft gebruikt
+    const inactief = Date.now() - lastUserActivityAt > USER_ACTIVITY_TIMEOUT;
+    if (inactief) {
+        console.log("[HARTSLAG] Geen actieve gebruikers — hartslag overgeslagen.");
+        return;
+    }
+
     const HEARTBEAT_CACHE_TTL = 270000; // heartbeat elke 5 min, cache 4.5 min
     for (let t of db.tournaments) {
         const lastFetch = cacheTimestamps[t.name] || 0;
@@ -1465,6 +1477,8 @@ app.get('/api/admin/data-usage', (req, res) => {
         totalMB: Math.round(dataUsage.totalBytes / 1024 / 1024 * 100) / 100,
         projectedGB_per_day: uptimeHours > 0 ? Math.round(dataUsage.totalBytes / 1024 / 1024 / 1024 / uptimeHours * 24 * 100) / 100 : null,
         urlCacheEntries: Object.keys(urlResponseCache).length,
+        heartbeatActief: (Date.now() - lastUserActivityAt) < USER_ACTIVITY_TIMEOUT,
+        lastUserActivitySecondsAgo: Math.floor((Date.now() - lastUserActivityAt) / 1000),
         byEndpoint: sorted,
         inkomendVerkeer: {
             totalRequests: incomingTraffic.totalRequests,
