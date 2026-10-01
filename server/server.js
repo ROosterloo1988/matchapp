@@ -248,6 +248,21 @@ app.post('/api/user-add-tournament', async (req, res) => {
 });
 
 // --- DE VERNIEUWDE SPELER PREVIEW (MET FALLBACK VOOR ONGEPLANDE TOERNOOIEN) ---
+// DartConnect pagineert lijsten (Laravel: meta.last_page, per_page 1024). Haal alle pagina's op
+// en geef de payload van elke pagina terug, anders missen we deelnemers bij grote toernooien.
+async function postAllPages(url, options = {}) {
+    const first = await axios.post(url, {}, options);
+    const pages = [first.data?.payload || first.data || {}];
+    const lastPage = parseInt(first.data?.meta?.last_page, 10) || 1;
+    const sep = url.includes('?') ? '&' : '?';
+    const rest = await Promise.all(Array.from({ length: lastPage - 1 }, (_, i) =>
+        axios.post(`${url}${sep}page=${i + 2}`, {}, options)
+            .then(r => r.data?.payload || r.data || {})
+            .catch(e => { console.error(`Fout bij pagina ${i + 2} van ${url}: ${e.message}`); return {}; })
+    ));
+    return pages.concat(rest);
+}
+
 app.post('/api/fetch-players-preview', async (req, res) => {
     const { url } = req.body;
     let spelers = new Set();
@@ -292,8 +307,7 @@ app.post('/api/fetch-players-preview', async (req, res) => {
             try {
                 const partUrl = `https://tv.dartconnect.com/api/event/${tName}/participants`;
                 console.log("Probeer participants endpoint:", partUrl);
-                const partResp = await axios.post(partUrl, {}, { timeout: 8000 });
-                zoekNamen(partResp.data.payload || partResp.data || {});
+                (await postAllPages(partUrl, { timeout: 30000 })).forEach(zoekNamen);
             } catch (e) {
                 console.error("Fout bij participants endpoint:", e.message);
             }
@@ -325,8 +339,7 @@ app.post('/api/fetch-players-preview', async (req, res) => {
                     const fallbackUrl = `https://tv.dartconnect.com/api/event/${tName}/confirmation/${m[1]}/players`;
                     try {
                         console.log("Confirmation fallback:", fallbackUrl);
-                        const fallbackResponse = await axios.post(fallbackUrl, {}, { timeout: 8000 });
-                        zoekNamen(fallbackResponse.data.payload || fallbackResponse.data || {});
+                        (await postAllPages(fallbackUrl, { timeout: 30000 })).forEach(zoekNamen);
                     } catch (err) {
                         console.error("Fout bij confirmation fallback:", fallbackUrl, err.message);
                     }
