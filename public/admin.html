@@ -302,8 +302,8 @@
         if (tIndex === "") return;
 
         const tournament = db.tournaments[tIndex];
-        const firstUrl = (tournament?.url || "").split(',')[0]?.trim();
-        if (!firstUrl) {
+        const allUrls = (tournament?.url || "").split(',').map(u => u.trim()).filter(Boolean).join(',');
+        if (!allUrls) {
             playerSelect.innerHTML = `<option value="">Geen bracket-link gevonden</option>`;
             return;
         }
@@ -312,7 +312,7 @@
             const res = await fetch('/api/fetch-players-preview', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: firstUrl })
+                body: JSON.stringify({ url: allUrls })
             });
             const allNames = await res.json();
             const singlePlayers = new Set();

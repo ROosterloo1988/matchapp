@@ -261,25 +261,24 @@ app.post('/api/fetch-players-preview', async (req, res) => {
         }
     }
 
-    // Probeer alle URLs (voor multi-discipline toernooien)
+    // Probeer alle URLs (voor multi-discipline toernooien) — parallel en met ruime timeout,
+    // want brackets van grote toernooien (1000+ deelnemers) zijn groot en traag
     const urls = (url || '').split(',').map(u => u.trim()).filter(Boolean);
-    for (const singleUrl of urls) {
+    await Promise.all(urls.map(async (singleUrl) => {
         try {
-            const response = await axios.post(singleUrl, {}, { timeout: 8000 });
-            let dataContainer = response.data.payload || response.data || {};
-            zoekNamen(dataContainer);
+            const response = await cachedAxios('post', singleUrl, { timeout: 30000 });
+            zoekNamen(response.data.payload || response.data || {});
         } catch (e) {
             console.error(`Fout bij POST spelers: ${singleUrl} → ${e.response?.status || ''} ${e.message}`);
             // Probeer GET als POST faalt
             try {
-                const response = await axios.get(singleUrl, { timeout: 8000 });
-                let dataContainer = response.data.payload || response.data || {};
-                zoekNamen(dataContainer);
+                const response = await axios.get(singleUrl, { timeout: 30000, headers: dcHeaders });
+                zoekNamen(response.data.payload || response.data || {});
             } catch (e2) {
                 console.error(`Fout bij GET spelers: ${singleUrl} → ${e2.response?.status || ''} ${e2.message}`);
             }
         }
-    }
+    }));
 
     // SLIM REDMIDDEL: Als er nog geen spelers zijn gevonden
     if (spelers.size === 0 && url) {
