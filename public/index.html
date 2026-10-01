@@ -1051,13 +1051,15 @@
             };
             backendPlayers.forEach(addFull);
 
-            const firstUrl = (tournamentConfig.url || '').split(',').map(u => u.trim()).filter(Boolean)[0];
-            if (firstUrl) {
+            // Alle brackets ophalen (poules + KO's), niet alleen de eerste: bij grote toernooien
+            // staan niet alle deelnemers in één bracket
+            const allUrls = (tournamentConfig.url || '').split(',').map(u => u.trim()).filter(Boolean).join(',');
+            if (allUrls) {
                 try {
                     const previewRes = await fetch('/api/fetch-players-preview', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: firstUrl })
+                        body: JSON.stringify({ url: allUrls })
                     });
 
                     if (previewRes.ok) {
