@@ -124,12 +124,8 @@ let memDB = null;
 function readDB() {
     if (memDB) return memDB; 
 
-    if (!fs.existsSync(DB_FILE)) {
-        memDB = { tournaments: [], subscriptions: [], notifiedMatches: [], notifiedPoules: [] };
-        return memDB;
-    }
-    
-    let db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    // Nieuwe installatie: begin met een lege database (VAPID keys worden hieronder aangemaakt)
+    let db = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : {};
     if (!db.tournaments) db.tournaments = [];
     if (!db.subscriptions) db.subscriptions = [];
     if (!db.notifiedMatches) db.notifiedMatches = [];

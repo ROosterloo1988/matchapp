@@ -88,7 +88,8 @@ npm -v
 
 Ga naar de projectmap en installeer de packages:
 
-npm install express cors axios web-push
+cd server
+npm install
 
 ### 3. Admin-login instellen
 
@@ -114,15 +115,15 @@ http://localhost:3000
 ### Productie met PM2
 
 npm install -g pm2
-pm2 start server/server.js --name dart-match-app
+pm2 start server/server.js --name dart-proxy --cwd server
 pm2 save
 pm2 startup
 
 Handige commando's:
 
-pm2 logs dart-match-app
-pm2 restart dart-match-app
-pm2 stop dart-match-app
+pm2 logs dart-proxy
+pm2 restart dart-proxy
+pm2 stop dart-proxy
 
 ---
 
