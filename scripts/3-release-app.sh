@@ -1,7 +1,8 @@
 #!/bin/bash
 echo "⬆️ Start: Lokale wijzigingen pushen naar GitHub..."
 
-cd ~/matchapp || { echo "❌ Fout: Map ~/matchapp niet gevonden."; exit 1; }
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$APP_DIR" || { echo "❌ Fout: Map $APP_DIR niet gevonden."; exit 1; }
 
 # Vraag om een bericht wat je hebt aangepast
 read -p "📝 Wat heb je aangepast? (commit bericht): " commit_msg
