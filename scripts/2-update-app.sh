@@ -26,6 +26,9 @@ fi
 echo "📦 Node modules updaten..."
 cd server || { echo "❌ Fout: Map 'server' niet gevonden!"; exit 1; }
 npm install --omit=dev || { echo "❌ Fout: npm install mislukt."; exit 1; }
+# package-lock.json staat niet in git en houdt oude (sub)pakketten vast; werk die bij naar
+# veilige versies binnen dezelfde hoofdversie (geen --force, dus geen brekende updates)
+npm audit fix --omit=dev --no-fund || echo "⚠️ npm audit fix kon niet alles oplossen, de app wordt wel gestart."
 
 echo "🔄 Applicatie herstarten via PM2..."
 for old in $OLD_APP_NAMES; do
